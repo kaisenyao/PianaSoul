@@ -1,5 +1,6 @@
 """Playback state and tool-boundary tests; no real API calls, devices, or keys."""
 import contextlib
+import dataclasses
 import io
 import json
 from pathlib import Path
@@ -16,7 +17,7 @@ from pianasoul import youtube
 from pianasoul.chat import MAX_TOOL_ROUNDS, NEW_CONVERSATION_AFTER_S, Assistant, TOOLS
 from pianasoul.library import Library
 from pianasoul.lines import LINES, line, recorded
-from pianasoul.play import Player
+from pianasoul.play import Output, Player
 from pianasoul.playback import Playback
 from pianasoul.playback_commands import match_command
 from pianasoul.voice import finished_remark, finish_interaction
@@ -501,14 +502,18 @@ class PlaybackTests(unittest.TestCase):
 class ReconnectTests(unittest.TestCase):
     """The piano disconnects and comes back while chat, voice or the app runs."""
 
+    SESSION = Output(1, 'Network PianaSoul', 'network', True, ('iPad',))
+
     def setUp(self):
-        self.outputs, self.opened = ['Network PianaSoul'], []
-        def open_output(name):
+        self.outputs, self.opened = [self.SESSION], []
+        def open_output(out):
             self.opened.append(Mock())
             return self.opened[-1]
-        for patcher in (patch('pianasoul.play.output_names', side_effect=lambda: list(self.outputs)),
+        for patcher in (patch('pianasoul.play.outputs', side_effect=lambda: list(self.outputs)),
+                        patch('pianasoul.play.output', side_effect=lambda i: next((o for o in self.outputs if o.id == i),
+                                                                                    None)),
                         patch('pianasoul.play.default_lead', return_value=0.0),
-                        patch('mido.open_output', side_effect=open_output),
+                        patch('pianasoul.play.CoreMidiOut', side_effect=open_output),
                         patch.object(Player, 'play')):  # nothing is sent
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -530,7 +535,7 @@ class ReconnectTests(unittest.TestCase):
             result = a.play()
             self.assertIn('还没连上琴', a.playback_reply(result))
             self.assertEqual(a.pending.from_s, 22)
-            self.outputs = ['Network PianaSoul']
+            self.outputs = [self.SESSION]
             result = a.play()
         self.assertEqual((result['status'], result['from']), ('playing', '0:22'))
         self.assertEqual(len(self.opened), 2)  # opened afresh: the piano that came back is a new output
@@ -547,9 +552,8 @@ class ReconnectTests(unittest.TestCase):
         with contextlib.redirect_stdout(shown):
             result = json.loads(a.run_tool('control_playback', {'action': 'resume'}))
         self.assertEqual(result['error'], 'playback_connection_unavailable')
-        self.assertEqual(shown.getvalue().splitlines(), [
-            '  (cannot play: no MIDI output matching "pianasoul" (available: none). '
-            'Check that the network MIDI session is on and the iPad is connected.)'])
+        self.assertEqual(shown.getvalue().splitlines(),
+                         ['  (cannot play: no MIDI output matching "pianasoul" (available: none))'])
 
     def test_the_piano_going_away_mid_piece_pauses_where_the_sound_stopped(self):
         midi = mido.MidiFile(); track = mido.MidiTrack(); midi.tracks.append(track)
@@ -567,46 +571,45 @@ class ReconnectTests(unittest.TestCase):
             self.assertFalse(player._play_file(self.path))
         self.assertLess(time.perf_counter() - started, 1.0, 'It stops soon after')
         self.assertEqual(player.state, 'paused')
-        self.assertIn('no MIDI output', player.lost)
+        self.assertIn('"Network PianaSoul" is gone', player.lost)
         self.assertGreater(player.position, 0.1)
         self.assertLess(player.position, 0.45)
-        self.outputs.append('Network PianaSoul')
+        self.outputs.append(self.SESSION)
         player.check_connection()  # the next try starts afresh
         self.assertIsNone(player.lost)
 
     def test_the_ipad_leaving_the_session_is_the_piano_going_away(self):
         # macOS keeps the session's output while the iPad is away; only its Participants show it has gone.
-        joined = [['iPad']]
         midi = mido.MidiFile(); track = mido.MidiTrack(); midi.tracks.append(track)
         step = round(mido.second2tick(0.02, midi.ticks_per_beat, 500000))
         for _ in range(100):
             track.append(mido.Message('note_on', note=60, velocity=64, time=step))
             track.append(mido.Message('note_off', note=60, time=step))
         midi.save(self.path)
-        with patch('pianasoul.play.session_peers', side_effect=lambda name: joined[0]), \
-             patch('pianasoul.play.LOOK_EVERY_S', 0.1):
+        alone = dataclasses.replace(self.SESSION, peers=())
+        with patch('pianasoul.play.LOOK_EVERY_S', 0.1):
             player = Player()
             self.addCleanup(player.close)
             player.check_connection()
-            threading.Timer(0.3, joined.__setitem__, (0, [])).start()
+            threading.Timer(0.3, self.outputs.__setitem__, (0, alone)).start()
             self.assertFalse(player._play_file(self.path))
             self.assertEqual(player.state, 'paused')
             self.assertIn('the network MIDI session "Network PianaSoul" has no participants', player.lost)
             with self.assertRaises(LookupError):
                 player.check_connection()
-            joined[0] = ['iPad']
+            self.outputs[0] = self.SESSION
             player.check_connection()
-        self.assertEqual(self.outputs, ['Network PianaSoul'], 'The output itself never went away')
+        self.assertEqual([o.id for o in self.outputs], [1], 'The output itself never went away')
 
     def test_ports_say_who_has_joined_a_network_session(self):
         from pianasoul.play import main
-        self.outputs[:] = ['Network PianaSoul', 'IAC Driver Bus 1']
+        self.outputs[:] = [self.SESSION, Output(2, 'IAC Driver Bus 1', 'virtual', False, None)]
         shown = io.StringIO()
-        with patch('pianasoul.play.session_peers', side_effect=lambda name: ['iPad'] if name.startswith('Network') else None), \
-             contextlib.redirect_stdout(shown):
+        with contextlib.redirect_stdout(shown):
             self.assertEqual(main(['--ports']), 0)
         self.assertEqual(shown.getvalue().splitlines(),
-                         ['Network PianaSoul  (network session, participants: iPad)', 'IAC Driver Bus 1'])
+                         ['Network PianaSoul  (network, connected, participants: iPad; id 1)',
+                          'IAC Driver Bus 1  (virtual, not connected; id 2)'])
 
     def test_she_says_the_piece_not_the_file_name(self):
         from pianasoul.chat import spoken_title

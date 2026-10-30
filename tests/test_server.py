@@ -169,7 +169,7 @@ class AppTests(unittest.TestCase):
     def test_settings_take_only_what_exists(self):
         signed_in(self.client)
         self.assertEqual(self.client.patch('/api/settings', json={'language': 'en', 'appearance': 'light'}).json(),
-                         {'language': 'en', 'appearance': 'light'})
+                         {'language': 'en', 'appearance': 'light', 'output': None})
         self.assertEqual(self.client.patch('/api/settings', json={'language': 'fr'}).json()['language'], 'en')
 
     def test_the_midi_file_is_shared_by_its_title(self):

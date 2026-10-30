@@ -564,10 +564,10 @@ class CoreTests(Base):
         core.type('你好')
         self.assertTrue(done.wait(2))
         self.assertEqual([e['message']['role'] for e in events if e['type'] == 'message'], ['user', 'assistant'])
-        self.assertEqual(core.settings(), {'language': '', 'appearance': 'dark'},
+        self.assertEqual(core.settings(), {'language': '', 'appearance': 'dark', 'output': None},
                          "The phone's language and dark, until others are chosen")
         self.assertEqual(core.set_settings(language='en', appearance='nonsense'),
-                         {'language': 'en', 'appearance': 'dark'})
+                         {'language': 'en', 'appearance': 'dark', 'output': None})
         self.assertEqual(core.set_settings(language='system')['language'], 'en', 'Only Chinese or English')
 
     def test_a_piano_that_goes_away_while_playing_is_told_in_the_conversation_once(self):
@@ -649,15 +649,19 @@ class CoreTests(Base):
                                               'repo': 'https://github.com/kaisenyao/PianaSoul'})
 
     def test_devices_say_what_plays_and_whether_it_is_there(self):
-        from pianasoul import core
-        with patch('pianasoul.play.find_port', return_value='Network PianaSoul'), \
-             patch('pianasoul.play.session_peers', return_value=['iPad']):
-            self.assertEqual(core.devices(), [{'name': 'iPad', 'kind': 'network', 'connected': True}])
-        with patch('pianasoul.play.find_port', return_value='Roland Digital Piano'), \
-             patch('pianasoul.play.session_peers', return_value=None):
-            self.assertEqual(core.devices(), [{'name': 'Roland Digital Piano', 'kind': 'piano', 'connected': True}])
-        with patch('pianasoul.play.find_port', side_effect=LookupError('none')):
-            self.assertFalse(core.devices()[0]['connected'])
+        from pianasoul.core import Core
+        from pianasoul.play import Output
+        core = Core(lib=self.lib, assistant=False)
+        self.addCleanup(core.close)
+        session = Output(1, 'Network PianaSoul', 'network', True, ('iPad',))
+        piano = Output(2, 'Roland Digital Piano', 'usb', True, None)
+        with patch('pianasoul.play.outputs', return_value=[session, piano]):
+            self.assertEqual(core.devices(), [{'name': 'iPad', 'kind': 'network', 'connected': True}],
+                             'Found by PIANASOUL_PORT\'s "pianasoul", until one is chosen')
+            core.set_settings(output=2)
+            self.assertEqual(core.devices(), [{'name': 'Roland Digital Piano', 'kind': 'usb', 'connected': True}])
+        with patch('pianasoul.play.outputs', return_value=[session]), patch('pianasoul.play.output', return_value=None):
+            self.assertEqual(core.devices(), [{'name': 'Roland Digital Piano', 'kind': 'other', 'connected': False}])
 
 
 if __name__ == '__main__':

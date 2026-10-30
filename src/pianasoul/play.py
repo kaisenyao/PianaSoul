@@ -1,29 +1,34 @@
-"""Play library MIDI files on a MIDI output, for example Pianoteq on an iPad over a network MIDI session.
+"""Play library MIDI files on a MIDI output: a piano over USB or Bluetooth, an app such as Pianoteq, or an iPad over a
+network MIDI session.
 
     ./run.sh play someone like you        # best match in the library
     ./run.sh play path/to/file.mid
     ./run.sh play --all                   # the whole playlist, in order
     ./run.sh play --ports                 # list MIDI outputs
 
-The output is the first MIDI port whose name contains --port, PIANASOUL_PORT or "pianasoul". Before playing, and
-about once a second while playing, the player makes sure it is there and, for a network session, that a device
-(the iPad) has joined it.
+The outputs are CoreMIDI's destinations (macOS), each known by its unique ID; a name is only shown. The app plays on
+the one chosen in it (Playback); otherwise the output is the first whose name contains --port, PIANASOUL_PORT or
+"pianasoul". Before playing, and about once a second while playing, the player makes sure it is connected: online,
+and for a network session joined by a device (the iPad).
 
-On macOS each message leaves a little early (PIANASOUL_LEAD seconds, default 1) together with the time it
-should sound. A network MIDI session carries that time along, so the receiver plays every note on schedule even
-when Wi-Fi delivers it late. Pause and stop take effect after the same lead.
+Each message leaves a little early (the lead) together with the time it should sound. A network MIDI session carries
+that time along, so the receiver plays every note on schedule even when Wi-Fi delivers it late: the lead is 1 second
+there, and none for a piano on USB or Bluetooth (PIANASOUL_LEAD sets it for all). Pause and stop take effect after
+the lead.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
 import functools
 import logging
 import os
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import show_details
@@ -32,92 +37,112 @@ from .library import Library
 log = logging.getLogger(__spec__.name)
 
 DEFAULT_PORT = "pianasoul"
-DEFAULT_LEAD_S = 1.0  # how early each message leaves on macOS
+NETWORK_LEAD_S = 1.0  # how early each message leaves for a network session
 GAP_S = 2.0  # silence between pieces
 LOOK_EVERY_S = 1.0  # while playing, how often the player makes sure the piano is still there
 SENT = {"note_on", "note_off", "control_change"}  # no program changes: they could switch the Pianoteq preset
 VOLUME_CONTROL = 7  # MIDI's volume controller: the listener sets it (Player.volume), a file's own is not sent
+ALL_NOTES_OFF = 123
 COREMIDI = "/System/Library/Frameworks/CoreMIDI.framework/CoreMIDI"
 COREFOUNDATION = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
-_follower_lock = threading.Lock()
-_follower: threading.Thread | None = None
+DESTINATION = 3  # kMIDIObjectType_Destination
+KINDS = {"com.apple.AppleMIDIUSBDriver": "usb", "com.apple.AppleMIDIBluetoothDriver": "bluetooth",
+         "com.apple.AppleMIDIRTPDriver": "network", "com.apple.AppleMIDIIACDriver": "virtual"}  # by driver
+_client_lock = threading.Lock()
+_client: int | None = None
 
 
-def output_names() -> list[str]:
-    import mido
+@dataclass(frozen=True)
+class Output:
+    """A MIDI output. kind only says how it is reached, for its icon (usb, bluetooth, network, virtual or other);
+    peers are the devices that have joined a network session, None for any other output."""
+    id: int  # CoreMIDI's unique ID: the output, whatever its name
+    name: str
+    kind: str
+    online: bool
+    peers: tuple[str, ...] | None
+    endpoint: int = 0
 
-    follow_outputs()
-    return mido.get_output_names()
+    @property
+    def connected(self) -> bool:
+        return self.online and self.peers != ()
+
+    def public(self) -> dict:
+        found = {"id": self.id, "name": self.name, "kind": self.kind, "connected": self.connected}
+        return found | ({"peers": list(self.peers)} if self.peers is not None else {})
 
 
-def follow_outputs() -> None:
-    """Keep the list of MIDI outputs current while the program runs, on macOS, as seen from every thread.
-
-    CoreMIDI passes changes on to the run loop of the thread where the program's MIDI client was made
-    (rtmidi makes one per program), and nothing else here runs a run loop. So that thread is one of its own.
-    """
-    global _follower
+def outputs() -> list[Output]:
+    """Every MIDI output this Mac knows, connected or not: its devices' (a piano switched off stays listed) and those
+    apps make (Pianoteq, say)."""
     if sys.platform != "darwin":
-        return
-    with _follower_lock:
-        if _follower is None:
-            ready = threading.Event()
-            _follower = threading.Thread(target=_follow, args=(ready,), daemon=True)
-            _follower.start()
-            ready.wait(5)
+        return []
+    client()
+    cm, found, seen = _coremidi(), [], set()
+    for d in range(cm.MIDIGetNumberOfDevices()):
+        device = cm.MIDIGetDevice(d)
+        for e in range(cm.MIDIDeviceGetNumberOfEntities(device)):
+            entity = cm.MIDIDeviceGetEntity(device, e)
+            for i in range(cm.MIDIEntityGetNumberOfDestinations(entity)):
+                endpoint = cm.MIDIEntityGetDestination(entity, i)
+                found.append(_output(endpoint, entity, device))
+                seen.add(endpoint)
+    for i in range(cm.MIDIGetNumberOfDestinations()):
+        endpoint = cm.MIDIGetDestination(i)
+        if endpoint not in seen:  # an app's own, with no device
+            found.append(_output(endpoint, 0, 0))
+    return found
 
 
-def _follow(ready: threading.Event) -> None:
-    try:
-        import rtmidi
-
-        rtmidi.MidiOut().delete()  # makes the program's MIDI client, on this thread
-    finally:
-        ready.set()
-    _corefoundation().CFRunLoopRun()
-
-
-def find_port(wanted: str | None = None) -> str:
-    wanted = wanted or os.environ.get("PIANASOUL_PORT") or DEFAULT_PORT
-    names = output_names()
-    for name in names:
-        if wanted.casefold() in name.casefold():
-            return name
-    raise LookupError(f'no MIDI output matching "{wanted}" (available: {", ".join(names) or "none"}). '
-                      "Check that the network MIDI session is on and the iPad is connected.")
-
-
-def find_piano(wanted: str | None = None) -> str:
-    """The output to play on. LookupError when it is missing, or when it is a network session that no device has
-    joined: macOS keeps the session's output while the iPad is away (Pianoteq closed, or the iPad offline)."""
-    name = find_port(wanted)
-    if session_peers(name) == []:
-        raise LookupError(f'the network MIDI session "{name}" has no participants. '
-                          "Open Pianoteq on the iPad and connect it in MIDI Network Setup.")
-    return name
-
-
-def session_peers(name: str) -> list[str] | None:
-    """The devices that have joined the network MIDI session behind this output (its Participants in MIDI Network
-    Setup), by name; "" for one the Mac does not name. None when the output is not a network session, or the Mac
-    does not say.
-
-    macOS lists them as "peers" in the session's "apple.midirtp.session" property; read only."""
+def output(output_id: int) -> Output | None:
+    """One output, as it is now; None when CoreMIDI has no such output."""
     if sys.platform != "darwin":
         return None
-    from ctypes import byref, c_uint32, c_void_p
+    from ctypes import byref, c_int32, c_uint32
+
+    client()
+    cm, endpoint, kind = _coremidi(), c_uint32(), c_int32()
+    if cm.MIDIObjectFindByUniqueID(output_id, byref(endpoint), byref(kind)) or kind.value != DESTINATION:
+        return None
+    entity, device = c_uint32(), c_uint32()
+    if cm.MIDIEndpointGetEntity(endpoint, byref(entity)) == 0 and entity.value:
+        cm.MIDIEntityGetDevice(entity, byref(device))
+    return _output(endpoint.value, entity.value, device.value)
+
+
+def by_name(wanted: str) -> Output | None:
+    """The first output whose name contains wanted (any case), a connected one before one that is not."""
+    found = [o for o in outputs() if wanted.casefold() in o.name.casefold()]
+    return max(found, key=lambda o: o.connected, default=None)
+
+
+def _output(endpoint: int, entity: int, device: int) -> Output:
+    peers = session_peers(entity) if entity else None
+    owner = _string(device, "kMIDIPropertyDriverOwner") if device else ""
+    kind = "network" if peers is not None else KINDS.get(owner, "other" if device else "virtual")
+    offline = any(_integer(o, "kMIDIPropertyOffline") for o in (endpoint, entity, device) if o)
+    name = _string(endpoint, "kMIDIPropertyDisplayName") or _string(endpoint, "kMIDIPropertyName")
+    return Output(_integer(endpoint, "kMIDIPropertyUniqueID"), name, kind, not offline, peers, endpoint)
+
+
+def session_peers(entity: int) -> tuple[str, ...] | None:
+    """The devices that have joined the network MIDI session that is this entity (its Participants in MIDI Network
+    Setup), by name; "" for one the Mac does not name. None when it is not a network session, or the Mac does not
+    say.
+
+    macOS lists them as "peers" in the session's "apple.midirtp.session" property; read only."""
+    from ctypes import byref, c_void_p
 
     try:
         cm, cf = _coremidi(), _corefoundation()
-        entity, session = c_uint32(), c_void_p()
-        if cm.MIDIEndpointGetEntity(_destination(name), byref(entity)) or \
-                cm.MIDIObjectGetDictionaryProperty(entity, _cfstring("apple.midirtp.session"), byref(session)):
+        session = c_void_p()
+        if cm.MIDIObjectGetDictionaryProperty(entity, _cfstring("apple.midirtp.session"), byref(session)):
             return None  # not a network session
         try:
             peers = cf.CFDictionaryGetValue(session, _cfstring("peers"))
             if not peers or cf.CFGetTypeID(peers) != cf.CFArrayGetTypeID():
                 return None  # not laid out as expected: no claim either way
-            return [_peer_name(cf.CFArrayGetValueAtIndex(peers, i)) for i in range(cf.CFArrayGetCount(peers))]
+            return tuple(_peer_name(cf.CFArrayGetValueAtIndex(peers, i)) for i in range(cf.CFArrayGetCount(peers)))
         finally:
             cf.CFRelease(session)
     except Exception:
@@ -126,22 +151,66 @@ def session_peers(name: str) -> list[str] | None:
 
 def _peer_name(peer) -> str:
     """A participant's name, from its entry in the session's "peers"."""
-    import ctypes
-
     cf = _corefoundation()
     if not peer or cf.CFGetTypeID(peer) != cf.CFDictionaryGetTypeID():
         return ""
     name = cf.CFDictionaryGetValue(peer, _cfstring("name"))
-    if not name or cf.CFGetTypeID(name) != cf.CFStringGetTypeID():
+    return _text(name) if name and cf.CFGetTypeID(name) == cf.CFStringGetTypeID() else ""
+
+
+def _integer(obj: int, key: str) -> int:
+    value = ctypes.c_int32()
+    return value.value if _coremidi().MIDIObjectGetIntegerProperty(obj, _property(key), ctypes.byref(value)) == 0 else 0
+
+
+def _string(obj: int, key: str) -> str:
+    value = ctypes.c_void_p()
+    if _coremidi().MIDIObjectGetStringProperty(obj, _property(key), ctypes.byref(value)) or not value.value:
         return ""
+    try:
+        return _text(value)
+    finally:
+        _corefoundation().CFRelease(value)
+
+
+def _text(cfstring) -> str:
     buffer = ctypes.create_string_buffer(1024)
-    return buffer.value.decode() if cf.CFStringGetCString(name, buffer, len(buffer), 0x08000100) else ""
+    return buffer.value.decode() if _corefoundation().CFStringGetCString(cfstring, buffer, len(buffer), 0x08000100) \
+        else ""
+
+
+@functools.cache
+def _property(key: str) -> int:
+    """A CoreMIDI property's key, as CoreMIDI defines it (kMIDIPropertyUniqueID and the like)."""
+    return ctypes.c_void_p.in_dll(_coremidi(), key).value
+
+
+def client() -> int:
+    """The program's CoreMIDI client, made once on a thread of its own that runs a run loop: CoreMIDI passes the
+    changes in its outputs to that run loop, so that every thread sees them as they are."""
+    global _client
+    with _client_lock:
+        if _client is None:
+            ready, made = threading.Event(), ctypes.c_uint32()
+
+            def run():
+                try:
+                    if _coremidi().MIDIClientCreate(_cfstring("PianaSoul"), None, None, ctypes.byref(made)):
+                        made.value = 0
+                finally:
+                    ready.set()
+                _corefoundation().CFRunLoopRun()
+            threading.Thread(target=run, daemon=True).start()
+            ready.wait(5)
+            if not made.value:
+                raise OSError("CoreMIDI did not start")
+            _client = made.value
+        return _client
 
 
 @functools.cache
 def _coremidi():
     """CoreMIDI, with the calls used here typed. macOS only."""
-    import ctypes
     from ctypes import POINTER, c_int32, c_uint32, c_uint64, c_ulong, c_void_p
 
     cm = ctypes.CDLL(COREMIDI)
@@ -149,9 +218,23 @@ def _coremidi():
     cm.MIDIClientCreate.restype = c_int32
     cm.MIDIOutputPortCreate.argtypes = [c_uint32, c_void_p, POINTER(c_uint32)]
     cm.MIDIOutputPortCreate.restype = c_int32
-    cm.MIDIGetNumberOfDestinations.restype = c_ulong
-    cm.MIDIGetDestination.argtypes = [c_ulong]
-    cm.MIDIGetDestination.restype = c_uint32
+    cm.MIDIGetNumberOfDevices.restype = cm.MIDIGetNumberOfDestinations.restype = c_ulong
+    cm.MIDIGetDevice.argtypes = cm.MIDIGetDestination.argtypes = [c_ulong]
+    cm.MIDIGetDevice.restype = cm.MIDIGetDestination.restype = c_uint32
+    cm.MIDIDeviceGetNumberOfEntities.argtypes = cm.MIDIEntityGetNumberOfDestinations.argtypes = [c_uint32]
+    cm.MIDIDeviceGetNumberOfEntities.restype = cm.MIDIEntityGetNumberOfDestinations.restype = c_ulong
+    cm.MIDIDeviceGetEntity.argtypes = cm.MIDIEntityGetDestination.argtypes = [c_uint32, c_ulong]
+    cm.MIDIDeviceGetEntity.restype = cm.MIDIEntityGetDestination.restype = c_uint32
+    cm.MIDIEndpointGetEntity.argtypes = cm.MIDIEntityGetDevice.argtypes = [c_uint32, POINTER(c_uint32)]
+    cm.MIDIEndpointGetEntity.restype = cm.MIDIEntityGetDevice.restype = c_int32
+    cm.MIDIObjectFindByUniqueID.argtypes = [c_int32, POINTER(c_uint32), POINTER(c_int32)]
+    cm.MIDIObjectFindByUniqueID.restype = c_int32
+    cm.MIDIObjectGetIntegerProperty.argtypes = [c_uint32, c_void_p, POINTER(c_int32)]
+    cm.MIDIObjectGetIntegerProperty.restype = c_int32
+    cm.MIDIObjectGetStringProperty.argtypes = [c_uint32, c_void_p, POINTER(c_void_p)]
+    cm.MIDIObjectGetStringProperty.restype = c_int32
+    cm.MIDIObjectGetDictionaryProperty.argtypes = [c_uint32, c_void_p, POINTER(c_void_p)]
+    cm.MIDIObjectGetDictionaryProperty.restype = c_int32
     cm.MIDIPacketListInit.argtypes = [c_void_p]
     cm.MIDIPacketListInit.restype = c_void_p
     cm.MIDIPacketListAdd.argtypes = [c_void_p, c_ulong, c_void_p, c_uint64, c_ulong, c_void_p]
@@ -159,18 +242,12 @@ def _coremidi():
     cm.MIDISend.argtypes = [c_uint32, c_uint32, c_void_p]
     cm.MIDISend.restype = c_int32
     cm.MIDIPortDispose.argtypes = [c_uint32]
-    cm.MIDIClientDispose.argtypes = [c_uint32]
-    cm.MIDIEndpointGetEntity.argtypes = [c_uint32, POINTER(c_uint32)]
-    cm.MIDIEndpointGetEntity.restype = c_int32
-    cm.MIDIObjectGetDictionaryProperty.argtypes = [c_uint32, c_void_p, POINTER(c_void_p)]
-    cm.MIDIObjectGetDictionaryProperty.restype = c_int32
     return cm
 
 
 @functools.cache
 def _corefoundation():
     """CoreFoundation, with the calls used here typed. macOS only."""
-    import ctypes
     from ctypes import c_char_p, c_long, c_uint32, c_ulong, c_void_p
 
     cf = ctypes.CDLL(COREFOUNDATION)
@@ -197,41 +274,36 @@ def _cfstring(text: str) -> int:
     return _corefoundation().CFStringCreateWithCString(None, text.encode(), 0x08000100)  # UTF-8
 
 
-def _destination(name: str) -> int:
-    """The CoreMIDI destination behind an output name."""
-    import rtmidi
-
-    cm = _coremidi()
-    # rtmidi lists the CoreMIDI destinations in CoreMIDI's own order, so a name's position is its index.
-    # (mido's list can be in another order: it puts names that are also inputs first.)
-    rt = rtmidi.MidiOut()
-    names = rt.get_ports()
-    rt.delete()
-    if name not in names or len(names) != cm.MIDIGetNumberOfDestinations():
-        raise LookupError(f'CoreMIDI has no output "{name}"')
-    return cm.MIDIGetDestination(names.index(name))
-
-
-def default_lead() -> float:
+def default_lead(out: Output) -> float:
+    """How early each message leaves: PIANASOUL_LEAD, or a second for a network session and none otherwise."""
     text = os.environ.get("PIANASOUL_LEAD", "").strip()
     try:
-        return max(0.0, float(text)) if text else DEFAULT_LEAD_S
+        return max(0.0, float(text)) if text else NETWORK_LEAD_S if out.peers is not None else 0.0
     except ValueError:
-        return DEFAULT_LEAD_S
+        return NETWORK_LEAD_S if out.peers is not None else 0.0
 
 
 def clock(seconds: float) -> str:
     return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
 
 
+def unavailable(out: Output) -> str:
+    """Why an output that is there cannot be played on now, or empty when it can."""
+    if not out.online:
+        return f'"{out.name}" is not connected'
+    if out.peers == ():
+        return (f'the network MIDI session "{out.name}" has no participants. Open Pianoteq on the iPad and connect it '
+                f"in MIDI Network Setup.")
+    return ""
+
+
 class CoreMidiOut:
-    """A macOS MIDI output that stamps every message with the time it should sound.
+    """A macOS MIDI output that stamps every message with the time it should sound (or sends it at once).
 
     mido cannot pass these times on, so this calls CoreMIDI directly. Times are perf_counter() values.
     """
 
-    def __init__(self, name: str):
-        import ctypes
+    def __init__(self, out: Output):
         from ctypes import byref, c_uint32, c_uint64
 
         cm = _coremidi()
@@ -245,10 +317,8 @@ class CoreMidiOut:
         system.mach_timebase_info(byref(timebase))
         self._ticks_per_s = 1e9 * timebase.denom / timebase.numer
         self._cm, self._host_time, self._ubyte = cm, system.mach_absolute_time, ctypes.c_ubyte
-        self._dest = _destination(name)
-        self._client, self._port = c_uint32(), c_uint32()
-        if cm.MIDIClientCreate(_cfstring("PianaSoul"), None, None, byref(self._client)) != 0 or \
-                cm.MIDIOutputPortCreate(self._client, _cfstring("PianaSoul out"), byref(self._port)) != 0:
+        self._dest, self._port = out.endpoint, c_uint32()
+        if cm.MIDIOutputPortCreate(client(), _cfstring("PianaSoul out"), byref(self._port)) != 0:
             raise OSError("CoreMIDI did not open an output")
         self._buffer = ctypes.create_string_buffer(1024)
         self._lock = threading.Lock()
@@ -268,11 +338,10 @@ class CoreMidiOut:
 
     def close(self) -> None:
         self._cm.MIDIPortDispose(self._port)
-        self._cm.MIDIClientDispose(self._client)
 
 
 class Player:
-    """Sends MIDI files to one output port, in the foreground (play) or in a background thread (start).
+    """Sends MIDI files to one output, in the foreground (play) or in a background thread (start).
 
     Like a media player: pause keeps the position (start from it to go on), stop goes back to the beginning.
     With a lead, every message leaves that many seconds early, stamped with the time it should sound, and
@@ -280,10 +349,13 @@ class Player:
     """
 
     def __init__(self, port_name: str | None = None, port=None, lead: float | None = None):
-        # Without a port, the player opens the output itself each time playback starts (see check_connection):
-        # the name asked for, and the lead.
-        self._wanted = None if port is not None else (port_name, default_lead() if lead is None else max(0.0, lead))
+        # Without a port, the player opens the output itself each time playback starts (see check_connection): the
+        # one target() names, with the lead asked for, or its own (default_lead).
+        self.opens = port is None
+        self.wanted = port_name or os.environ.get("PIANASOUL_PORT") or DEFAULT_PORT
+        self.lead_asked = None if lead is None else max(0.0, lead)
         self.port, self.port_name = port, port_name or "test"
+        self.output: Output | None = None  # the output open now
         self.lead = lead or 0.0  # seconds each message leaves before it should sound; 0 sends it when due
         self.current: tuple[Path, str] | None = None  # the piece playing, paused or last played
         self.state = "stopped"  # playing, paused or stopped
@@ -332,39 +404,94 @@ class Player:
         """Called on the playing thread when it is done: the piece finished (completed), the piano went away
         (lost), or pause or stop ended it."""
 
+    def target(self) -> Output | None:
+        """The output to play on, connected or not, or None when there is none: here the first named like wanted.
+        Playback plays on the one chosen in the app."""
+        return by_name(self.wanted)
+
+    def missing(self) -> str:
+        """Why there is no output to play on."""
+        names = ", ".join(o.name for o in outputs() if o.connected) or "none"
+        return f'no MIDI output matching "{self.wanted}" (available: {names})'
+
+    def find_piano(self) -> Output:
+        """The output to play on, connected; LookupError, with why, when there is none, or it is not connected:
+        offline, or a network session no device has joined (macOS keeps the session's output while the iPad is
+        away: Pianoteq closed, or the iPad offline)."""
+        out = self.target()
+        if out is None:
+            raise LookupError(self.missing())
+        if why := unavailable(out):
+            raise LookupError(why)
+        return out
+
     def look_for_piano(self) -> None:
         """LookupError when the piano is not there. Only looks: start() opens it."""
-        if self._wanted:
-            find_piano(self._wanted[0])
+        if self.opens:
+            self.find_piano()
 
     def check_connection(self) -> None:
         """LookupError when the piano is not there. Before notes go out it opens the output afresh, so a piano
         that disconnected and came back plays again; while notes are on their way, it only looks for it."""
         self.lost = None  # an earlier loss is old news once playback is tried again
-        if self._wanted:
+        if self.opens:
             if self.state == "playing" or time.perf_counter() < self._last_when:
-                find_piano(self._wanted[0])
+                self.find_piano()
             else:
                 self._open()
 
-    def _open(self) -> None:
-        """Open the output by name, closing the one before. A piano that comes back is a new output."""
-        wanted, lead = self._wanted
-        name, port = find_piano(wanted), None
-        if lead and sys.platform == "darwin":
-            try:
-                port = CoreMidiOut(name)
-            except Exception as exc:
-                print(f"(cannot send notes ahead, sending each one when it is due: {exc})", file=sys.stderr)
-                self._wanted = wanted, 0.0  # from now on
-        if port is None:
-            import mido
+    def _still_there(self) -> None:
+        """While notes go out: LookupError when the output open now is gone or no longer connected."""
+        out = output(self.output.id) if self.output else None
+        if out is None:
+            raise LookupError(f'"{self.port_name}" is gone')
+        if why := unavailable(out):
+            raise LookupError(why)
 
-            port, lead = mido.open_output(name), 0.0
-        if self.port is not None:
-            self.port.close()
-        self.port, self.port_name, self.lead = port, name, lead
-        log.debug("MIDI output %s, notes %s", name, f"sent {lead:g} s ahead" if lead else "sent when due")
+    def _open(self) -> None:
+        """Open the output, closing the one before. A piano that comes back is a new output."""
+        out = self.find_piano()
+        lead = default_lead(out) if self.lead_asked is None else self.lead_asked
+        port = CoreMidiOut(out)
+        self._close_port()
+        self.port, self.output, self.port_name, self.lead = port, out, out.name, lead
+        log.debug("MIDI output %s (%s), notes %s", out.name, out.kind,
+                  f"sent {lead:g} s ahead" if lead else "sent when due")
+
+    def switch(self) -> None:
+        """Another output from now on: a piece playing pauses where it is, every key and the pedal come up on the old
+        one, and the next notes go to the new one."""
+        self.pause()
+        self._close_port()
+
+    def _close_port(self) -> None:
+        """Close the output open now, once every note on it is off (All Notes Off, after the notes already sent)."""
+        if self.port is None or not self.opens:
+            return
+        import mido
+
+        when = max(self._last_when, time.perf_counter()) if self.lead else None
+        with contextlib.suppress(OSError):  # a piano that went away has nothing to lift
+            for channel in range(16):
+                self._send(mido.Message("control_change", channel=channel, control=ALL_NOTES_OFF, value=0), when)
+        self.port.close()
+        self.port, self.output = None, None
+
+    def test_tone(self) -> None:
+        """A short C major arpeggio on the output, at the volume set: to hear that the piano is there. LookupError
+        when it is not; RuntimeError while a piece is playing."""
+        import mido
+
+        if self.state == "playing":
+            raise RuntimeError("a piece is playing")
+        self.check_connection()
+        if self.volume is not None:
+            self._send_volume()
+        start = time.perf_counter() + self.lead + 0.05
+        for i, note in enumerate((60, 64, 67, 72)):
+            self.port.send(mido.Message("note_on", note=note, velocity=80), start + i * 0.15)
+            self.port.send(mido.Message("note_off", note=note), start + 1.2)
+        self._last_when = max(self._last_when, start + 1.2)
 
     def start(self, items: list[tuple[Path, str]], from_s: float = 0.0, on_ready=None) -> None:
         """Play items in a thread of their own. FileNotFoundError when the piece's file is gone, LookupError when
@@ -402,7 +529,7 @@ class Player:
         open yet), and told again before each piece, so a piano that came back or started afresh has it too."""
         self.volume = max(0, min(100, round(percent)))
         try:
-            if self.port is None and self._wanted:
+            if self.port is None and self.opens:
                 self._open()
             if self.port is not None:
                 self._send_volume()
@@ -421,12 +548,15 @@ class Player:
             self._send(mido.Message("control_change", channel=channel, control=VOLUME_CONTROL, value=value))
 
     def close(self) -> None:
-        """Stop, let the notes already sent finish, and close the output. Call before the program exits."""
+        """Stop, let the notes already sent finish, and close the output, every note off. Call before the program
+        exits."""
         self.stop()
-        wait = min(self._last_when - time.perf_counter(), self.lead)
+        wait = min(self._last_when - time.perf_counter(), max(self.lead, 1.5))  # a test tone sounds 1.2 s
         if wait > 0:
             time.sleep(wait + 0.05)
-        if self.port is not None:
+        if self.opens:
+            self._close_port()
+        elif self.port is not None:
             self.port.close()
 
     def _halt(self) -> None:
@@ -476,9 +606,9 @@ class Player:
                 due = self._t0 + at - self.lead  # when this message should leave
                 if self._wait_until(due):
                     return False
-                if self._wanted and time.perf_counter() >= look_at:
+                if self.opens and time.perf_counter() >= look_at:
                     look_at = time.perf_counter() + LOOK_EVERY_S
-                    find_piano(self._wanted[0])
+                    self._still_there()
                 self._send(msg, self._t0 + at)
                 self._sent_to = at
                 late.append(time.perf_counter() - due)
@@ -538,20 +668,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", help=f'MIDI output name or part of it (default: PIANASOUL_PORT or "{DEFAULT_PORT}")')
     p.add_argument("--ports", action="store_true", help="list MIDI outputs and exit")
     p.add_argument("--lead", type=float, metavar="SECONDS",
-                   help=f"on macOS, send each note this early with its time (default: PIANASOUL_LEAD or "
-                        f"{DEFAULT_LEAD_S:g}; 0 sends each note when it is due)")
+                   help=f"send each note this early with its time (default: PIANASOUL_LEAD, or {NETWORK_LEAD_S:g} for "
+                        "a network session and 0 otherwise)")
     p.add_argument("--debug", action="store_true", help="also show what happens in detail, with times (how "
                    "punctually each piece was sent, too)")
     args = p.parse_args(argv)
     show_details(args.debug)
 
     if args.ports:
-        names = output_names()
-        for name in names:
-            peers = session_peers(name)
-            joined = ", ".join(p or "unnamed" for p in peers or []) or "none"
-            print(name if peers is None else f"{name}  (network session, participants: {joined})")
-        if not names:
+        found = outputs()
+        for out in found:
+            joined = ", ".join(p or "unnamed" for p in out.peers or []) or "none"
+            print(f"{out.name}  ({out.kind}, {'connected' if out.connected else 'not connected'}"
+                  f"{f', participants: {joined}' if out.peers is not None else ''}; id {out.id})")
+        if not found:
             print("No MIDI outputs found.")
         return 0
     lib = Library()

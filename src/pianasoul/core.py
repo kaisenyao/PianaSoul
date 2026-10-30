@@ -161,17 +161,40 @@ class Core:
 
     def settings(self) -> dict:
         """language: zh or en, or empty until one is chosen (the app then uses the phone's). appearance: dark until
-        another is chosen (light, or the phone's: system)."""
+        another is chosen (light, or the phone's: system). output: the MIDI output's unique ID, or None until one is
+        chosen."""
         return {"language": self.lib.setting("language", ""),
-                "appearance": self.lib.setting("appearance", "dark")}
+                "appearance": self.lib.setting("appearance", "dark"),
+                "output": (self.playback.chosen() or {}).get("id")}
 
-    def set_settings(self, **values: str) -> dict:
+    def set_settings(self, **values) -> dict:
+        """Settings that exist, with values they can have; an output by its unique ID, one this Mac has."""
         allowed = {"language": ("zh", "en"), "appearance": ("system", "dark", "light")}
         for key, value in values.items():
-            if value in allowed.get(key, ()):
+            if key == "output":
+                out = next((o for o in self.outputs() if str(o.id) == str(value)), None)
+                if out:
+                    self.playback.choose(out)
+            elif value in allowed.get(key, ()):
                 self.lib.set_setting(key, value)
         self.emit({"type": "settings", **self.settings()})
         return self.settings()
+
+    def outputs(self) -> list:
+        from . import play
+
+        return play.outputs()
+
+    def devices(self) -> list[dict]:
+        """What plays the notes: the output chosen (or found by name), or each device in its network session, and
+        whether each is there now."""
+        out = self.playback.target()
+        if out is None:
+            chosen = self.playback.chosen()
+            return [{"name": chosen["name"] if chosen else self.playback.wanted, "kind": "other", "connected": False}]
+        if out.peers:
+            return [{"name": peer or out.name, "kind": "network", "connected": out.online} for peer in out.peers]
+        return [{"name": out.name, "kind": out.kind, "connected": out.connected}]
 
     # ---- what the app does --------------------------------------------------------------------------
     def type(self, text: str, conversation_id: int | None = None) -> None:
@@ -255,24 +278,6 @@ def name_piece(query: str, video: dict) -> dict | None:
                                           "channel": video.get("channel", "")}, ensure_ascii=False))
     names = {k: str(data.get(k) or "").strip() for k in ("piece", "artist", "performer", "aliases")}
     return names if names["piece"] else None
-
-
-def devices() -> list[dict]:
-    """What plays the notes: the piano itself, or the devices in the network MIDI session, and whether each is
-    there now."""
-    from .play import DEFAULT_PORT, find_port, session_peers
-
-    wanted = os.environ.get("PIANASOUL_PORT") or DEFAULT_PORT
-    try:
-        name = find_port(wanted)
-    except Exception:
-        return [{"name": wanted, "kind": "piano", "connected": False}]
-    peers = session_peers(name)
-    if peers is None:
-        return [{"name": name, "kind": "piano", "connected": True}]
-    if not peers:
-        return [{"name": name, "kind": "network", "connected": False}]
-    return [{"name": peer or name, "kind": "network", "connected": True} for peer in peers]
 
 
 def version() -> dict:

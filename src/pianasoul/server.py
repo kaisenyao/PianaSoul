@@ -131,12 +131,11 @@ def session(request: Request, response: Response, token: str = Body(embed=True))
 # ---- what the page shows ------------------------------------------------------------------------------
 @app.get('/api/state')
 def state():
-    from .core import devices
     her = core.assistant
     return {'recordings': core.recordings(), 'jobs': core.downloads.snapshot(),
             'playback': core.playback.snapshot(), 'conversations': core.conversations.all() if her else [],
             'current': her.conversation_id if her else None, 'busy': core.busy, 'settings': core.settings(),
-            'devices': devices(), 'version': version, 'features': core.features(), 'audio': core.audio()}
+            'devices': core.devices(), 'version': version, 'features': core.features(), 'audio': core.audio()}
 
 
 @app.get('/api/recordings')
@@ -165,8 +164,27 @@ def search(q: str):
 
 @app.get('/api/devices')
 def devices():
-    from .core import devices
-    return devices()
+    return core.devices()
+
+
+@app.get('/api/outputs')
+def outputs():
+    """Every MIDI output this Mac knows: id, name, kind, connected, peers for a network session, and which is
+    chosen."""
+    chosen = core.playback.target()
+    return [o.public() | {'chosen': chosen is not None and o.id == chosen.id} for o in core.outputs()]
+
+
+@app.post('/api/outputs/test')
+def test_output():
+    """A short C major arpeggio on the output chosen, at the volume set: is the piano there?"""
+    try:
+        core.playback.test_tone()
+    except LookupError as exc:
+        return JSONResponse({'error': 'piano', 'why': str(exc)}, status_code=409)
+    except RuntimeError:
+        return JSONResponse({'error': 'playing'}, status_code=409)
+    return {'ok': True}
 
 
 @app.get('/api/recordings/{rec_id}/notes')
@@ -382,6 +400,7 @@ def delete_conversation(cid: int):
 
 @app.patch('/api/settings')
 def settings(change: dict = Body()):
+    """language, appearance, or output (a unique ID from /api/outputs): heard at once, without a restart."""
     return core.set_settings(**{k: str(v) for k, v in change.items()})
 
 

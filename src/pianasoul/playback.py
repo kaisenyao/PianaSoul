@@ -7,17 +7,24 @@ list is over, its first piece waits at 0:00 (ended), as an album does.
 
 Chat, voice and the phone all play through the one Playback, so they always agree on what is playing, and on its
 volume: set from any of them, kept in the library, and told to the piano before each piece.
+
+It plays on the output chosen in the app, kept in the library by its unique ID (and name). One that is offline is
+waited for, never swapped for another, even of the same name; only when its ID is gone from the Mac altogether (an
+app such as Pianoteq may get a new one each time it starts) is the one output with its name taken instead. Until one
+is chosen, it is the first named like PIANASOUL_PORT, as for the player.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import threading
 import time
 from pathlib import Path
 
-from .play import GAP_S, Player
+from . import play
+from .play import GAP_S, Output, Player
 
 log = logging.getLogger(__spec__.name)
 MODES = ("order", "one", "shuffle")
@@ -26,8 +33,8 @@ DEFAULT_VOLUME = 80  # percent, until one is chosen: about where MIDI's own defa
 
 
 class Playback(Player):
-    def __init__(self, lib, port_name: str | None = None, port=None, lead: float | None = None):
-        super().__init__(port_name, port, lead)
+    def __init__(self, lib, port=None, lead: float | None = None):
+        super().__init__(port=port, lead=lead)
         self.lib = lib
         self.current_id: int | None = None
         self.duration = 0.0
@@ -52,6 +59,38 @@ class Playback(Player):
     @current.setter
     def current(self, item: tuple[Path, str] | None) -> None:
         self._current = item
+
+    # ---- where it plays ----------------------------------------------------------------------------
+    def chosen(self) -> dict | None:
+        """The output chosen in the app: {"id", "name"}, or None until one is."""
+        saved = self.lib.setting("output", "")
+        return json.loads(saved) if saved else None
+
+    def target(self) -> Output | None:
+        chosen = self.chosen()
+        if chosen is None:
+            return super().target()
+        found = play.outputs()
+        out = next((o for o in found if o.id == chosen["id"]), None)
+        if out is None:
+            named = [o for o in found if o.name == chosen["name"]]
+            if len(named) == 1 and play.output(chosen["id"]) is None:  # its ID is gone: the one of its name is it
+                out = named[0]
+                self.lib.set_setting("output", json.dumps({"id": out.id, "name": out.name}))
+                log.debug("the output %s is back with a new ID", out.name)
+        return out
+
+    def missing(self) -> str:
+        chosen = self.chosen()
+        return f'"{chosen["name"]}" is not there' if chosen else super().missing()
+
+    def choose(self, out: Output) -> None:
+        """Play on out from now on: a piece playing pauses where it is, and goes on there when played again."""
+        with self._lock:
+            self.lib.set_setting("output", json.dumps({"id": out.id, "name": out.name}))
+            self.switch()
+        log.debug("plays on %s from now on", out.name)
+        self.changed()
 
     # ---- what the phone shows -------------------------------------------------------------------
     def snapshot(self) -> dict:

@@ -1,7 +1,7 @@
 """Imported by every test before pianasoul: the library, data and cache folders are throwaway ones, so that no test
 ever reads or writes the real ~/Music/PianaSoul or Application Support. Setting PIANASOUL_DATA also keeps the one-time
 move from a checkout's old output/ folder from starting. What goes to the Trash goes to a throwaway folder (TRASH),
-not the Mac's."""
+not the Mac's, and no note ever goes to a real MIDI output (a test that plays gives its own)."""
 import atexit
 import os
 from pathlib import Path
@@ -23,3 +23,15 @@ def to_trash(path) -> None:
 
 
 send2trash.send2trash = to_trash
+
+
+from pianasoul import play  # noqa: E402  (after the places above)
+
+
+class NoMidi:
+    def __init__(self, out):
+        raise OSError(f'a test tried to open the real MIDI output "{out.name}"')
+
+
+REAL_MIDI_OUT = play.CoreMidiOut  # for the one test that plays on an output of its own (test_outputs)
+play.CoreMidiOut = NoMidi
