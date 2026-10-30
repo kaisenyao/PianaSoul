@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pianasoul"
+version = "0.1.0"
+description = "Piano recordings made into performance MIDI, and an assistant who plays them on your piano."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "transkun==2.0.1",
+    "torch",
+    "pretty_midi",
+    "numpy",
+    "imageio-ffmpeg",
+    "yt-dlp[default]",
+    "openai",
+    "anthropic",
+    "mido",
+    "python-rtmidi",
+]
+
+[project.optional-dependencies]
+app = ["fastapi", "uvicorn[standard]", "sherpa-onnx", "pypinyin"]
+voice = ["sounddevice", "sherpa-onnx", "pypinyin"]
+
+[project.scripts]
+pianasoul = "pianasoul.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pianasoul = ["web/*"]

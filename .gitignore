@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.egg-info/
+.DS_Store
+tasks.csv
+
+# your music stays on your machine
+output/
+*.mp3
+*.m4a
+*.aac
+*.wav
+*.flac
+*.aif
+*.aiff
+*.mid
+
+# The orb's start and end sounds are part of the app, not recordings of yours (see web/CUE_SOURCES.md).
+!/src/pianasoul/web/cue-active.mp3
+!/src/pianasoul/web/cue-end.mp3
+
+# The transcription the README plays
+!/docs/gould-partita-2-rehearsal.mid

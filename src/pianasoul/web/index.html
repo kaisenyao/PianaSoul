@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PianaSoul">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.png">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <link rel="stylesheet" href="/style.css">
+  <title>PianaSoul</title>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="sb-head">
+      <h1>PianaSoul</h1>
+      <button class="circle" id="search-open" data-t-label="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+      </button>
+    </div>
+    <div class="sb-search">
+      <label class="field">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+        <input id="search-input" type="search" data-t-placeholder="searchAll" autocomplete="off" enterkeyhint="search">
+      </label>
+      <button class="cancel" id="search-cancel" data-t="cancel"></button>
+    </div>
+    <div class="sb-scroll">
+      <button class="sb-row" data-target="library"><i data-icon="piano"></i><span class="label" data-t="library"></span></button>
+      <button class="sb-row" data-target="favorites"><i data-icon="heart"></i><span class="label" data-t="favorites"></span></button>
+      <button class="sb-row" data-target="recent">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+        <span class="label" data-t="recent"></span>
+      </button>
+      <button class="sb-row" data-target="artists">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c.9-3.6 3.9-5.8 7.5-5.8s6.6 2.2 7.5 5.8"/></svg>
+        <span class="label" data-t="artists"></span>
+      </button>
+      <hr class="sb-rule">
+      <div id="recent"></div>
+      <button class="sb-row recent more" data-target="history"><span class="label" data-t="seeAll"></span></button>
+    </div>
+    <div id="search-results"></div>
+    <div class="sb-foot">
+      <button class="pill" id="new-chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4H7a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-5"/><path d="M17.8 3.7a1.9 1.9 0 0 1 2.7 2.7L12 14.9l-3.6.9.9-3.6z"/></svg>
+        <span data-t="newChat"></span>
+      </button>
+      <button class="circle" id="open-settings" data-t-label="settings"></button>
+    </div>
+  </aside>
+
+  <section id="main">
+    <div class="view" id="view-orb">
+      <div id="orb" data-state="idle" data-active="false">
+        <canvas aria-hidden="true"></canvas>
+        <input id="voice-toggle" type="checkbox" switch role="switch">
+      </div>
+    </div>
+    <div id="scrim"></div>
+  </section>
+
+  <!-- Pages open over home; a right swipe takes the top one away -->
+  <section id="pages">
+    <div class="view" id="view-library" hidden>
+      <header>
+        <button class="htext hbtn left" id="sel-cancel" data-t="cancel"></button>
+        <h2 id="library-title"></h2>
+        <button class="htext strong hbtn right" id="sel-all"></button>
+      </header>
+      <div class="lsearch">
+        <label class="field">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+          <input id="lib-q" type="search" data-t-placeholder="libraryHint" autocomplete="off" enterkeyhint="search">
+        </label>
+      </div>
+      <div class="list" id="library-list"></div>
+      <div id="lib-online"></div>
+      <div class="count" id="library-count"></div>
+    </div>
+    <div class="view" id="view-artists" hidden>
+      <header><h2 data-t="artists"></h2></header>
+      <div class="seg" id="role-seg" role="tablist"><button data-role="artist" class="on" data-t="artist"></button><button data-role="performer" data-t="performer"></button></div>
+      <div id="artist-list"></div>
+    </div>
+    <div class="view" id="view-group" hidden>
+      <header><h2 id="group-title"></h2></header>
+      <div class="hero" id="group-hero"></div>
+      <div class="list" id="group-list"></div>
+    </div>
+    <div class="view" id="view-settings" hidden>
+      <header><h2 data-t="settings"></h2></header>
+      <div class="settings">
+        <div class="me"><div class="orb" id="her-orb"><canvas aria-hidden="true"></canvas></div><p id="her-intro"></p></div>
+        <div class="ghead" data-t="general"></div>
+        <div class="gcard">
+          <button class="grow" data-pick="language"><i data-icon="globe"></i><span class="gl" data-t="language"></span><span class="gv"></span><i data-icon="updown"></i></button>
+          <button class="grow" data-pick="appearance"><i data-icon="moon"></i><span class="gl" data-t="appearance"></span><span class="gv"></span><i data-icon="updown"></i></button>
+        </div>
+        <div class="ghead" data-t="devices"></div>
+        <div class="gcard" id="devices"></div>
+        <div class="ghead" data-t="help"></div>
+        <div class="gcard">
+          <button class="grow" id="open-help"><i data-icon="book"></i><span class="gl" data-t="guide"></span><span class="chev"><i data-icon="chevron"></i></span></button>
+        </div>
+        <p class="ver"><a id="repo-link" target="_blank" rel="noopener">PianaSoul</a> · <span data-t="version"></span> <a id="commit-link" target="_blank" rel="noopener"></a></p>
+      </div>
+    </div>
+    <div class="view" id="view-help" hidden>
+      <header><h2 data-t="guide"></h2></header>
+      <div class="settings"><div class="gcard" id="help-list"></div></div>
+    </div>
+    <div class="view" id="view-article" hidden>
+      <header><h2 id="article-title"></h2></header>
+      <div class="article" id="article-body"></div>
+    </div>
+    <div class="view" id="view-history" hidden>
+      <header><h2 data-t="chats"></h2></header>
+      <div class="list history" id="history-list"></div>
+    </div>
+    <div class="view" id="view-session" hidden>
+      <header><h2 id="session-title"></h2></header>
+      <div class="chat-scroll" id="session-scroll"><div class="chat" id="session-chat"></div></div>
+      <div class="compose" id="compose">
+        <div class="cfield">
+          <textarea id="compose-input" rows="1" data-t-placeholder="message" data-t-label="message" enterkeyhint="send"></textarea>
+          <button class="cbtn write" id="compose-mic" data-t-label="dictate"></button>
+          <button class="cbtn go write" id="compose-send" data-t-label="send" hidden></button>
+          <button class="cbtn dict" id="dictate-cancel" data-t-label="cancel"></button>
+          <span class="wave dict"><canvas id="wave" aria-hidden="true"></canvas><span class="dnote" data-t="transcribing"></span></span>
+          <button class="cbtn go dict" id="dictate-done" data-t-label="done"></button>
+        </div>
+      </div>
+    </div>
+    <!-- Now playing: the piece's own notes, moving as the piano plays them -->
+    <div class="view" id="view-player" hidden>
+      <div class="screens" id="p-screens">
+        <div class="pmain">
+          <button class="pcorner" id="p-close" data-t-label="stop"></button>
+          <button class="pcorner" id="p-share" data-t-label="share"></button>
+          <div class="art"><canvas id="roll" aria-hidden="true"></canvas></div>
+          <div class="ptitle">
+            <div class="ptext"><div class="t1" id="p-title"></div><div class="t2" id="p-sub"></div></div>
+            <button id="p-fav"></button>
+          </div>
+          <div class="scrub" id="scrub" role="slider" data-t-label="position"><div class="track"><div class="fill" id="p-fill"></div></div></div>
+          <div class="times"><span id="p-pos">0:00</span><span id="p-left">-0:00</span></div>
+          <div class="pctrl">
+            <button class="aux" id="p-mode"></button>
+            <button class="skip" id="p-prev" data-t-label="previous"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 6.2v11.6c0 .7-.8 1.1-1.4.7l-7.7-5.8a.9.9 0 0 1 0-1.4l7.7-5.8c.6-.4 1.4 0 1.4.7zM21.5 6.2v11.6c0 .7-.8 1.1-1.4.7l-7.7-5.8a.9.9 0 0 1 0-1.4l7.7-5.8c.6-.4 1.4 0 1.4.7z"/></svg></button>
+            <button class="big" id="p-toggle"></button>
+            <button class="skip" id="p-next" data-t-label="next"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.5 6.2v11.6c0 .7.8 1.1 1.4.7l7.7-5.8a.9.9 0 0 0 0-1.4l-7.7-5.8c-.6-.4-1.4 0-1.4.7zM2.5 6.2v11.6c0 .7.8 1.1 1.4.7l7.7-5.8a.9.9 0 0 0 0-1.4L3.9 5.5c-.6-.4-1.4 0-1.4.7z"/></svg></button>
+            <button class="aux" id="p-queue" data-t-label="queue"></button>
+          </div>
+          <div class="pvol">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 9h3l4.3-3.6c.6-.5 1.5-.1 1.5.7v11.8c0 .8-.9 1.2-1.5.7L6.5 15h-3c-.6 0-1-.4-1-1v-4c0-.6.4-1 1-1z"/></svg>
+            <div class="scrub" id="p-vol" role="slider" data-t-label="volume" aria-valuemin="0" aria-valuemax="100"><div class="track"><div class="fill"></div></div></div>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.5 9h3l4.3-3.6c.6-.5 1.5-.1 1.5.7v11.8c0 .8-.9 1.2-1.5.7L6.5 15h-3c-.6 0-1-.4-1-1v-4c0-.6.4-1 1-1z"/><path d="M15.5 9a4.5 4.5 0 0 1 0 6M18.3 6.5a8 8 0 0 1 0 11M21 4.2a11.5 11.5 0 0 1 0 15.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </div>
+          <div class="peek" aria-hidden="true">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9 7 4.5 11.5 9"/></svg>
+            <span data-t="details"></span>
+          </div>
+        </div>
+        <div class="pinfo" id="p-info"></div>
+      </div>
+    </div>
+    <div id="pull" hidden aria-hidden="true">
+      <span class="pc">
+        <svg class="pring" viewBox="0 0 48 48"><circle cx="24" cy="24" r="22"/></svg>
+        <span class="porb orb"><canvas aria-hidden="true"></canvas></span>
+      </span>
+      <span class="pt" data-t="toVoice"></span>
+    </div>
+    <div id="selbar"><button id="sel-delete" disabled></button></div>
+    <div id="mini" hidden role="button" data-t-label="openPlayer">
+      <canvas class="mart" aria-hidden="true"></canvas>
+      <div class="text"><div class="t1" id="mini-title"></div><div class="t2" id="mini-sub"></div></div>
+      <button id="mini-toggle"></button>
+      <div id="mini-line"></div>
+    </div>
+  </section>
+
+  <div id="to-voice" hidden></div>
+  <div id="fly-orb" class="orb" hidden><canvas aria-hidden="true"></canvas></div>
+
+  <div id="dim"></div>
+
+  <!-- Add pieces: search YouTube or paste a link, watch on YouTube, download -->
+  <section class="sheet" id="sheet-add">
+    <div class="grabber"></div>
+    <div class="sheet-head"><span></span><h3 data-t="addPieces"></h3><button class="r" id="add-done" data-t="done"></button></div>
+    <label class="field">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+      <input id="add-input" type="search" data-t-placeholder="addHint" autocomplete="off" enterkeyhint="search">
+    </label>
+    <div class="sheet-body" id="add-body"></div>
+  </section>
+
+  <!-- The list that is playing -->
+  <section class="sheet half" id="sheet-queue">
+    <div class="grabber"></div>
+    <div class="sheet-head"><span></span><h3 data-t="queue"></h3><span></span></div>
+    <div class="qsub" id="queue-sub"></div>
+    <div class="sheet-body list" id="queue-list"></div>
+  </section>
+
+  <!-- Edit one piece -->
+  <section class="sheet" id="sheet-edit">
+    <div class="grabber"></div>
+    <div class="sheet-head"><button class="l" id="edit-cancel" data-t="cancel"></button><h3 data-t="edit"></h3><button class="r" id="edit-save" data-t="done"></button></div>
+    <div class="sheet-body">
+      <div class="form">
+        <div class="frow"><label for="f-piece" data-t="piece"></label><input id="f-piece" autocomplete="off"></div>
+        <div class="frow"><label for="f-artist" data-t="artist"></label><input id="f-artist" autocomplete="off"></div>
+        <div class="frow"><label for="f-performer" data-t="performer"></label><input id="f-performer" autocomplete="off"></div>
+      </div>
+      <div class="form spaced">
+        <div class="frow"><label data-t="source"></label><span class="val" id="f-source"></span></div>
+        <div class="frow"><label data-t="length"></label><span class="val" id="f-duration"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Confirm what cannot be undone: deleting pieces, stopping the piece -->
+  <div class="action" id="confirm">
+    <div class="agroup"><button class="danger" id="confirm-yes"></button></div>
+    <div class="agroup"><button class="cancel2" id="confirm-no" data-t="cancel"></button></div>
+  </div>
+
+  <!-- Long-press menu -->
+  <div id="ctx">
+    <div class="blur"></div>
+    <div id="ctx-card"></div>
+    <div class="menu" id="ctx-menu"></div>
+  </div>
+
+  <!-- A conversation's name -->
+  <div class="alert" id="rename" role="dialog">
+    <b id="rename-title"></b>
+    <input id="rename-input" autocomplete="off" enterkeyhint="done">
+    <div class="abtns"><button id="rename-cancel" data-t="cancel"></button><button id="rename-save" data-t="save"></button></div>
+  </div>
+</div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
