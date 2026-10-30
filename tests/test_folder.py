@@ -143,6 +143,21 @@ class FolderTests(unittest.TestCase):
         self.settle()
         self.assertEqual(self.titles(), ['Song'], 'Once it is downloaded')
 
+    def test_a_file_gone_or_back_is_told(self):
+        told = []
+        self.folder = Folder(self.lib, lambda: told.append(1))
+        song = make_midi(self.music / 'Song.mid')
+        self.settle()
+        told.clear()
+        kept = song.rename(self.root / 'Song.mid')
+        self.folder.scan()
+        self.assertEqual(len(told), 1, 'Gone: the phone is told')
+        kept.rename(song)
+        self.folder.scan()
+        self.assertEqual(len(told), 2, 'Back: told again')
+        self.folder.scan()
+        self.assertEqual(len(told), 2, 'Nothing new: nothing told')
+
     def test_a_scan_never_deletes(self):
         for name in ('A', 'B'):
             make_midi(self.music / f'{name}.mid', note=60 + len(name))

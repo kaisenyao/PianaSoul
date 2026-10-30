@@ -45,6 +45,7 @@ class Folder:
         """on_change() is called after a scan that changed the library, on the scanning thread."""
         self.lib, self.on_change = lib, on_change
         self._seen: dict[str, str] = {}  # new files waiting to settle: their stamp when last seen
+        self._here: set[str] | None = None  # the known files there at the last scan: one gone, or back, is a change
         self._unreadable: dict[str, str] = {}  # files that are not MIDI after all, by stamp, not read again
         self._lock = threading.Lock()  # one scan at a time
         self._timer: threading.Timer | None = None
@@ -62,7 +63,7 @@ class Folder:
                 return False
             pieces = {r["midi_path"]: r for r in self.lib.all()}
             recordings = {a["path"]: a for a in self.lib.audio()}
-            changed, settling, seen = False, False, {}
+            changed, settling, seen, here = False, False, {}, set()
             for path in files(folder):
                 key = str(path.resolve())
                 if not present(path):  # in iCloud only, or gone since it was listed
@@ -70,6 +71,7 @@ class Folder:
                 now = stamp(path)
                 known = pieces.get(key) or recordings.get(key)
                 if known:
+                    here.add(key)
                     if known["stamp"] != now:  # changed in place
                         changed |= self._refresh(path, known)
                     continue
@@ -78,8 +80,11 @@ class Folder:
                 if self._seen.get(key) != now:  # new: taken in once it has kept its size for SETTLE_S
                     seen[key], settling = now, True
                     continue
-                changed |= self._take_in(path)
-            self._seen = seen
+                if self._take_in(path):
+                    changed = True
+                    here.add(key)
+            changed |= self._here is not None and here != self._here  # a file gone, or back where it was
+            self._seen, self._here = seen, here
         if changed and self.on_change:
             self.on_change()
         return settling
