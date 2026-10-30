@@ -2,10 +2,15 @@
 conversations and new pieces. The phone shows them and changes them, and is her ears and voice.
 
     ./run.sh app
+    python -m pianasoul.server --app      # as the Mac app runs it
 
 /api/... answers the page, /events tells it what changed, and /voice carries the microphone one way and her voice
 the other while the orb is on. All three need the cookie the page gets for the address's token; the page and its
 files do not. What needs her, or transcription, answers 409 when this Mac has not got it (Core.features).
+
+Beside it, plain HTTP on CERT_PORT serves a page on how to trust this Mac and the certificate itself, nothing else.
+pairing.json in the data folder says how to reach it all (the Mac app shows it as codes to scan); like the token in
+it, it is for this Mac's user only.
 """
 from __future__ import annotations
 
@@ -18,6 +23,8 @@ import logging
 import os
 from pathlib import Path
 import secrets
+import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -34,6 +41,7 @@ from .voice import VOICE_NOTE, Conversation, VoiceParts
 WEB = Path(__file__).with_name('web')
 ASSET_TYPES = {'.js', '.css', '.png', '.mp3', '.webmanifest'}
 PORT = 8765
+CERT_PORT = 8764  # the certificate's page, over plain HTTP: it holds no secret
 COOKIE = 'pianasoul'
 TYPED_NOTE = """
 Requests typed in the app (typed is true in the application state) are answered on screen, not aloud; keep them
@@ -49,18 +57,86 @@ log = logging.getLogger(__spec__.name)
 _voice = asyncio.Lock()  # one phone at a time is her ears and voice
 _parts = _stt = _her = None
 _naming = threading.Lock()  # one upload at a time takes a name in the library folder
+_where: tuple[str, Path] | None = None  # the address phones open, and the certificates' folder (main)
 _notes: dict[int, list] = {}
 
 
-def saved_token() -> str:
-    """The phone's access token, kept so the address and a Home Screen app survive restarts."""
+def saved_token(fresh: bool = False) -> str:
+    """The phone's access token, kept so the address and a Home Screen app survive restarts; fresh makes a new one,
+    and every phone has to be paired again."""
     from .library import DATA_DIR
     path = DATA_DIR / 'phone-token'
-    if not path.is_file() or not path.read_text().strip():  # an empty token would let anyone in
+    if fresh or not path.is_file() or not path.read_text().strip():  # an empty token would let anyone in
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch(mode=0o600)
         path.write_text(secrets.token_urlsafe(32))
     return path.read_text().strip()
+
+
+def write_pairing() -> None:
+    """pairing.json: the address phones open (with the token), the certificate's page, this Mac's .local name (the
+    name its certificate is checked by), the token, and the certificate authority's fingerprint. Readable by this
+    Mac's user only, from the moment it is made."""
+    from .library import DATA_DIR
+    from .web_tls import fingerprint, local_name
+    host, tls = _where
+    info = {'address': f'https://{host}:{PORT}/#token={TOKEN}', 'certificate': f'http://{host}:{CERT_PORT}/',
+            'local_name': local_name(), 'port': PORT, 'token': TOKEN, 'ca_sha256': fingerprint(tls)}
+    part = DATA_DIR / '.pairing.json.part'
+    part.unlink(missing_ok=True)
+    with os.fdopen(os.open(part, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as f:
+        json.dump(info, f, indent=1)
+    os.replace(part, DATA_DIR / 'pairing.json')
+
+
+def certificate_page(tls: Path, sock: socket.socket) -> None:
+    """Serve, on sock, the page on how to trust this Mac (with the certificate's fingerprint) and the certificate:
+    nothing else, and no token. In a thread of its own, for the server's life."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from .web_tls import CA_FILE, fingerprint, local_name
+    page = (WEB / 'certificate.html').read_text(encoding='utf-8')
+    page = page.replace('{{fingerprint}}', fingerprint(tls)).replace(
+        '{{name}}', f'PianaSoul on {local_name().removesuffix(".local")}').encode()
+
+    class Certificate(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == '/':
+                body, kind = page, 'text/html; charset=utf-8'
+            elif self.path == f'/{CA_FILE}':
+                body, kind = (tls / CA_FILE).read_bytes(), 'application/x-x509-ca-cert'
+            else:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', kind)
+            self.send_header('Content-Length', str(len(body)))
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):  # not a line per request
+            pass
+
+    httpd = ThreadingHTTPServer(sock.getsockname(), Certificate, bind_and_activate=False)
+    httpd.socket.close()
+    httpd.socket = sock
+    httpd.server_activate()
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+
+
+def listen(port: int) -> socket.socket:
+    """A socket listening on port on every network the Mac is on; SystemExit, saying why, when another program
+    (PianaSoul already running, say) has it."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(('0.0.0.0', port))
+    except OSError as exc:
+        sock.close()
+        raise SystemExit(f'Port {port} is in use ({exc.strerror}): is PianaSoul already running, in a terminal '
+                         f'(./run.sh app) or as the Mac app? Quit it first.') from None
+    sock.listen(128)
+    return sock
 
 
 def voice_parts() -> VoiceParts:
@@ -346,6 +422,18 @@ def delete_audio(audio_id: int):
     """A recording to transcribe, to the Mac's Trash."""
     if not core.delete_audio(audio_id):
         raise HTTPException(404)
+    return {'ok': True}
+
+
+@app.post('/api/pairing/reset')
+def reset_pairing(request: Request):
+    """A new token: every phone, and every Home Screen app, has to be paired again. Asked on this Mac only."""
+    global TOKEN
+    if request.client is None or request.client.host not in {'127.0.0.1', '::1'}:
+        return JSONResponse({'error': 'mac_only'}, status_code=403)
+    TOKEN = saved_token(fresh=True)
+    write_pairing()
+    log.debug('paired anew: a new token')
     return {'ok': True}
 
 
@@ -661,16 +749,20 @@ async def voice(socket: WebSocket):
 
 
 def main(argv=None):
-    global TOKEN, core, version
+    global TOKEN, core, version, _where
     from . import show_details
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--debug', action='store_true', help='also show what happens in detail, with times')
-    show_details(parser.parse_args(argv).debug)
+    parser.add_argument('--app', action='store_true', help='as the Mac app runs it: no guide here, and the address '
+                        'with its token only in pairing.json')
+    args = parser.parse_args(argv)
+    show_details(args.debug)
     import uvicorn
     from .chat import startup
     from .core import Core, installed, version as running
     from .library import DATA_DIR
     from .web_tls import CA_FILE, local_name, prepare_https
+    sockets = listen(PORT), listen(CERT_PORT)  # first: nothing starts while another PianaSoul runs
     TOKEN = saved_token()
     her, why = True, ''
     if not installed('transkun', 'yt_dlp'):
@@ -699,30 +791,40 @@ def main(argv=None):
         host, new = prepare_https(tls)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         parser.exit(2, f'Cannot set up HTTPS: {exc}\n')
-    address = f'https://{host}:{PORT}/#token={TOKEN}'
+    _where = host, tls
+    write_pairing()
+    certificate_page(tls, sockets[1])
+    # The address with its token is a key to the library: shown in a terminal, but never in the Mac app's log.
+    address = f'https://{host}:{PORT}/' + ('' if args.app else f'#token={TOKEN}')
     print(voice_parts().describe(core.label, 'app', address=address) if her else
-          startup('app', library=f'{core.lib.count()} piece(s) in {core.lib.music_dir}', address=address))
-    if new:  # the one step by hand, shown only now: the iPhone learns to trust this Mac
+          startup('app', library=f'{core.lib.count()} piece(s) in {core.lib.music_dir}', address=address), flush=True)
+    if new and not args.app:  # the one step by hand, shown only now: the iPhone learns to trust this Mac
         print(f'\nFirst time on this Mac: let the iPhone trust it, once.\n\n'
               f'  1. Send     Finder shows {CA_FILE}: right-click > Share > AirDrop\n'
               f'  2. Install  iPhone Settings > General > VPN & Device Management > Install\n'
               f'  3. Trust    Settings > General > About > Certificate Trust Settings\n'
               f'              > turn on "PianaSoul on {local_name().removesuffix(".local")}"\n'
               f'  4. Open     the address above in Safari > Share > Add to Home Screen\n\n'
-              f'  The file: {tls / CA_FILE}\n', flush=True)
+              f'  The file: {tls / CA_FILE}\n'
+              f'  Or open http://{host}:{CERT_PORT}/ on the phone: it shows how.\n', flush=True)
         if sys.platform == 'darwin':
             subprocess.run(['open', '-R', str(tls / CA_FILE)], check=False)
-    said = ' or '.join(f'"{w}"' for w in voice_parts().wake.words) if her else ''
-    print('Keep the address private.\n' + (f'Tap the orb and say {said}, then your request. ' if her else '') +
-          'Control+C quits.\n', flush=True)
+    if not args.app:
+        said = ' or '.join(f'"{w}"' for w in voice_parts().wake.words) if her else ''
+        print('Keep the address private.\n' + (f'Tap the orb and say {said}, then your request. ' if her else '') +
+              'Control+C quits.\n', flush=True)
     # Only what matters shows, as with ./run.sh voice: no request log, no "running on 0.0.0.0" to mistake for the
     # address, and no error for quitting while a phone in the background never says goodbye (it stops in 2 s).
     logging.getLogger('uvicorn.error').addFilter(
         lambda record: 'timeout graceful shutdown exceeded' not in record.getMessage())
+    config = uvicorn.Config(app, ssl_certfile=str(tls / 'cert.pem'), ssl_keyfile=str(tls / 'key.pem'),
+                            ws_max_size=1 << 20, ws_max_queue=4, timeout_graceful_shutdown=2, log_level='warning')
+    # SIGTERM (the Mac app quitting) or Control+C: uvicorn stops serving, then hands the signal back. It ends the
+    # program as an exit, never at once, so that the piano is closed first: the notes already sent finish.
+    for stop in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(stop, lambda *_: sys.exit(0))
     try:
-        uvicorn.run(app, host='0.0.0.0', port=PORT, ssl_certfile=str(tls / 'cert.pem'),
-                    ssl_keyfile=str(tls / 'key.pem'), ws_max_size=1 << 20, ws_max_queue=4,
-                    timeout_graceful_shutdown=2, log_level='warning')
+        uvicorn.Server(config).run(sockets=[sockets[0]])
     finally:
         core.close()
     return 0

@@ -646,7 +646,10 @@ class CoreTests(Base):
         with patch.object(core.subprocess, 'run',
                           side_effect=lambda args, **kw: SimpleNamespace(stdout=answers[tuple(args[1:])])):
             self.assertEqual(core.version(), {'commit': '341568b002757ebfa63c702065222378ca6757f9',
-                                              'repo': 'https://github.com/kaisenyao/PianaSoul'})
+                                              'repo': 'https://github.com/kaisenyao/PianaSoul', 'app': ''})
+        with patch.dict('os.environ', {'PIANASOUL_COMMIT': 'abc1234', 'PIANASOUL_APP_VERSION': '1.0'}):
+            self.assertEqual(core.version(), {'commit': 'abc1234', 'repo': 'https://github.com/kaisenyao/PianaSoul',
+                                              'app': '1.0'}, 'As the Mac app says: it has no git')
 
     def test_devices_say_what_plays_and_whether_it_is_there(self):
         from pianasoul.core import Core

@@ -26,6 +26,7 @@ from .play import clock
 from .playback import Playback
 
 ROOT = Path(__file__).resolve().parents[2]
+REPO = "https://github.com/kaisenyao/PianaSoul"
 
 
 class Core:
@@ -281,7 +282,13 @@ def name_piece(query: str, video: dict) -> dict | None:
 
 
 def version() -> dict:
-    """The code running here: its commit, and the repository it came from (as a web address)."""
+    """The code running here: its commit, and the repository it came from (as a web address); and the Mac app's
+    version when the app runs it. The app says its version and the commit it was built from (PIANASOUL_APP_VERSION,
+    PIANASOUL_COMMIT): it has no git."""
+    if os.environ.get("PIANASOUL_COMMIT"):
+        return {"commit": os.environ["PIANASOUL_COMMIT"], "repo": REPO,
+                "app": os.environ.get("PIANASOUL_APP_VERSION", "")}
+
     def git(*args: str) -> str:
         try:
             return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=5).stdout.strip()
@@ -291,5 +298,5 @@ def version() -> dict:
     repo = git("remote", "get-url", "origin")
     repo = re.sub(r"^git@([^:]+):", r"https://\1/", repo)
     repo = re.sub(r"\.git$", "", re.sub(r"^https://[^@/]+@", "https://", repo))
-    return {"commit": git("rev-parse", "HEAD"), "repo": repo}
+    return {"commit": git("rev-parse", "HEAD"), "repo": repo, "app": ""}
 

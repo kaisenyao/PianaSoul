@@ -7,6 +7,8 @@ keep the microphone permission for a .local name, and would ask at every visit.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import ipaddress
 import os
 from pathlib import Path
@@ -43,6 +45,15 @@ subjectAltName = {names}
 subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid,issuer
 '''
+
+
+def fingerprint(folder: Path) -> str:
+    """The certificate authority's SHA-256 fingerprint, as a phone shows it in the certificate's details: pairs of
+    hexadecimal digits, spaced."""
+    pem = (folder / 'ca.pem').read_text()
+    der = base64.b64decode(''.join(line for line in pem.splitlines() if not line.startswith('-----')))
+    digest = hashlib.sha256(der).hexdigest().upper()
+    return ' '.join(digest[i:i + 2] for i in range(0, len(digest), 2))
 
 
 def local_name() -> str:

@@ -2,6 +2,7 @@
 import base64
 import contextlib
 import io
+import json
 from pathlib import Path
 import tempfile
 import threading
@@ -531,49 +532,72 @@ print('ok')
 
 
 class StartTests(unittest.TestCase):
-    def test_without_her_the_app_still_starts_and_says_why(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'OPENAI_API_KEY': ''}), \
+    def start(self, argv, her: bool, new: bool, serving=None):
+        """server.main as far as serving: (what was printed, uvicorn's Config and Server, the ports listened on,
+        what was opened in Finder)."""
+        parts = SimpleNamespace(stt=SimpleNamespace(label='OpenAI x'), speaker=SimpleNamespace(label='ElevenLabs y'),
+                                wake=SimpleNamespace(words=['小茗同学', 'Hey Jasmine']))
+        parts.describe = lambda model, name, **more: voice.VoiceParts.describe(parts, model, name, **more)
+        made = MagicMock(label='test')
+        made.features.return_value = {'transcribe': her, 'search': her, 'assistant': her}
+        with tempfile.TemporaryDirectory() as tmp, \
              patch('pianasoul.library.DATA_DIR', Path(tmp)), \
-             patch('pianasoul.core.Core') as made, patch.object(server, 'voice_parts') as parts, \
-             patch('pianasoul.web_tls.prepare_https', return_value=('192.168.1.20', False)), \
-             patch('uvicorn.run') as run, patch('builtins.print') as shown, \
-             patch.object(server, 'TOKEN', server.TOKEN), patch.object(server, 'core', None):
-            made.return_value.features.return_value = {'transcribe': True, 'search': False, 'assistant': False}
-            server.main([])
-        made.assert_called_once()
-        self.assertFalse(made.call_args.kwargs['assistant'])
-        parts.assert_not_called()
-        run.assert_called_once()
+             patch.dict('os.environ', {'OPENAI_API_KEY': 'test' if her else ''}), \
+             patch('pianasoul.core.installed', return_value=True), \
+             patch('pianasoul.core.Core', return_value=made) as core_made, \
+             patch('pianasoul.core.version', return_value={'commit': 'abc', 'repo': '', 'app': ''}), \
+             patch.object(server, 'voice_parts', return_value=parts), \
+             patch('pianasoul.web_tls.prepare_https', return_value=('192.168.1.20', new)), \
+             patch('pianasoul.web_tls.local_name', return_value='Test-Mac.local'), \
+             patch.object(server, 'listen', side_effect=lambda port: Mock(port=port)) as listened, \
+             patch.object(server, 'write_pairing'), patch.object(server, 'certificate_page'), \
+             patch('uvicorn.Config') as config, patch('uvicorn.Server') as served, \
+             patch('builtins.print') as shown, patch.object(server, 'TOKEN', server.TOKEN), \
+             patch.object(server, 'core', None), patch.object(server.sys, 'platform', 'darwin'), \
+             patch.object(server.subprocess, 'run') as opened:
+            served.return_value.run.side_effect = serving
+            self.token, self.tmp, self.core_made = server.TOKEN, Path(tmp), core_made
+            server.main(argv)
+            self.token = server.TOKEN
         printed = ' '.join(str(c.args[0]) for c in shown.call_args_list if c.args)
+        return printed, config, served, [c.args[0] for c in listened.call_args_list], opened
+
+    def test_one_command_serves_the_iphone_at_the_macs_address(self):
+        printed, config, served, ports, opened = self.start([], her=True, new=True)
+        self.assertEqual(ports, [8765, 8764], 'Both ports first, so nothing starts while another PianaSoul runs')
+        self.assertEqual(served.return_value.run.call_args.kwargs['sockets'][0].port, 8765)
+        self.assertEqual(config.call_args.kwargs['ssl_certfile'], str(self.tmp / 'phone-tls' / 'cert.pem'))
+        self.assertLessEqual(config.call_args.kwargs['timeout_graceful_shutdown'], 3, 'One Control+C is enough')
+        self.assertIn(f'https://192.168.1.20:8765/#token={self.token}', printed)
+        self.assertIn('"PianaSoul on Test-Mac"', printed, 'The certificate to trust, by its name')
+        self.assertIn('http://192.168.1.20:8764/', printed)
+        opened.assert_called_once_with(['open', '-R', str(self.tmp / 'phone-tls' / 'PianaSoul-CA.cer')], check=False)
+
+    def test_without_her_the_app_still_starts_and_says_why(self):
+        with patch.dict('os.environ', {'OPENAI_API_KEY': ''}):
+            printed, _, served, _, _ = self.start([], her=False, new=False)
+        self.assertFalse(self.core_made.call_args.kwargs['assistant'])
+        served.return_value.run.assert_called_once()
         self.assertIn('her off (OPENAI_API_KEY is not set)', printed)
         self.assertNotIn('Tap the orb', printed)
 
-    def test_one_command_serves_the_iphone_at_the_macs_address(self):
-        parts = SimpleNamespace(stt=SimpleNamespace(label='OpenAI x'), speaker=SimpleNamespace(label='ElevenLabs y'))
-        her = MagicMock(label='test')
-        her.features.return_value = {'transcribe': True, 'search': True, 'assistant': True}
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch('pianasoul.library.DATA_DIR', Path(tmp)), patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}), \
-                 patch('pianasoul.core.installed', return_value=True), \
-                 patch('pianasoul.core.Core', return_value=her), \
-                 patch('pianasoul.core.version', return_value={'commit': 'abc', 'repo': ''}), \
-                 patch.object(server, 'voice_parts', return_value=SimpleNamespace(
-                     describe=lambda model, name, **more: voice.VoiceParts.describe(parts, model, name, **more),
-                     wake=SimpleNamespace(words=['小茗同学', 'Hey Jasmine']))), \
-                 patch('pianasoul.web_tls.prepare_https', return_value=('192.168.1.20', True)), \
-                 patch('pianasoul.web_tls.local_name', return_value='Test-Mac.local'), \
-                 patch('uvicorn.run') as run, patch('builtins.print') as shown, \
-                 patch.object(server, 'TOKEN', server.TOKEN), patch.object(server, 'core', None), \
-                 patch.object(server.sys, 'platform', 'darwin'), patch.object(server.subprocess, 'run') as opened:
-                server.main([])
-                token = server.TOKEN
-        self.assertEqual(run.call_args.kwargs['host'], '0.0.0.0')
-        self.assertEqual(run.call_args.kwargs['ssl_certfile'], str(Path(tmp) / 'phone-tls' / 'cert.pem'))
-        self.assertLessEqual(run.call_args.kwargs['timeout_graceful_shutdown'], 3, 'One Control+C is enough')
-        printed = ' '.join(str(c.args[0]) for c in shown.call_args_list if c.args)
-        self.assertIn(f'https://192.168.1.20:8765/#token={token}', printed)
-        self.assertIn('"PianaSoul on Test-Mac"', printed, 'The certificate to trust, by its name')
-        opened.assert_called_once_with(['open', '-R', str(Path(tmp) / 'phone-tls' / 'PianaSoul-CA.cer')], check=False)
+    def test_as_the_mac_app_runs_it_the_token_never_shows(self):
+        printed, _, served, _, opened = self.start(['--app'], her=True, new=True)
+        served.return_value.run.assert_called_once()
+        self.assertIn('https://192.168.1.20:8765/', printed)
+        self.assertNotIn(self.token, printed, 'Its output goes to a log file')
+        self.assertNotIn('First time on this Mac', printed, 'The Mac app shows the way')
+        opened.assert_not_called()
+
+    def test_quitting_closes_the_piano_before_the_program_ends(self):
+        import signal
+        for stop in (signal.SIGTERM, signal.SIGINT):
+            self.addCleanup(signal.signal, stop, signal.getsignal(stop))
+        handed_back = lambda **kw: signal.raise_signal(signal.SIGTERM)  # as uvicorn does once it has stopped
+        with self.assertRaises(SystemExit) as ended:
+            self.start(['--app'], her=False, new=False, serving=handed_back)
+        self.assertEqual(ended.exception.code, 0)
+        self.core_made.return_value.close.assert_called_once()
 
     def test_token_is_kept_privately_across_restarts(self):
         with tempfile.TemporaryDirectory() as tmp, patch('pianasoul.library.DATA_DIR', Path(tmp)):
@@ -583,6 +607,78 @@ class StartTests(unittest.TestCase):
             self.assertEqual((Path(tmp) / 'phone-token').stat().st_mode & 0o777, 0o600)
             (Path(tmp) / 'phone-token').write_text('')  # emptied: never a token that lets anyone in
             self.assertGreaterEqual(len(server.saved_token()), 32)
+            self.assertNotEqual(server.saved_token(fresh=True), first)
+
+
+class PairingTests(unittest.TestCase):
+    """How a phone, and the Mac app, reach the server: pairing.json, the certificate's page, and pairing anew."""
+
+    def setUp(self):
+        from pianasoul.web_tls import prepare_https
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.data = Path(tmp.name)
+        for patcher in (patch('pianasoul.library.DATA_DIR', self.data), patch.object(server, 'TOKEN', server.TOKEN),
+                        patch('pianasoul.web_tls.local_name', return_value='Test-Mac.local')):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.tls = self.data / 'phone-tls'
+        prepare_https(self.tls)
+        where = patch.object(server, '_where', ('192.168.1.20', self.tls))
+        where.start()
+        self.addCleanup(where.stop)
+        server.TOKEN = server.saved_token()
+
+    def test_pairing_json_says_how_to_reach_this_mac_privately(self):
+        from pianasoul.web_tls import fingerprint
+        server.write_pairing()
+        path = self.data / 'pairing.json'
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        info = json.loads(path.read_text())
+        self.assertEqual(info, {'address': f'https://192.168.1.20:8765/#token={server.TOKEN}',
+                                'certificate': 'http://192.168.1.20:8764/', 'local_name': 'Test-Mac.local',
+                                'port': 8765, 'token': server.TOKEN, 'ca_sha256': fingerprint(self.tls)})
+        self.assertRegex(info['ca_sha256'], r'^([0-9A-F]{2} ){31}[0-9A-F]{2}$')
+
+    def test_the_certificate_page_serves_the_page_and_the_certificate_only(self):
+        import hashlib
+        import socket as sockets
+        import urllib.error
+        import urllib.request
+        sock = sockets.socket()
+        sock.bind(('127.0.0.1', 0))
+        sock.listen()
+        server.certificate_page(self.tls, sock)
+        base = f'http://127.0.0.1:{sock.getsockname()[1]}'
+        page = urllib.request.urlopen(base + '/').read().decode()
+        cer = urllib.request.urlopen(base + '/PianaSoul-CA.cer')
+        self.assertEqual(cer.headers['Content-Type'], 'application/x-x509-ca-cert')
+        digest = hashlib.sha256(cer.read()).hexdigest().upper()
+        self.assertIn(' '.join(digest[i:i + 2] for i in range(0, 64, 2)), page, 'Its fingerprint, to compare')
+        self.assertIn('PianaSoul on Test-Mac', page)
+        self.assertNotIn(server.TOKEN, page)
+        for other in ('/api/state', '/pairing.json', '/../phone-token', '/ca-key.pem'):
+            with self.assertRaises(urllib.error.HTTPError, msg=other) as refused:
+                urllib.request.urlopen(base + other)
+            self.assertEqual(refused.exception.code, 404)
+
+    def test_pairing_anew_from_the_mac_only(self):
+        server.write_pairing()
+        old = server.TOKEN
+        phone = signed_in(TestClient(server.app, headers=ORIGIN, client=('192.168.1.30', 50000)))
+        self.assertEqual(phone.post('/api/pairing/reset').json(), {'error': 'mac_only'})
+        mac = signed_in(TestClient(server.app, headers=ORIGIN, client=('127.0.0.1', 50000)))
+        self.assertEqual(mac.post('/api/pairing/reset').json(), {'ok': True})
+        self.assertNotEqual(server.TOKEN, old)
+        self.assertEqual(json.loads((self.data / 'pairing.json').read_text())['token'], server.TOKEN)
+        self.assertEqual((self.data / 'phone-token').read_text(), server.TOKEN)
+        self.assertEqual(phone.get('/api/state').status_code, 401, 'The old Home Screen app is signed out')
+
+    def test_a_port_in_use_is_said_plainly(self):
+        first = server.listen(0)
+        self.addCleanup(first.close)
+        with self.assertRaisesRegex(SystemExit, r'is PianaSoul already running'):
+            server.listen(first.getsockname()[1])
 
 
 if __name__ == '__main__':
