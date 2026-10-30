@@ -243,6 +243,11 @@ class Library:
     the app's server, its downloads and the piano all use the same library."""
 
     def __init__(self, db_path: Path = DB_PATH, music_dir: Path = MUSIC_DIR):
+        if db_path == DB_PATH and not db_path.exists() and not os.environ.get("PIANASOUL_DATA") \
+                and (OLD_OUTPUT / "library.db").is_file():  # a checkout's library from before: moved over, once
+            from .migrate import migrate
+
+            print(migrate(OLD_OUTPUT, music_dir, db_path.parent).summary(), flush=True)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.music_dir = Path(music_dir).resolve()
         self.transcribed = self.music_dir / TRANSCRIBED  # where the pieces PianaSoul makes are filed, by title

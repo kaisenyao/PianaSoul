@@ -7,6 +7,7 @@
 # ./run.sh play some words     -> play a library piece on Pianoteq over MIDI
 # ./run.sh voice               -> say "Hey Jasmine", then ask for a piece
 # ./run.sh app                 -> the iPhone app: library, player, conversations, and her voice
+# ./run.sh migrate --from output  -> copy a library kept in output/ to ~/Music/PianaSoul and Application Support
 set -euo pipefail
 cd "$(dirname "$0")"
 if [ ! -x .venv/bin/pianasoul ]; then echo "Run ./setup.sh first."; exit 1; fi

@@ -1,4 +1,4 @@
-"""Command line: pianasoul INPUT... [-o OUTPUT_DIR]"""
+"""Command line: pianasoul INPUT... [-o OUTPUT_DIR], or pianasoul migrate --from OUTPUT (migrate.py)."""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ from .pipeline import Options, convert_file
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["migrate"]:
+        from .migrate import main as migrate
+
+        return migrate(argv[1:])
     p = argparse.ArgumentParser(
         prog="pianasoul",
         description="Transcribe solo piano recordings (mp3/m4a/wav/flac) into performance MIDI with sustain pedal.",
