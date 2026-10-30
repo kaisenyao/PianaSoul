@@ -48,12 +48,12 @@ button:disabled { cursor: default; }
 input, textarea { -webkit-user-select: text; user-select: text; }
 svg { display: block; }
 
-/* The color at the top of the screen: the page's; the player's top while the player is up; black under a page sheet,
-   as on iOS; darker with the screen while a sheet or a question dims it. It is the page's background, which a Home
-   Screen app's status bar takes on (iOS 26), since the whole screen (#app) lies behind it in iOS's eyes. */
-:root { --player-top: hsl(var(--h, 220) 45% 24%); --top: var(--bg); }
-:root:has(#view-player:not([hidden]):not(.off)):not(:has(#app.sheeted)) { --top: var(--player-top); }
-:root:has(#app.sheeted) { --top: #000; }
+/* The color at the top of the screen: the page's; black over the player (whose top is black, so that the status bar
+   meets it however far it is swiped) and under a page sheet, as on iOS; darker with the screen while a sheet or a
+   question dims it. It is the page's background, which a Home Screen app's status bar takes on (iOS 26), since the
+   whole screen (#app) lies behind it in iOS's eyes. */
+:root { --top: var(--bg); }
+:root:has(#view-player:not([hidden]):not(.off)), :root:has(#app.sheeted) { --top: #000; }
 :root:has(#dim.show) body { background: color-mix(in srgb, var(--top) calc(100% - var(--sheet-dim) * 100%), #000); }
 
 /* The whole screen. The layers that only clip use overflow: clip, so focusing something can never scroll them. For iOS,
@@ -513,7 +513,7 @@ button.grow:active { background: var(--press); }
 /* The player is a page like the others: sideways is going around (in from the orb with a left swipe, or from the
    mini player; away with a right swipe), up and down is the piece itself: the player, then 详细信息, each snapping.
    It stays dark in both looks: it is the piece. */
-#pages > #view-player { overflow: clip; touch-action: none; color: #fff; color-scheme: dark; background: linear-gradient(var(--player-top), hsl(var(--h, 220) 30% 7%) 54%); }
+#pages > #view-player { overflow: clip; touch-action: none; color: #fff; color-scheme: dark; background: linear-gradient(#000, hsl(var(--h, 220) 45% 22%) 24%, hsl(var(--h, 220) 30% 7%) 64%); }
 #view-player.no-piece .pmain > :not(.art), #view-player.no-piece .pinfo { visibility: hidden; }
 .screens { height: 100%; transform: translateY(calc(var(--screen, 0) * -100% + var(--dy, 0px))); transition: transform .45s var(--ease); }
 .screens.dragging { transition: none; }
