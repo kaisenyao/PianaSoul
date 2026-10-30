@@ -8,7 +8,7 @@ import threading
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import mido
 import numpy as np
@@ -84,8 +84,12 @@ class AppTests(unittest.TestCase):
     def test_state_has_what_the_page_shows(self):
         state = signed_in(self.client).get('/api/state').json()
         self.assertEqual({r['piece'] for r in state['recordings']}, {'晴天', '搁浅'})
-        for key in ('jobs', 'playback', 'conversations', 'current', 'busy', 'settings', 'devices', 'version', 'search'):
+        for key in ('jobs', 'playback', 'conversations', 'current', 'busy', 'settings', 'devices', 'version', 'features'):
             self.assertIn(key, state)
+        self.assertEqual(set(state['features']), {'transcribe', 'search', 'assistant'})
+        self.assertTrue(state['features']['assistant'])
+        with patch('pianasoul.youtube.api_key', return_value=None):
+            self.assertFalse(self.client.get('/api/state').json()['features']['search'], 'No key, no search by name')
 
     def test_tapping_a_piece_plays_it_in_its_list_and_the_player_works(self):
         a, b = self.ids
@@ -223,6 +227,9 @@ class AppTests(unittest.TestCase):
 class VoiceTests(unittest.TestCase):
     def setUp(self):
         self.client = signed_in(TestClient(server.app))
+        with_her = patch.object(server, 'core', SimpleNamespace(assistant=Mock()))  # her itself: server.her, patched
+        with_her.start()
+        self.addCleanup(with_her.stop)
         stdout = patch('sys.stdout', new_callable=io.StringIO)  # the app's lines as a phone comes and goes
         stdout.start()
         self.addCleanup(stdout.stop)
@@ -349,12 +356,119 @@ class VoiceTests(unittest.TestCase):
                 self.assertEqual(third.receive_json()['type'], 'ready')
 
 
+class WithoutHerTests(unittest.TestCase):
+    """A Mac without her (no key, or no advanced extra): the library, the piano and the page work as ever; what
+    needs her, or transcription, says so."""
+
+    def setUp(self):
+        from pianasoul.core import Core
+        from pianasoul.library import Library
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name)
+        lib = Library(root / 'library.db', root / 'Music')
+        self.addCleanup(lib.close)
+        self.ids = [lib.add(make_midi(root / 'Music' / f'{t}.mid'), t)['id'] for t in ('晴天', '搁浅')]
+        self.core = Core(lib=lib, assistant=False)
+        self.addCleanup(self.core.close)
+        self.core.playback.port = Mock()
+        for patcher in (patch.object(server, 'core', self.core), patch.object(Playback, 'play'),
+                        contextlib.redirect_stdout(io.StringIO())):
+            patcher.__enter__()
+            self.addCleanup(patcher.__exit__, None, None, None)
+        self.client = signed_in(TestClient(server.app, headers=ORIGIN))
+
+    def test_the_library_and_the_piano_work(self):
+        state = self.client.get('/api/state').json()
+        self.assertFalse(state['features']['assistant'])
+        self.assertEqual((state['conversations'], state['current']), ([], None))
+        self.assertEqual(len(state['recordings']), 2)
+        with patch.object(Playback, 'check_connection'):
+            self.assertEqual(self.client.post('/api/play', json={'id': self.ids[0], 'ids': self.ids}).json()['state'],
+                             'playing')
+        self.assertEqual(self.client.patch(f'/api/recordings/{self.ids[1]}', json={'favorite': True}).status_code, 200)
+
+    def test_without_the_piano_the_page_hears_why(self):
+        with patch.object(Playback, 'check_connection', side_effect=LookupError('no MIDI output')):
+            answer = self.client.post('/api/play', json={'id': self.ids[0]})
+        self.assertEqual((answer.status_code, answer.json()), (409, {'error': 'piano'}))
+        self.assertIsNone(self.core.playback.current_id)
+
+    def test_what_needs_her_says_she_is_off(self):
+        for method, path, body in (('post', '/api/messages', {'text': '晴天'}), ('get', '/api/conversations', None),
+                                   ('post', '/api/conversations/new', None), ('get', '/api/conversations/1', None),
+                                   ('get', '/api/search?q=x', None), ('post', '/api/dictation', None)):
+            answer = getattr(self.client, method)(path, **({'json': body} if body else {}))
+            self.assertEqual((answer.status_code, answer.json()), (409, {'error': 'assistant_off'}), path)
+        with self.assertRaises(WebSocketDisconnect), self.client.websocket_connect('/voice') as socket:
+            socket.receive_json()
+
+    def test_what_needs_transcription_says_it_is_off(self):
+        with patch('pianasoul.core.installed', return_value=False):
+            self.assertFalse(self.client.get('/api/state').json()['features']['transcribe'])
+            for method, path, body in (('get', '/api/youtube?q=x', None),
+                                       ('post', '/api/downloads', {'url': 'https://youtu.be/abcdefghijk'})):
+                answer = getattr(self.client, method)(path, **({'json': body} if body else {}))
+                self.assertEqual((answer.status_code, answer.json()), (409, {'error': 'transcribe_off'}), path)
+        self.assertEqual(self.core.downloads.snapshot(), [])
+
+
+class LightInstallTests(unittest.TestCase):
+    def test_the_server_starts_with_none_of_the_advanced_extra(self):
+        """As with only the package's own dependencies installed: each package of the advanced extra fails to
+        import. The server and a Core without her start, and the page gets its state."""
+        script = """
+import sys
+HEAVY = ('transkun', 'torch', 'imageio_ffmpeg', 'yt_dlp', 'openai', 'anthropic', 'sherpa_onnx', 'pypinyin',
+         'sounddevice')
+for name in HEAVY:
+    sys.modules[name] = None  # import fails, find_spec finds nothing
+import places
+from pathlib import Path
+from fastapi.testclient import TestClient
+from pianasoul import server
+from pianasoul.core import Core
+server.core = Core(assistant=False)
+client = TestClient(server.app, headers={'origin': 'http://testserver'})
+client.cookies.set(server.COOKIE, server.TOKEN)
+state = client.get('/api/state').json()
+assert state['features'] == {'transcribe': False, 'search': False, 'assistant': False}, state['features']
+assert client.post('/api/messages', json={'text': 'x'}).status_code == 409
+server.core.close()
+print('ok')
+"""
+        import subprocess, sys
+        run = subprocess.run([sys.executable, '-c', script], cwd=Path(__file__).parent, capture_output=True, text=True,
+                             timeout=60)
+        self.assertEqual(run.stdout.strip().splitlines()[-1:], ['ok'], run.stderr)
+
+
 class StartTests(unittest.TestCase):
+    def test_without_her_the_app_still_starts_and_says_why(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict('os.environ', {'OPENAI_API_KEY': ''}), \
+             patch('pianasoul.library.DATA_DIR', Path(tmp)), \
+             patch('pianasoul.core.Core') as made, patch.object(server, 'voice_parts') as parts, \
+             patch('pianasoul.web_tls.prepare_https', return_value=('192.168.1.20', False)), \
+             patch('uvicorn.run') as run, patch('builtins.print') as shown, \
+             patch.object(server, 'TOKEN', server.TOKEN), patch.object(server, 'core', None):
+            made.return_value.features.return_value = {'transcribe': True, 'search': False, 'assistant': False}
+            server.main([])
+        made.assert_called_once()
+        self.assertFalse(made.call_args.kwargs['assistant'])
+        parts.assert_not_called()
+        run.assert_called_once()
+        printed = ' '.join(str(c.args[0]) for c in shown.call_args_list if c.args)
+        self.assertIn('her off (OPENAI_API_KEY is not set)', printed)
+        self.assertNotIn('Tap the orb', printed)
+
     def test_one_command_serves_the_iphone_at_the_macs_address(self):
         parts = SimpleNamespace(stt=SimpleNamespace(label='OpenAI x'), speaker=SimpleNamespace(label='ElevenLabs y'))
+        her = MagicMock(label='test')
+        her.features.return_value = {'transcribe': True, 'search': True, 'assistant': True}
         with tempfile.TemporaryDirectory() as tmp:
-            with patch('pianasoul.library.DATA_DIR', Path(tmp)), \
-                 patch('pianasoul.core.Core', return_value=Mock(label='test')), \
+            with patch('pianasoul.library.DATA_DIR', Path(tmp)), patch.dict('os.environ', {'OPENAI_API_KEY': 'test'}), \
+                 patch('pianasoul.core.installed', return_value=True), \
+                 patch('pianasoul.core.Core', return_value=her), \
                  patch('pianasoul.core.version', return_value={'commit': 'abc', 'repo': ''}), \
                  patch.object(server, 'voice_parts', return_value=SimpleNamespace(
                      describe=lambda model, name, **more: voice.VoiceParts.describe(parts, model, name, **more),

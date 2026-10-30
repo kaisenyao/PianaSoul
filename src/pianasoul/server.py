@@ -5,7 +5,7 @@ conversations and new pieces. The phone shows them and changes them, and is her 
 
 /api/... answers the page, /events tells it what changed, and /voice carries the microphone one way and her voice
 the other while the orb is on. All three need the cookie the page gets for the address's token; the page and its
-files do not.
+files do not. What needs her, or transcription, answers 409 when this Mac has not got it (Core.features).
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import base64
 import hmac
 import json
 import logging
+import os
 from pathlib import Path
 import secrets
 import subprocess
@@ -36,6 +37,8 @@ COOKIE = 'pianasoul'
 TYPED_NOTE = """
 Requests typed in the app (typed is true in the application state) are answered on screen, not aloud; keep them
 just as short."""
+NEEDS = {'/api/messages': 'assistant', '/api/conversations': 'assistant', '/api/search': 'assistant',
+         '/api/dictation': 'assistant', '/api/youtube': 'transcribe', '/api/downloads': 'transcribe'}
 TOKEN = secrets.token_urlsafe(32)  # main() uses the saved one
 app = FastAPI(title='PianaSoul', docs_url=None, redoc_url=None, openapi_url=None)
 core = None  # the Core; main() makes it, tests give their own
@@ -74,6 +77,12 @@ def signed_in(cookies) -> bool:
     return hmac.compare_digest(cookies.get(COOKIE, '').encode(), TOKEN.encode())
 
 
+def missing(path: str) -> str | None:
+    """What a path needs that this Mac has not got: 'assistant_off' or 'transcribe_off'."""
+    need = next((need for prefix, need in NEEDS.items() if path == prefix or path.startswith(prefix + '/')), None)
+    return f'{need}_off' if need and not core.features()[need] else None
+
+
 @app.middleware('http')
 async def guard(request: Request, call_next):
     """The page and its files are public; everything under /api needs the cookie, and changes the same origin. A
@@ -84,6 +93,8 @@ async def guard(request: Request, call_next):
             response = JSONResponse({'error': 'signed_out'}, status_code=401)
         elif request.method != 'GET' and not same_origin(request.headers):
             response = JSONResponse({'error': 'origin'}, status_code=403)
+        elif off := missing(path):
+            response = JSONResponse({'error': off}, status_code=409)
     response = response or await call_next(request)
     if response.status_code >= 400:
         log.debug('%s %s: %d', request.method, path, response.status_code)
@@ -117,12 +128,12 @@ def session(request: Request, response: Response, token: str = Body(embed=True))
 # ---- what the page shows ------------------------------------------------------------------------------
 @app.get('/api/state')
 def state():
-    from . import youtube
     from .core import devices
+    her = core.assistant
     return {'recordings': core.recordings(), 'jobs': core.downloads.snapshot(),
-            'playback': core.playback.snapshot(), 'conversations': core.conversations.all(),
-            'current': core.assistant.conversation_id, 'busy': core.busy, 'settings': core.settings(), 'devices': devices(),
-            'version': version, 'search': bool(youtube.api_key())}
+            'playback': core.playback.snapshot(), 'conversations': core.conversations.all() if her else [],
+            'current': her.conversation_id if her else None, 'busy': core.busy, 'settings': core.settings(),
+            'devices': devices(), 'version': version, 'features': core.features()}
 
 
 @app.get('/api/recordings')
@@ -235,8 +246,11 @@ def playback(action: str = Body(embed=True), value: float | str | None = Body(de
 
 
 def _piano_missing(exc) -> JSONResponse:
-    """The piano is not there: why shows here, and she tells you in the conversation."""
-    core.assistant.piano_news(core.assistant.piano_missing(exc))
+    """The piano is not there: why shows here, and on the page; she tells you in the conversation too."""
+    if core.assistant:
+        core.assistant.piano_news(core.assistant.piano_missing(exc))
+    else:
+        print(f'  (cannot play: {exc})', flush=True)
     return JSONResponse({'error': 'piano'}, status_code=409)
 
 
@@ -466,6 +480,9 @@ async def voice(socket: WebSocket):
     if not same_origin(socket.headers) or not signed_in(socket.cookies):
         await socket.close(code=1008)
         return
+    if core.assistant is None:
+        await socket.close(code=1008, reason='assistant_off')
+        return
     await socket.accept()
     if _voice.locked():
         await socket.close(code=1013, reason='Another phone is connected')
@@ -566,29 +583,42 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--debug', action='store_true', help='also show what happens in detail, with times')
     show_details(parser.parse_args(argv).debug)
-    from .core import Core, version as running
+    import uvicorn
+    from .chat import startup
+    from .core import Core, installed, version as running
     from .library import DATA_DIR
     from .web_tls import CA_FILE, local_name, prepare_https
     TOKEN = saved_token()
+    her, why = True, ''
+    if not installed('transkun', 'yt_dlp'):
+        her, why = False, 'the advanced extra is not installed'
+    elif not os.environ.get('OPENAI_API_KEY'):
+        her, why = False, 'OPENAI_API_KEY is not set'
+    else:
+        print('Loading speech recognition and the wake word…', flush=True)
+        try:
+            voice_parts()
+        except Exception as exc:  # no network for the first download, say
+            her, why = False, f'her voice did not load: {exc}'
     try:
-        core = Core(VOICE_NOTE + TYPED_NOTE)
-    except Exception as exc:
-        parser.exit(2, f'Cannot start the chat model: {exc}\n')
+        core = Core(VOICE_NOTE + TYPED_NOTE, assistant=her)
+    except Exception as exc:  # her chat model did not start
+        her, why = False, f'her chat model did not start: {exc}'
+        core = Core(assistant=False)
     version = running()
-    print('Loading speech recognition and the wake word…', flush=True)
-    try:
-        import uvicorn
-        parts = voice_parts()
-    except ImportError as exc:
-        parser.exit(2, f'The app needs the extras: uv pip install --python .venv/bin/python -e ".[app]" ({exc})\n')
-    except (OSError, RuntimeError, ValueError) as exc:  # no network for the first download, or no OpenAI key
-        parser.exit(2, f'Cannot start her voice: {exc}\n')
+    features = core.features()
+    print('Features: ' + '; '.join([
+        f'transcription {"on" if features["transcribe"] else "off (the advanced extra is not installed)"}',
+        f'search by name {"on" if features["search"] else "off (needs transcription and YOUTUBE_API_KEY)"}',
+        f'her {"on" if her else f"off ({why})"}']), flush=True)
     tls = DATA_DIR / 'phone-tls'
     try:
         host, new = prepare_https(tls)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         parser.exit(2, f'Cannot set up HTTPS: {exc}\n')
-    print(parts.describe(core.label, 'app', address=f'https://{host}:{PORT}/#token={TOKEN}'))
+    address = f'https://{host}:{PORT}/#token={TOKEN}'
+    print(voice_parts().describe(core.label, 'app', address=address) if her else
+          startup('app', library=f'{core.lib.count()} piece(s) in {core.lib.music_dir}', address=address))
     if new:  # the one step by hand, shown only now: the iPhone learns to trust this Mac
         print(f'\nFirst time on this Mac: let the iPhone trust it, once.\n\n'
               f'  1. Send     Finder shows {CA_FILE}: right-click > Share > AirDrop\n'
@@ -599,9 +629,9 @@ def main(argv=None):
               f'  The file: {tls / CA_FILE}\n', flush=True)
         if sys.platform == 'darwin':
             subprocess.run(['open', '-R', str(tls / CA_FILE)], check=False)
-    said = ' or '.join(f'"{w}"' for w in parts.wake.words)
-    print(f'Keep the address private.\n'
-          f'Tap the orb and say {said}, then your request. Control+C quits.\n', flush=True)
+    said = ' or '.join(f'"{w}"' for w in voice_parts().wake.words) if her else ''
+    print('Keep the address private.\n' + (f'Tap the orb and say {said}, then your request. ' if her else '') +
+          'Control+C quits.\n', flush=True)
     # Only what matters shows, as with ./run.sh voice: no request log, no "running on 0.0.0.0" to mistake for the
     # address, and no error for quitting while a phone in the background never says goodbye (it stops in 2 s).
     logging.getLogger('uvicorn.error').addFilter(

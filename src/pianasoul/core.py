@@ -1,10 +1,14 @@
 """PianaSoul while it runs on the Mac: one library, one piano, one assistant with her conversations, and one queue
 of new pieces. The terminal chat, the Mac's voice and the phone app are ways in; each runs one Core, so whatever
 one of them does, the others see.
+
+Without her (no chat model: the advanced extra or a key is missing) the library, the piano and the queue work all
+the same; what needs her is not there (assistant is None).
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -12,6 +16,7 @@ import subprocess
 import threading
 from pathlib import Path
 
+from . import youtube
 from .chat import INSTRUCTIONS, TOOLS, Assistant, Worker
 from .conversations import Conversations
 from .downloads import Downloads
@@ -23,26 +28,29 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Core:
-    def __init__(self, note: str = "", lib: Library | None = None, chat=None):
+    def __init__(self, note: str = "", lib: Library | None = None, chat=None, assistant: bool = True):
         """note: what the chat model is told besides INSTRUCTIONS (voice says that replies are spoken).
-        chat: (chat, label) to use instead of the configured model."""
-        from .llm import make_chat
-
+        chat: (chat, label) to use instead of the configured model. assistant=False: without her."""
         self.lib = lib or Library()
         self.lib.index_midi_folder()
         self.playback = Playback(self.lib)
-        self.conversations = Conversations(self.lib)
-        self.downloads = Downloads(self.lib, name_piece=name_piece)
-        self.assistant = Assistant(self.lib, self.playback, self.conversations, self.downloads)
-        self.chat, self.label = chat or make_chat(INSTRUCTIONS + note, TOOLS)
-        self.assistant.restore(self.chat)
-        self.worker = Worker()  # typed requests, in order
+        self.conversations = Conversations(self.lib)  # kept without her too: a deleted piece leaves them
+        self.downloads = Downloads(self.lib, name_piece=name_piece if assistant else None)
         self.listeners: list = []  # called with each event, on whichever thread it happens
+        self.busy = None  # the conversation she is answering in, while she answers
+        self.assistant = self.chat = None
+        self.label = ""
+        if assistant:
+            from .llm import make_chat
+
+            self.chat, self.label = chat or make_chat(INSTRUCTIONS + note, TOOLS)
+            self.assistant = Assistant(self.lib, self.playback, self.conversations, self.downloads)
+            self.assistant.restore(self.chat)
+            self.assistant.on_message = lambda message: self.emit({"type": "message", "message": message})
+            self.assistant.on_busy = self._busy_changed
+            self.worker = Worker()  # typed requests, in order
         self.playback.listeners.append(self._playback_changed)
         self.downloads.listeners.append(self._downloads_changed)
-        self.assistant.on_message = lambda message: self.emit({"type": "message", "message": message})
-        self.busy = None  # the conversation she is answering in, while she answers
-        self.assistant.on_busy = self._busy_changed
         self._jobs = 0
         self._playing = None
         self._told = False  # the piano's going away, while the piece waits for it
@@ -61,23 +69,23 @@ class Core:
         self.emit({"type": "playback", **snapshot})
         lost = self.playback.lost
         if lost and not self._told:  # the piano went away while playing: she tells you in the conversation, once,
-            self._told = True  # and says it too if she is on (voice.Conversation.remark)
+            self._told = True  # and says it too if she is on (voice.Conversation.remark); the phone shows it
             print(f"  ⏸ {self.playback.current[1]}  {clock(self.playback.position)}  ({lost})", flush=True)
-            self.assistant.piano_news({"error": "playback_connection_lost"})
+            if self.assistant:
+                self.assistant.piano_news({"error": "playback_connection_lost"})
         elif not lost:
             self._told = False
         if snapshot["state"] != "playing":
             self._playing = None
         elif snapshot["id"] != self._playing:  # it is in 最近播放 now, and a piece she meant to retry is old news
             self._playing = snapshot["id"]
-            self.assistant.pending = None
+            if self.assistant:
+                self.assistant.pending = None
             self.emit({"type": "library"})
 
     def _fill_in_videos(self) -> None:
         """Pieces downloaded before the library kept their videos' details get them from YouTube, with the
         request a search makes (one for up to 50 videos)."""
-        from . import youtube
-
         missing = [r for r in self.lib.all() if not r["video_title"] and youtube.video_id(r["source_url"])]
         if not missing or not youtube.api_key():
             return
@@ -99,6 +107,13 @@ class Core:
             self.emit({"type": "library"})
 
     # ---- what the app shows -----------------------------------------------------------------------
+    def features(self) -> dict:
+        """What this Mac can do beyond the library and the piano: transcribe (the advanced extra is installed), search
+        for pieces by name (and a YouTube key is set), and her."""
+        transcribe = installed("transkun", "yt_dlp")
+        return {"transcribe": transcribe, "search": transcribe and bool(youtube.api_key()),
+                "assistant": self.assistant is not None}
+
     def recordings(self) -> list[dict]:
         return [recording(r) for r in self.lib.all() if r["file_exists"]]
 
@@ -167,6 +182,14 @@ def recording(rec: dict) -> dict:
     parts = title_parts(rec["title"], rec["composer"], rec["performer"])
     return {**{k: rec.get(k) for k in keep}, "piece": parts["piece"], "artist": parts["artist"],
             "performer": parts["performer"]}
+
+
+def installed(*modules: str) -> bool:
+    """Whether these modules can be imported, without importing them."""
+    try:
+        return all(importlib.util.find_spec(name) is not None for name in modules)
+    except (ImportError, ValueError):
+        return False
 
 
 def name_piece(query: str, video: dict) -> dict | None:
