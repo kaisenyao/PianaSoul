@@ -413,6 +413,93 @@ class WithoutHerTests(unittest.TestCase):
         self.assertEqual(self.core.downloads.snapshot(), [])
 
 
+class UploadTests(unittest.TestCase):
+    """Files from the phone go into the library folder as if put there by hand; deleting sends them to the Trash."""
+
+    def setUp(self):
+        from pianasoul.core import Core
+        from pianasoul.library import Library
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        self.music = self.root / 'Music'
+        lib = Library(self.root / 'library.db', self.music)
+        self.addCleanup(lib.close)
+        self.core = Core(lib=lib, assistant=False)
+        self.addCleanup(self.core.close)
+        for patcher in (patch.object(server, 'core', self.core), patch('pianasoul.core.installed', return_value=False),
+                        contextlib.redirect_stdout(io.StringIO())):
+            patcher.__enter__()
+            self.addCleanup(patcher.__exit__, None, None, None)
+        self.client = signed_in(TestClient(server.app, headers=ORIGIN))
+
+    def send(self, name, content):
+        return self.client.post('/api/uploads', params={'name': name}, content=content)
+
+    def left_over(self):
+        return [p.name for p in self.music.iterdir() if p.name.startswith('.')]
+
+    def test_a_midi_file_becomes_a_piece_of_yours(self):
+        midi = make_midi(self.root / 'x.mid').read_bytes()
+        self.assertEqual(self.send('Clair de Lune.mid', midi).json(), {'name': 'Clair de Lune.mid'})
+        self.assertEqual(self.send('Clair de Lune.mid', midi).json(), {'name': 'Clair de Lune (2).mid'},
+                         'A name taken: as Finder would')
+        pieces = self.client.get('/api/state').json()['recordings']
+        self.assertEqual(sorted((r['title'], r['origin']) for r in pieces),
+                         [('Clair de Lune', 'yours'), ('Clair de Lune (2)', 'yours')])
+        self.assertEqual(self.send('../../evil:name.mid', midi).json(), {'name': 'evil_name.mid'}, 'Only a name')
+        self.assertTrue((self.music / 'evil_name.mid').is_file())
+
+    def test_a_recording_waits_to_be_transcribed(self):
+        self.assertEqual(self.send('Nocturne.mp3', b'ID3' + b'\0' * 100).status_code, 200)
+        self.assertEqual([(a['name'], a['status']) for a in self.client.get('/api/state').json()['audio']],
+                         [('Nocturne', 'waiting')])
+
+    def test_what_is_not_music_or_too_large_leaves_nothing(self):
+        self.assertEqual(self.send('notes.txt', b'hello').json(), {'error': 'type'})
+        self.assertEqual(self.send('fake.mid', b'not midi at all').status_code, 415)
+        self.assertEqual(self.send('broken.mid', b'MThd' + b'\0' * 10).status_code, 415, 'MIDI in name only')
+        self.assertEqual(self.send('empty.mp3', b'').status_code, 415)
+        with patch.dict(server.UPLOAD_LIMITS, {'audio': 1000}):
+            told = self.client.post('/api/uploads', params={'name': 'big.mp3'}, content=b'\0' * 2000)
+            self.assertEqual(told.status_code, 413, 'Refused by its declared size')
+            streamed = self.client.post('/api/uploads', params={'name': 'big.mp3'},
+                                        content=(b'\0' * 400 for _ in range(5)))  # no size given: chunked
+            self.assertEqual(streamed.json(), {'error': 'too_large'}, 'Stopped as it comes')
+        self.assertEqual(sorted(p.name for p in self.music.iterdir()), [])
+        self.assertEqual(self.left_over(), [])
+
+    def test_uploads_need_the_cookie_and_the_page(self):
+        anyone = TestClient(server.app, headers=ORIGIN)
+        self.assertEqual(anyone.post('/api/uploads', params={'name': 'x.mid'}, content=b'MThd').status_code, 401)
+        elsewhere = self.client.post('/api/uploads', params={'name': 'x.mid'}, content=b'MThd',
+                                     headers={'origin': 'https://evil.example'})
+        self.assertEqual(elsewhere.status_code, 403)
+
+    def test_deleting_sends_files_to_the_trash_and_a_recording_comes_back_to_transcribe(self):
+        from pianasoul.library import file_result
+        self.send('Mine.mid', make_midi(self.root / 'x.mid').read_bytes())
+        self.send('Clair de Lune.mp3', b'ID3' + b'\0' * 100)
+        recording = self.core.lib.audio()[0]
+        made = file_result(self.core.lib, make_midi(self.root / 'made.mid'), 'Clair de Lune',
+                           source_type='local', source_url=recording['path'])
+        self.core.lib.set_audio(recording['id'], status='done', recording_id=made['id'])
+        self.assertEqual(self.client.get('/api/state').json()['audio'], [], 'Its piece stands for it')
+        trashed = len(list(places.TRASH.rglob('*'))) if places.TRASH.exists() else 0
+        ids = [r['id'] for r in self.client.get('/api/state').json()['recordings']]
+        self.assertEqual(self.client.request('DELETE', '/api/recordings', json={'ids': ids}).status_code, 200)
+        self.assertEqual(self.client.get('/api/state').json()['recordings'], [])
+        self.assertEqual(sorted(p.name for p in self.music.rglob('*.mid')), [])
+        self.assertGreaterEqual(len(list(places.TRASH.rglob('*.mid'))), 2, 'In the Trash, not deleted')
+        self.assertEqual([a['name'] for a in self.client.get('/api/state').json()['audio']], ['Clair de Lune'],
+                         'The recording is yours: it stays, to be transcribed again')
+        self.assertEqual(self.client.delete(f'/api/audio/{recording["id"]}').status_code, 200)
+        self.assertEqual(self.client.get('/api/state').json()['audio'], [])
+        self.assertFalse((self.music / 'Clair de Lune.mp3').exists())
+        self.assertGreater(len(list(places.TRASH.rglob('*'))), trashed)
+        self.assertEqual(self.client.delete(f'/api/audio/{recording["id"]}').status_code, 404)
+
+
 class LightInstallTests(unittest.TestCase):
     def test_the_server_starts_with_none_of_the_advanced_extra(self):
         """As with only the package's own dependencies installed: each package of the advanced extra fails to

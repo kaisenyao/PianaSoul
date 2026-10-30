@@ -20,6 +20,7 @@ from pathlib import Path
 import secrets
 import subprocess
 import sys
+import threading
 import time
 from urllib.parse import urlsplit
 
@@ -39,6 +40,7 @@ Requests typed in the app (typed is true in the application state) are answered 
 just as short."""
 NEEDS = {'/api/messages': 'assistant', '/api/conversations': 'assistant', '/api/search': 'assistant',
          '/api/dictation': 'assistant', '/api/youtube': 'transcribe', '/api/downloads': 'transcribe'}
+UPLOAD_LIMITS = {'midi': 10 << 20, 'audio': 500 << 20}  # bytes
 TOKEN = secrets.token_urlsafe(32)  # main() uses the saved one
 app = FastAPI(title='PianaSoul', docs_url=None, redoc_url=None, openapi_url=None)
 core = None  # the Core; main() makes it, tests give their own
@@ -46,6 +48,7 @@ version = {'commit': '', 'repo': ''}
 log = logging.getLogger(__spec__.name)
 _voice = asyncio.Lock()  # one phone at a time is her ears and voice
 _parts = _stt = _her = None
+_naming = threading.Lock()  # one upload at a time takes a name in the library folder
 _notes: dict[int, list] = {}
 
 
@@ -270,10 +273,61 @@ def edit(rec_id: int, change: dict = Body()):
 
 @app.delete('/api/recordings')
 def delete(ids: list[int] = Body(embed=True)):
-    """One piece or several, in one go."""
+    """One piece or several, in one go, their files to the Mac's Trash."""
     core.delete_recordings(ids)
     for rec_id in ids:
         _notes.pop(rec_id, None)  # its number may be given to the next new piece
+    return {'ok': True}
+
+
+@app.post('/api/uploads')
+async def upload(request: Request, name: str):
+    """One file for the library folder, its content the request's body and name its file name: a MIDI file or a
+    recording, as yours, as if put there by hand ("name (2)" when the name is taken). It is written to a hidden file
+    as it comes, stopped as soon as it is too large, and named only once it is whole; nothing stays of one that
+    fails."""
+    from starlette.requests import ClientDisconnect
+    from .audio import AUDIO_EXTENSIONS
+    from .library import MIDI_TYPES, free_name, safe_name
+    suffix = Path(name).suffix.lower()
+    kind = 'midi' if suffix in MIDI_TYPES else 'audio' if suffix in AUDIO_EXTENSIONS else None
+    if kind is None:
+        return JSONResponse({'error': 'type'}, status_code=415)
+    limit = UPLOAD_LIMITS[kind]
+    if int(request.headers.get('content-length') or 0) > limit:
+        return JSONResponse({'error': 'too_large'}, status_code=413)
+    folder = core.lib.music_dir
+    folder.mkdir(parents=True, exist_ok=True)
+    part = folder / f'.upload-{secrets.token_hex(8)}.part'  # hidden: the folder's scan passes it over
+    try:
+        size = 0
+        with part.open('wb') as f:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > limit:
+                    return JSONResponse({'error': 'too_large'}, status_code=413)
+                await asyncio.to_thread(f.write, chunk)
+        with part.open('rb') as f:
+            if not size or (kind == 'midi' and f.read(4) != b'MThd'):
+                return JSONResponse({'error': 'type'}, status_code=415)
+        with _naming:
+            dest = free_name(folder, safe_name(Path(name).stem) + suffix)
+            part.rename(dest)
+    except ClientDisconnect:  # the phone went: nobody to answer
+        return Response(status_code=400)
+    finally:
+        part.unlink(missing_ok=True)
+    if not await asyncio.to_thread(core.folder.take_in, dest):  # a MIDI file that is not one after all
+        dest.unlink(missing_ok=True)
+        return JSONResponse({'error': 'type'}, status_code=415)
+    return {'name': dest.name}
+
+
+@app.delete('/api/audio/{audio_id}')
+def delete_audio(audio_id: int):
+    """A recording to transcribe, to the Mac's Trash."""
+    if not core.delete_audio(audio_id):
+        raise HTTPException(404)
     return {'ok': True}
 
 

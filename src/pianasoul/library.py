@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pretty_midi
+from send2trash import send2trash
 
 from .cleanup import pedal_intervals
 
@@ -356,6 +357,16 @@ class Library:
         self.execute("UPDATE audio SET fingerprint = ?, stamp = ? WHERE id = ?",
                      (fingerprint(path), stamp(path), audio_id))
 
+    def delete_audio(self, audio_id: int) -> bool:
+        """Take a recording to transcribe out of the library, its file to the Trash."""
+        item = self.audio_item(audio_id)
+        if item is None:
+            return False
+        if self.here(Path(item["path"])):
+            send2trash(item["path"])
+        self.execute("DELETE FROM audio WHERE id = ?", (audio_id,))
+        return True
+
     def set_audio(self, audio_id: int, **fields) -> None:
         """status, recording_id and error."""
         assignments = ", ".join(f"{k} = ?" for k in fields)
@@ -414,17 +425,17 @@ class Library:
         return self.update(rec_id, title=make_title(piece, artist, performer), composer=artist, performer=performer)
 
     def delete(self, rec_id: int) -> bool:
-        """Take a recording out of the library. Its MIDI file goes too when it is in Transcribed/."""
+        """Take a recording out of the library, its file to the Trash (yours as well as one in Transcribed/). The
+        recording it was transcribed from stays, to be transcribed again."""
         rec = self.get(rec_id)
         if rec is None:
             return False
+        if rec["file_exists"]:
+            send2trash(rec["midi_path"])
         with self.lock:
             self.db.execute("DELETE FROM recordings WHERE id = ?", (rec_id,))
             self.db.execute("UPDATE audio SET recording_id = NULL WHERE recording_id = ?", (rec_id,))
             self.db.commit()
-        midi = Path(rec["midi_path"])
-        if midi.parent == self.transcribed:
-            midi.unlink(missing_ok=True)
         return True
 
     def favorite(self, rec_id: int, on: bool) -> None:

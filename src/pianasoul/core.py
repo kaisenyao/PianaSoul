@@ -203,13 +203,20 @@ class Core:
         self.worker.submit(delete)
 
     def delete_recordings(self, ids: list[int]) -> None:
-        """Pieces leave the library, with their files: out of the list that plays, and gone where she played them.
-        The app hears once."""
+        """Pieces leave the library, their files to the Trash: out of the list that plays, and gone where she played
+        them. The app hears once."""
         for rec_id in ids:
             self.playback.forget(rec_id)
             self.lib.delete(rec_id)
             self.conversations.forget(rec_id)
         self.emit({"type": "library"})
+        self._audio_changed()  # a transcribed piece gone: its recording is back
+
+    def delete_audio(self, audio_id: int) -> bool:
+        """A recording to transcribe leaves the library, its file to the Trash."""
+        deleted = self.lib.delete_audio(audio_id)
+        self._audio_changed()
+        return deleted
 
     def close(self) -> None:
         """Stop the piano, letting the notes already sent finish."""

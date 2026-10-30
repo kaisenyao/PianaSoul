@@ -112,6 +112,15 @@ class Folder:
             return False
         return True
 
+    def take_in(self, path: Path) -> bool:
+        """A file known to be whole (one the phone sent, written in full and then named): into the library at once.
+        False when it is not what its name says (a MIDI file that is not one)."""
+        with self._lock:
+            taken = self._take_in(path)
+        if taken and self.on_change:
+            self.on_change()
+        return taken
+
     def _refresh(self, path: Path, known: dict) -> bool:
         try:
             if path.suffix.lower() in MIDI_TYPES:
