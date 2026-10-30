@@ -50,16 +50,25 @@ svg { display: block; }
 
 /* The whole screen. The layers that only clip use overflow: clip, so focusing something can never scroll them. */
 #app {
-  position: fixed; inset: 0; overflow: clip; background: var(--bg); touch-action: pan-y;
+  position: fixed; inset: 0; overflow: clip; touch-action: pan-y;
   --safe-top: env(safe-area-inset-top, 20px); --safe-bottom: env(safe-area-inset-bottom, 0px);
   --card-top: max(calc(var(--safe-top) - 8px), 10px);  /* where a page sheet pushes the screen back to (below) */
   padding-bottom: var(--safe-bottom);  /* read by the long-press menu */
   --p: 0; --w: 78vw;
+  /* A Home Screen app's status bar takes the background color of the fixed element at the top of the page (iOS 26):
+     this one, so it is kept as the color at the top of the screen. The page's; the player's top while the player is
+     up; black under a page sheet, as on iOS; darker with the screen while a sheet or a question dims it. */
+  --player-top: hsl(var(--h, 220) 45% 24%);
+  --top: var(--bg);
+  background: var(--top);
 }
+#app:not(.sheeted):has(#view-player:not([hidden]):not(.off)) { --top: var(--player-top); }
+#app.sheeted { --top: #000; }
+#app:has(#dim.show) { background: color-mix(in srgb, var(--top) calc(100% - var(--sheet-dim) * 100%), #000); }
 
 /* ---------- Sidebar: stays put underneath; the main screen slides right to reveal it ---------- */
 #sidebar {
-  position: absolute; top: 0; bottom: 0; left: 0; width: var(--w);
+  position: absolute; top: 0; bottom: 0; left: 0; width: var(--w); background: var(--bg);
   display: flex; flex-direction: column; padding-top: calc(var(--safe-top) + 4px);
   transform: translateX(calc((var(--p) - 1) * 36px));
   opacity: calc(.25 + .75 * var(--p));
@@ -138,7 +147,6 @@ svg { display: block; }
 .dragging #main, .dragging #sidebar, .dragging #scrim { transition: none; }
 /* A page sheet pushes the screen behind it back, as on iOS: onto black, its top just under the status bar, or a
    little below the top of the page when the status bar is not over it (a Home Screen app). */
-#app.sheeted { background: #000; }
 .sheeted #main, .sheeted #pages { transform: translateY(var(--card-top)) scale(.92); border-radius: 14px; }
 .sheeted #main { transition-duration: .45s; }
 #pages { position: absolute; inset: 0; z-index: 35; pointer-events: none; transform-origin: 50% 0; transition: transform .45s var(--ease); }
@@ -504,9 +512,7 @@ button.grow:active { background: var(--press); }
 /* The player is a page like the others: sideways is going around (in from the orb with a left swipe, or from the
    mini player; away with a right swipe), up and down is the piece itself: the player, then 详细信息, each snapping.
    It stays dark in both looks: it is the piece. */
-/* Behind the player, the dark it is drawn on: no light hairline where the screen's edge cuts it */
-:root:has(#view-player:not([hidden]):not(.off)) #app { background: #000; }
-#pages > #view-player { overflow: clip; touch-action: none; color: #fff; color-scheme: dark; background: linear-gradient(hsl(var(--h, 220) 45% 24%), hsl(var(--h, 220) 30% 7%) 54%); }
+#pages > #view-player { overflow: clip; touch-action: none; color: #fff; color-scheme: dark; background: linear-gradient(var(--player-top), hsl(var(--h, 220) 30% 7%) 54%); }
 #view-player.no-piece .pmain > :not(.art), #view-player.no-piece .pinfo { visibility: hidden; }
 .screens { height: 100%; transform: translateY(calc(var(--screen, 0) * -100% + var(--dy, 0px))); transition: transform .45s var(--ease); }
 .screens.dragging { transition: none; }

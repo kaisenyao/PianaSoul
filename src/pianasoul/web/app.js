@@ -77,7 +77,7 @@ function applySettings() {
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
   const theme = data.settings.appearance === 'system' ? (dark.matches ? 'dark' : 'light') : data.settings.appearance;
   document.documentElement.dataset.theme = theme;
-  paintStatusBar();
+  $('meta[name=theme-color]').content = theme === 'dark' ? '#000000' : '#ffffff';
   for (const el of document.querySelectorAll('[data-t]')) el.textContent = T[el.dataset.t];
   for (const el of document.querySelectorAll('[data-t-placeholder]')) el.placeholder = T[el.dataset.tPlaceholder];
   for (const el of document.querySelectorAll('[data-t-label]')) el.setAttribute('aria-label', T[el.dataset.tLabel]);
@@ -671,9 +671,8 @@ function renderNow() {
   $('#p-mode').setAttribute('aria-label', T.modes[mode]);
   $('#view-player').classList.toggle('no-piece', !p);
   renderVolume();
-  if (p) for (const el of [mini, $('#view-player')]) el.style.setProperty('--h', hueOf(p.id));
-  paintStatusBar();
   if (!p) return;
+  app.style.setProperty('--h', hueOf(p.id));  // its color: the mini player's, the player's, the status bar's over it
   $('#mini-title').textContent = $('#p-title').textContent = p.piece;
   $('#mini-sub').textContent = $('#p-sub').textContent = subtitle(p);
   const infoKey = JSON.stringify(p);
@@ -1353,27 +1352,12 @@ $('#help-list').addEventListener('click', e => {
 });
 
 // ---------- Overlays ----------
-// The screen dims under a sheet or a question, and the status bar with it.
-function dim(on) {
-  $('#dim').classList.toggle('show', on);
-  paintStatusBar();
-}
-// The status bar shows the color at the top of the screen, since a Home Screen app cannot draw under it: the
-// page's; the player's top while it is up (style.css: #view-player, dark in both looks); black under a sheet that
-// pushes the screen back; darker with the screen while it is dimmed (by the dimmer's opacity: lightness scales).
-function paintStatusBar() {
-  const back = app.classList.contains('sheeted'), player = state.view === 'player' && !back;
-  const [h, s, l] = player ? [parseFloat(getComputedStyle($('#view-player')).getPropertyValue('--h')) || 220, 45, 24]
-    : [0, 0, !back && document.documentElement.dataset.theme === 'light' ? 100 : 0];
-  const dimmed = $('#dim').classList.contains('show') ? parseFloat(getComputedStyle(app).getPropertyValue('--sheet-dim')) : 0;
-  $('meta[name=theme-color]').content = `hsl(${h}, ${s}%, ${+(l * (1 - dimmed)).toFixed(1)}%)`;
-}
 let openSheet = null;
 // A full sheet pushes the screen behind it back, as on iOS; a half sheet (播放列表) leaves it where it is.
 function showSheet(sheet) {
   openSheet = sheet;
   app.classList.toggle('sheeted', !sheet.classList.contains('half'));
-  dim(true);
+  $('#dim').classList.add('show');
   sheet.classList.add('show');
 }
 // An action sheet, as iOS asks before what cannot be undone: the red button does it, 取消 does not.
@@ -1381,7 +1365,7 @@ let confirmed = null;
 function openAction(label, then) {
   $('#confirm-yes').textContent = label;
   confirmed = then;
-  dim(true);
+  $('#dim').classList.add('show');
   $('#confirm').classList.add('show');
 }
 $('#confirm-yes').addEventListener('click', () => {
@@ -1395,8 +1379,7 @@ function closeOverlays() {
   openSheet = null;
   naming = confirmed = null;
   app.classList.remove('sheeted');
-  for (const id of ['#confirm', '#rename']) $(id).classList.remove('show');
-  dim(false);
+  for (const id of ['#dim', '#confirm', '#rename']) $(id).classList.remove('show');
   document.activeElement?.blur?.();
 }
 const overlayOpen = () => openSheet || $('#confirm').classList.contains('show') || $('#rename').classList.contains('show');
@@ -1475,7 +1458,7 @@ function askName(title, value, save) {
   $('#rename-title').textContent = title;
   const input = $('#rename-input');
   input.value = value;
-  dim(true);
+  $('#dim').classList.add('show');
   $('#rename').classList.add('show');
   input.focus();
   input.select();
