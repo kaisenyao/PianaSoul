@@ -672,7 +672,7 @@ function renderNow() {
   $('#view-player').classList.toggle('no-piece', !p);
   renderVolume();
   if (!p) return;
-  app.style.setProperty('--h', hueOf(p.id));  // its color: the mini player's, the player's, the status bar's over it
+  document.documentElement.style.setProperty('--h', hueOf(p.id));  // its color: the mini player's, the player's, the status bar's
   $('#mini-title').textContent = $('#p-title').textContent = p.piece;
   $('#mini-sub').textContent = $('#p-sub').textContent = subtitle(p);
   const infoKey = JSON.stringify(p);

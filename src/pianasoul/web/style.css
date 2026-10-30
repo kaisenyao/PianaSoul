@@ -39,7 +39,7 @@
 html, body { margin: 0; height: 100%; }
 html { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 body {
-  overflow: hidden; background: var(--bg); color: var(--text);
+  overflow: hidden; isolation: isolate; background: var(--top); color: var(--text);  /* isolate: #app, below */
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
 }
@@ -48,23 +48,24 @@ button:disabled { cursor: default; }
 input, textarea { -webkit-user-select: text; user-select: text; }
 svg { display: block; }
 
-/* The whole screen. The layers that only clip use overflow: clip, so focusing something can never scroll them. */
+/* The color at the top of the screen: the page's; the player's top while the player is up; black under a page sheet,
+   as on iOS; darker with the screen while a sheet or a question dims it. It is the page's background, which a Home
+   Screen app's status bar takes on (iOS 26), since the whole screen (#app) lies behind it in iOS's eyes. */
+:root { --player-top: hsl(var(--h, 220) 45% 24%); --top: var(--bg); }
+:root:has(#view-player:not([hidden]):not(.off)):not(:has(#app.sheeted)) { --top: var(--player-top); }
+:root:has(#app.sheeted) { --top: #000; }
+:root:has(#dim.show) body { background: color-mix(in srgb, var(--top) calc(100% - var(--sheet-dim) * 100%), #000); }
+
+/* The whole screen. The layers that only clip use overflow: clip, so focusing something can never scroll them. For iOS,
+   it lies at the back of the page (z-index -1, above the body's own background): a whole-screen layer at the front
+   would give the status bar its first color for good, instead of the page's. */
 #app {
-  position: fixed; inset: 0; overflow: clip; touch-action: pan-y;
+  position: fixed; inset: 0; z-index: -1; overflow: clip; background: var(--top); touch-action: pan-y;
   --safe-top: env(safe-area-inset-top, 20px); --safe-bottom: env(safe-area-inset-bottom, 0px);
   --card-top: max(calc(var(--safe-top) - 8px), 10px);  /* where a page sheet pushes the screen back to (below) */
   padding-bottom: var(--safe-bottom);  /* read by the long-press menu */
   --p: 0; --w: 78vw;
-  /* A Home Screen app's status bar takes the background color of the fixed element at the top of the page (iOS 26):
-     this one, so it is kept as the color at the top of the screen. The page's; the player's top while the player is
-     up; black under a page sheet, as on iOS; darker with the screen while a sheet or a question dims it. */
-  --player-top: hsl(var(--h, 220) 45% 24%);
-  --top: var(--bg);
-  background: var(--top);
 }
-#app:not(.sheeted):has(#view-player:not([hidden]):not(.off)) { --top: var(--player-top); }
-#app.sheeted { --top: #000; }
-#app:has(#dim.show) { background: color-mix(in srgb, var(--top) calc(100% - var(--sheet-dim) * 100%), #000); }
 
 /* ---------- Sidebar: stays put underneath; the main screen slides right to reveal it ---------- */
 #sidebar {
