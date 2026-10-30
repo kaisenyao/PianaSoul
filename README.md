@@ -40,8 +40,8 @@
   notes) and turns it into MIDI with [Transkun](https://github.com/Yujia-Yan/Transkun): notes, timing, dynamics and
   pedal. Your own recordings work too.
 
-- **Your library stays on your Mac.** Every piece is kept as `Artist - Piece (Pianist)`, with favorites, recently
-  played and search.
+- **Your library is a folder on your Mac.** Put MIDI files in `~/Music/PianaSoul`, in Finder or from the phone, and
+  they are in the app at once, with favorites, recently played and search. The basics need no key at all.
 
 <br>
 
@@ -67,8 +67,8 @@ manual edits. They play side by side, and the sound switches between them every 
 
 ## Setup
 
-You need a Mac, a piano that takes MIDI (or Pianoteq), and an OpenAI API key. Steps 1 to 4 get her playing; 5 and 6
-add the iPhone app and her voice on the Mac.
+You need a Mac and a piano that takes MIDI (or Pianoteq). For her, and for new pieces from YouTube, you also need an
+OpenAI API key. Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app and her voice on the Mac.
 
 ### 1. Install
 
@@ -86,7 +86,12 @@ Then, in the project folder:
 ./setup.sh
 ```
 
-It creates `.venv`, installs what she needs, and checks that the transcription model loads.
+It creates `.venv`, installs what she needs, and checks that the transcription model loads. Run it again after each
+`git pull`: it updates `.venv` in place.
+
+If an earlier version kept your library in the project's `output/` folder, the first run copies it to the new places
+(see Your library) and leaves `output/` as it was, with a note in it. `./run.sh migrate --from output` does the same by
+hand.
 
 ### 2. Add your keys
 
@@ -104,7 +109,8 @@ echo 'export YOUTUBE_API_KEY="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Without a YouTube key she still plays your library and the links you give her.
+Without a YouTube key she still plays your library and the links you give her. Without an OpenAI key the app still
+runs: your library, the player and uploads work, and she is off until a key is set.
 
 ### 3. Connect the piano
 
@@ -118,8 +124,8 @@ The usual way is Pianoteq on an iPad that is connected to a digital piano. The M
 6. For the volume control: in Pianoteq, touch and hold the Volume slider, then ask her for "softer" (or move the
    app's volume bar). Keep it with Options > MIDI > Save as, then Set as default.
 
-If `./run.sh play --ports` lists the session as `Network RTP Session 1`, add
-`export PIANASOUL_PORT="Network RTP Session 1"` to `~/.zshrc`.
+`./run.sh play --ports` lists every MIDI output with its kind and whether it is connected. If it lists the session as
+`Network RTP Session 1`, add `export PIANASOUL_PORT="Network RTP Session 1"` to `~/.zshrc`.
 
 <details>
 <summary>Other ways: the piano's own sound over Bluetooth or USB, or Pianoteq on the Mac</summary>
@@ -132,12 +138,12 @@ If `./run.sh play --ports` lists the session as `Network RTP Session 1`, add
   "Device is online". In Pianoteq, turn on "IAC Driver Bus 1" as a MIDI input.
 
 Then keep part of your output's name in `~/.zshrc`. A Roland FP-40, for example, shows up as `FP-40 MIDI Bluetooth`
-over Bluetooth and as `Roland Digital Piano` over USB. These connections need no lead time, so set it to 0:
+over Bluetooth and as `Roland Digital Piano` over USB. These connections need no lead time, and get none (see
+Timing):
 
 ```bash
 ./run.sh play --ports
 echo 'export PIANASOUL_PORT="FP-40"' >> ~/.zshrc
-echo 'export PIANASOUL_LEAD=0' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -160,20 +166,16 @@ It prints `Playing on …`, and the piano starts within about a second. Control+
 The Mac and the iPhone need the same Wi-Fi. Safari allows the microphone only over trusted HTTPS, so the Mac makes
 its own small certificate authority, which the iPhone trusts once.
 
-1. Install the app's server:
-
-   ```bash
-   uv pip install --python .venv/bin/python -e ".[app]"
-   ```
-
-2. Start it with `./run.sh app`. It prints the app's address, such as `https://192.168.1.20:8765/#token=...`.
+1. Start it with `./run.sh app`. It prints the app's address, such as `https://192.168.1.20:8765/#token=...`.
    If macOS asks whether Python may accept incoming connections, allow it.
 
-3. The first start shows `PianaSoul-CA.cer` in Finder. AirDrop it to the iPhone and install it in
+2. The first start shows `PianaSoul-CA.cer` in Finder. AirDrop it to the iPhone and install it in
    Settings > General > VPN & Device Management. Then turn on full trust for it in
-   Settings > General > About > Certificate Trust Settings.
+   Settings > General > About > Certificate Trust Settings. Or open `http://192.168.1.20:8764/` (the Mac's address,
+   port 8764) on the phone: that page has the certificate and the steps for iPhone and Android, and the certificate's
+   fingerprint to compare with the one in the phone's certificate details.
 
-4. Open the printed address in Safari on the iPhone and choose Share > Add to Home Screen. Open the app, tap the orb
+3. Open the printed address in Safari on the iPhone and choose Share > Add to Home Screen. Open the app, tap the orb
    and allow the microphone.
 
 From then on, start `./run.sh app` and open the app. If the router gives the Mac a new address, add the new one to
@@ -193,14 +195,14 @@ source ~/.zshrc
 <summary>What to keep private, and how to start afresh</summary>
 <br>
 
-The address's token and the `.pem` files in `output/` are private; `output/` is never committed. With the token,
-anyone on your Wi-Fi could use the app; the app trades it once for a cookie that only its own pages send. The
-certificate authority can only vouch for `.local` names and home network addresses, and the `.cer` file holds no
-secret.
+The address's token, `pairing.json` and the `.pem` files in the data folder (`~/Library/Application Support/PianaSoul`)
+are private. With the token, anyone on your Wi-Fi could use the app; the app trades it once for a cookie that only its
+own pages send. The certificate authority can only vouch for `.local` names and home network addresses, and the `.cer`
+file holds no secret. `pairing.json` has the address, the token and the certificate's fingerprint, for the Mac app.
 
-To start afresh, delete `output/.cache/phone-token` (a new address to add to the Home Screen) or
-`output/.cache/phone-tls/` (a new certificate to install). For another iPhone,
-`open -R output/.cache/phone-tls/PianaSoul-CA.cer` shows the file again.
+To start afresh, delete `phone-token` in the data folder (a new address to add to the Home Screen) or `phone-tls/`
+(a new certificate to install). For another iPhone,
+`open -R ~/Library/Application\ Support/PianaSoul/phone-tls/PianaSoul-CA.cer` shows the file again.
 
 </details>
 
@@ -236,7 +238,8 @@ The app, voice and chat are one assistant, with one library and one set of conve
   - `./run.sh play clair de lune` plays the best match in the library; `--all` plays everything.
   - `./run.sh song.mp3` transcribes an audio file, or a folder of them, into the library.
   - `./run.sh` transcribes the video links in `tasks.csv`, one per row.
-  - `./run.sh library list` lists the library; `library import <folder>` adds MIDI files.
+  - `./run.sh library list` lists the library; `library import <folder>` copies MIDI files into it.
+  - `./run.sh migrate --from output` copies a library kept in `output/` by an earlier version to the new places.
   - `./run.sh --help` lists the transcription options, such as `-o` to write elsewhere and `--overwrite`.
 
 <br>
@@ -251,8 +254,10 @@ Set these in `~/.zshrc`.
 - `YOUTUBE_API_KEY`: finding pieces on YouTube.
 - `ELEVENLABS_API_KEY` and `PIANASOUL_VOICE_ID`: her voice.
 - `PIANASOUL_LANGUAGES`: the languages you speak, such as `zh,en`.
-- `PIANASOUL_PORT`: the MIDI output, by part of its name. Default `pianasoul`.
-- `PIANASOUL_LEAD`: seconds each note leaves early (see Timing). Default `1`.
+- `PIANASOUL_PORT`: the MIDI output, by part of its name, until one is chosen in the Mac app. Default `pianasoul`.
+- `PIANASOUL_LEAD`: seconds each note leaves early (see Timing). Default `1` for a network session, `0` otherwise.
+- `PIANASOUL_MUSIC`, `PIANASOUL_DATA` and `PIANASOUL_CACHE`: other places for the library folder, its data and work
+  files (see Your library).
 - `PIANASOUL_WAKE_THRESHOLD`: how readily she hears her name; lower hears more. Default `0.2`.
 - `PIANASOUL_MODEL`: the chat model. Default `openai:gpt-6-luna`.
 - `PIANASOUL_STT_MODEL`: the speech recognition model. Default `gpt-transcribe`.
@@ -276,8 +281,9 @@ the time it should sound, and the iPad plays it on time:
   </picture>
 </p>
 
-In return, playing, pausing and stopping take about a second. `PIANASOUL_LEAD` sets the lead in seconds: `2` for an
-unsteady network, `0.5` for quicker responses, `0` for Bluetooth and USB.
+In return, playing, pausing and stopping take about a second. Bluetooth and USB deliver notes evenly, so a piano
+connected that way gets no lead and answers at once. `PIANASOUL_LEAD` sets the lead in seconds for every output: `2`
+for an unsteady network, `0.5` for quicker responses.
 
 ### When something goes wrong
 
@@ -302,9 +308,20 @@ uv pip install --python .venv/bin/python --upgrade 'yt-dlp[default]'
 
 ### Your library
 
-The library is `output/library.db`, with the MIDI files in `output/MIDI Files/`; it also keeps her conversations and
-the app's settings. It stays on this Mac and is never uploaded; back up both together. MIDI files you put into that
-folder yourself are added the next time chat, voice or the app starts.
+The library is the folder `~/Music/PianaSoul`. Everything in it, in any subfolder, is in the app: put files in with
+Finder or send them from the phone, move and rename them as you like, and the app follows at once, with each piece's
+names, favorite and plays. The files are yours: PianaSoul never renames, moves or changes them, and renaming a piece in
+the app changes only its name there. The pieces PianaSoul makes go into `Transcribed/`, named after their titles, and
+show a small "Transcribed" tag. A recording you put in the folder (mp3, m4a, wav, flac and the like) is made into a
+piece once, when transcription is installed; after that only when you ask. Deleting a piece in the app moves its file
+to the Mac's Trash. A file that disappears is only hidden, and is back as it was when it returns.
+
+Files in iCloud Drive that are not downloaded are left out until they are. Another folder can be the library (set
+`PIANASOUL_MUSIC`); files moved there are recognized by their content.
+
+The library's index, her conversations, the app's settings, the phone's certificates and her voice are in
+`~/Library/Application Support/PianaSoul`; downloads and work files are in `~/Library/Caches/PianaSoul`. Everything
+stays on this Mac and is never uploaded; back up the library folder and the data folder together.
 
 The project can live on a dedicated Mac mini. To start it from any folder, add
 `alias piana="$HOME/Documents/PianaSoul/run.sh"` to `~/.zshrc`, then run `piana app`.
@@ -336,10 +353,10 @@ if the piece is new, then a check that the piano is there, and then the notes.
 
 ## Development
 
-Offline checks, with no paid APIs, microphone or MIDI device:
+Offline checks, with no paid APIs, microphone or MIDI device, in throwaway folders (never the real library):
 
 ```bash
-uv pip install --python .venv/bin/python -e ".[app]" httpx
+uv pip install --python .venv/bin/python -e ".[advanced]" httpx
 .venv/bin/python -m unittest discover -s tests
 for test in tests/test_web_*.js; do node "$test"; done
 ```
