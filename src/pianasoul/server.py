@@ -133,7 +133,7 @@ def state():
     return {'recordings': core.recordings(), 'jobs': core.downloads.snapshot(),
             'playback': core.playback.snapshot(), 'conversations': core.conversations.all() if her else [],
             'current': her.conversation_id if her else None, 'busy': core.busy, 'settings': core.settings(),
-            'devices': devices(), 'version': version, 'features': core.features()}
+            'devices': devices(), 'version': version, 'features': core.features(), 'audio': core.audio()}
 
 
 @app.get('/api/recordings')
@@ -274,6 +274,16 @@ def delete(ids: list[int] = Body(embed=True)):
     core.delete_recordings(ids)
     for rec_id in ids:
         _notes.pop(rec_id, None)  # its number may be given to the next new piece
+    return {'ok': True}
+
+
+@app.post('/api/audio/{audio_id}/transcribe')
+def transcribe(audio_id: int):
+    """A recording in the library folder, made into a piece now."""
+    if not core.features()['transcribe']:
+        return JSONResponse({'error': 'transcribe_off'}, status_code=409)
+    if not core.transcribe(audio_id):
+        raise HTTPException(404)
     return {'ok': True}
 
 

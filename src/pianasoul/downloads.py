@@ -1,9 +1,10 @@
 """New pieces: download a recording (or take a local audio file), transcribe it, and file it in the library.
 
 One piece at a time, in the order asked, whether she asked for it (transcribe_url) or you did (the app's download
-button): the same work on the same Mac. Each piece has a status (queued, downloading, converting) and a progress
-that goes once round: the download is the first part of it, the transcription the rest, estimated from how fast
-this Mac transcribed before.
+button): the same work on the same Mac. A recording put in the library folder is transcribed on its own (auto),
+after everything asked for. Each piece has a status (queued, downloading, converting) and a progress that goes once
+round: the download is the first part of it, the transcription the rest, estimated from how fast this Mac
+transcribed before. A recording in the library folder (Library.audio) shows the status of its piece's making.
 """
 
 from __future__ import annotations
@@ -76,6 +77,8 @@ class Job:
     tags: str = ""
     query: str = ""  # what was asked for or searched, to name the piece by
     video: dict = field(default_factory=dict)  # what the search said about the video
+    auto: bool = False  # not asked for: a recording put in the library folder, after everything asked for
+    audio: int | None = None  # the recording in the library folder it is made from (Library.audio)
     status: str = "queued"  # downloading, converting, then done, failed or stopped
     progress: float = 0.0
     result: dict | None = None
@@ -94,7 +97,7 @@ class Job:
     def public(self) -> dict:
         return {"id": self.id, "source": self.source, "title": self.title or self.video.get("video_title", ""),
                 "status": self.status, "progress": round(self.progress, 3),
-                "duration_s": self.video.get("duration_s")}
+                "duration_s": self.video.get("duration_s"), "audio": self.audio}
 
 
 class Downloads:
@@ -119,22 +122,27 @@ class Downloads:
 
     # ---- asking for a piece -------------------------------------------------------------------------
     def add(self, source: str, *, piece: str = "", artist: str = "", performer: str = "", aliases: str = "",
-            tags: str = "", query: str = "", video: dict | None = None) -> Job:
+            tags: str = "", query: str = "", video: dict | None = None, auto: bool = False) -> Job:
         """Queue a piece, by its names when they are known; a piece already in the library, or already queued,
-        is not done twice."""
+        is not done twice (one queued on its own and now asked for moves up)."""
         local = not re.match(r"https?://", source.strip())
         source = str(Path(source).expanduser().resolve()) if local else clean_url(source)
         with self._cond:
             for job in self.jobs:
                 if job.source == source:
+                    job.auto = job.auto and auto
                     return job
             job = Job(next(self._ids), source, piece.strip(), artist.strip(), performer.strip(), aliases.strip(), tags,
-                      query.strip(), dict(video or {}))
+                      query.strip(), dict(video or {}), auto)
             known = self.lib.by_source(source)
             if known and known["file_exists"]:
                 job.status, job.result = "done", known
                 job.finished.set()
                 return job
+            recording = self.lib.audio_at(Path(source)) if local else None
+            if recording:
+                job.audio = recording["id"]
+                self.lib.set_audio(job.audio, status="queued", error="")
             self.jobs.append(job)
             self._cond.notify_all()
         self.changed()
@@ -157,6 +165,7 @@ class Downloads:
             job.stopped.set()
             if job.status == "queued":
                 job.status, job.error = "stopped", "stopped"
+                self._ended(job)
                 job.finished.set()
         self.changed()
 
@@ -165,8 +174,11 @@ class Downloads:
         while True:
             with self._cond:
                 self._cond.wait_for(lambda: any(j.status == "queued" for j in self.jobs))
-                job = next(j for j in self.jobs if j.status == "queued")
+                queued = [j for j in self.jobs if j.status == "queued"]
+                job = next((j for j in queued if not j.auto), queued[0])  # what was asked for first
                 job.status = "converting" if job.local else "downloading"
+                if job.audio:
+                    self.lib.set_audio(job.audio, status="converting")
             self.changed()
             try:
                 job.result = self._make(job)
@@ -180,8 +192,18 @@ class Downloads:
             with self._cond:
                 if job in self.jobs:
                     self.jobs.remove(job)
+            self._ended(job)
             job.finished.set()
             self.changed()
+
+    def _ended(self, job: Job) -> None:
+        """The recording in the library folder it was made from shows how it went."""
+        if job.audio is None:
+            return
+        if job.status == "done":
+            self.lib.set_audio(job.audio, status="done", recording_id=job.result["id"], error="")
+        else:
+            self.lib.set_audio(job.audio, status="failed", error=job.error)
 
     def _make(self, job: Job) -> dict:
         print(f"  · getting {job.title or job.source} ready…", flush=True)

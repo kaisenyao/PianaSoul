@@ -20,6 +20,7 @@ from . import youtube
 from .chat import INSTRUCTIONS, TOOLS, Assistant, Worker
 from .conversations import Conversations
 from .downloads import Downloads
+from .folder import Folder
 from .library import ALIASES, NAMES, Library, title_parts
 from .play import clock
 from .playback import Playback
@@ -32,7 +33,6 @@ class Core:
         """note: what the chat model is told besides INSTRUCTIONS (voice says that replies are spoken).
         chat: (chat, label) to use instead of the configured model. assistant=False: without her."""
         self.lib = lib or Library()
-        self.lib.index_midi_folder()
         self.playback = Playback(self.lib)
         self.conversations = Conversations(self.lib)  # kept without her too: a deleted piece leaves them
         self.downloads = Downloads(self.lib, name_piece=name_piece if assistant else None)
@@ -52,6 +52,10 @@ class Core:
         self.playback.listeners.append(self._playback_changed)
         self.downloads.listeners.append(self._downloads_changed)
         self._jobs = 0
+        self._audio: list[dict] = []  # as the app was last told
+        self.folder = Folder(self.lib, self._folder_changed)
+        self.folder.watch()
+        self._transcribe_waiting()
         self._playing = None
         self._told = False  # the piano's going away, while the piece waits for it
         threading.Thread(target=self._fill_in_videos, daemon=True).start()
@@ -105,6 +109,28 @@ class Core:
         if len(jobs) != self._jobs:  # a piece came in, or went: the library changed
             self._jobs = len(jobs)
             self.emit({"type": "library"})
+        self._audio_changed()
+
+    def _folder_changed(self) -> None:
+        """Something came into the library folder, moved in it, or changed."""
+        self.emit({"type": "library"})
+        self._audio_changed()
+        self._transcribe_waiting()
+
+    def _audio_changed(self) -> None:
+        audio = self.audio()
+        if audio != self._audio:
+            self._audio = audio
+            self.emit({"type": "audio", "audio": audio})
+
+    def _transcribe_waiting(self) -> None:
+        """Each recording in the library folder is transcribed once on its own: when it is first seen, or when this
+        Mac can first transcribe. After that, only when asked (transcribe)."""
+        if not self.features()["transcribe"]:
+            return
+        for item in self.lib.audio():
+            if item["status"] == "waiting" and self.lib.here(Path(item["path"])):
+                self.downloads.add(item["path"], auto=True)
 
     # ---- what the app shows -----------------------------------------------------------------------
     def features(self) -> dict:
@@ -116,6 +142,22 @@ class Core:
 
     def recordings(self) -> list[dict]:
         return [recording(r) for r in self.lib.all() if r["file_exists"]]
+
+    def audio(self) -> list[dict]:
+        """The recordings in the library folder that are not pieces (yet, or any more): waiting for this Mac to
+        transcribe, queued, being transcribed, failed, or done once and their piece since deleted."""
+        pieces = {r["id"] for r in self.lib.all() if r["file_exists"]}
+        return [{"id": a["id"], "name": Path(a["path"]).stem, "status": a["status"], "error": a["error"],
+                 "added_at": a["added_at"]}
+                for a in self.lib.audio() if a["recording_id"] not in pieces and self.lib.here(Path(a["path"]))]
+
+    def transcribe(self, audio_id: int) -> bool:
+        """A recording in the library folder made into a piece, as asked (before those transcribed on their own)."""
+        item = self.lib.audio_item(audio_id)
+        if item is None or not self.lib.here(Path(item["path"])):
+            return False
+        self.downloads.add(item["path"])
+        return True
 
     def settings(self) -> dict:
         """language: zh or en, or empty until one is chosen (the app then uses the phone's). appearance: dark until
@@ -171,6 +213,7 @@ class Core:
 
     def close(self) -> None:
         """Stop the piano, letting the notes already sent finish."""
+        self.folder.close()
         self.playback.close()
 
 
@@ -178,7 +221,7 @@ def recording(rec: dict) -> dict:
     """A library record for the app: its title in parts, and nothing about files."""
     keep = ("id", "title", "composer", "performer", "duration_s", "notes", "velocity_min", "velocity_max",
             "pedal_presses", "added_at", "favorited_at", "last_played_at", "source_url", "video_title", "channel",
-            "views", "published", "thumbnail", "channel_avatar")
+            "views", "published", "thumbnail", "channel_avatar", "origin")
     parts = title_parts(rec["title"], rec["composer"], rec["performer"])
     return {**{k: rec.get(k) for k in keep}, "piece": parts["piece"], "artist": parts["artist"],
             "performer": parts["performer"]}

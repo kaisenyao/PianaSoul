@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import filecmp
+import hashlib
 import os
 import re
 import shutil
@@ -28,7 +29,6 @@ import pretty_midi
 from .cleanup import pedal_intervals
 
 
-
 def _place(variable: str, default: Path) -> Path:
     return Path(os.environ.get(variable) or default).expanduser().resolve()
 
@@ -39,6 +39,8 @@ DATA_DIR = _place("PIANASOUL_DATA", Path.home() / "Library" / "Application Suppo
 CACHE_DIR = _place("PIANASOUL_CACHE", Path.home() / "Library" / "Caches" / "PianaSoul")  # what may go
 DB_PATH = DATA_DIR / "library.db"
 OLD_OUTPUT = Path(__file__).resolve().parents[2] / "output"  # where a checkout kept everything before (migrate.py)
+MIDI_TYPES = {".mid", ".midi"}
+SF_DATALESS = 0x40000000  # st_flags of a file whose content is still in iCloud (stat.SF_DATALESS from Python 3.13)
 
 FIELDS = ("title", "composer", "performer", "aliases", "tags")
 SCHEMA = """
@@ -79,12 +81,26 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- The recordings (mp3 and the like) in the library folder, each to be made into a piece: once on its own, when it is
+-- first seen and this Mac can transcribe (status waiting until then), and again only when asked.
+CREATE TABLE IF NOT EXISTS audio (
+    id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    fingerprint TEXT NOT NULL DEFAULT '',
+    stamp TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'waiting',  -- waiting, queued, converting, done or failed
+    recording_id INTEGER REFERENCES recordings(id),
+    error TEXT NOT NULL DEFAULT '',
+    added_at TEXT NOT NULL
+);
 """
 # Columns added since the first libraries were made; an older library gets them when it is opened.
+# fingerprint: the file's sha256, to know it again when it moves; stamp: its size and time, to see it change.
 ADDED_COLUMNS = {"favorited_at": "TEXT", "last_played_at": "TEXT",
                  "video_title": "TEXT NOT NULL DEFAULT ''", "channel": "TEXT NOT NULL DEFAULT ''",
                  "views": "INTEGER", "published": "TEXT NOT NULL DEFAULT ''",
-                 "thumbnail": "TEXT NOT NULL DEFAULT ''", "channel_avatar": "TEXT NOT NULL DEFAULT ''"}
+                 "thumbnail": "TEXT NOT NULL DEFAULT ''", "channel_avatar": "TEXT NOT NULL DEFAULT ''",
+                 "fingerprint": "TEXT NOT NULL DEFAULT ''", "stamp": "TEXT NOT NULL DEFAULT ''"}
 VIDEO_FIELDS = ("video_title", "channel", "views", "published", "thumbnail", "channel_avatar")
 STOPWORDS = {"the", "a", "an", "of", "in", "and", "by", "for", "piano", "solo", "version", "play", "me"}
 
@@ -105,6 +121,30 @@ def _terms(text: str) -> set[str]:
         terms.update(run)
         terms.update(run[i:i + 2] for i in range(len(run) - 1))
     return terms
+
+
+def present(path: Path) -> bool:
+    """Whether a file is there to be read: not missing, and not one whose content iCloud has not brought down."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    return bool(st.st_mode & 0o100000) and not st.st_flags & SF_DATALESS  # a regular file
+
+
+def stamp(path: Path) -> str:
+    """A file's size and modification time: when they change, so may its content."""
+    st = os.stat(path)
+    return f"{st.st_size}:{st.st_mtime_ns}"
+
+
+def fingerprint(path: Path) -> str:
+    """The sha256 of a file's content, by which a file that moved is known again."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def midi_stats(path: Path) -> dict:
@@ -186,6 +226,17 @@ def file_result(lib: "Library", produced: Path, title: str, *, source_type: str,
                    aliases=aliases, tags=tags, source_type=source_type, source_url=source_url)
 
 
+def upgrade(db: sqlite3.Connection) -> None:
+    """Bring a library made by an earlier version up to this one's tables and columns."""
+    db.executescript(SCHEMA)
+    have = {row[1] for row in db.execute("PRAGMA table_info(recordings)")}
+    for name, kind in ADDED_COLUMNS.items():
+        if name not in have:
+            db.execute(f"ALTER TABLE recordings ADD COLUMN {name} {kind}")
+    db.execute("CREATE INDEX IF NOT EXISTS recordings_fingerprint ON recordings(fingerprint)")
+    db.commit()
+
+
 class Library:
     """The recordings, and the app's other small tables, in one SQLite file. Safe to use from several threads:
     the app's server, its downloads and the piano all use the same library."""
@@ -197,11 +248,7 @@ class Library:
         self.lock = threading.RLock()  # one statement and its commit at a time
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
-        self.db.executescript(SCHEMA)
-        have = {row["name"] for row in self.db.execute("PRAGMA table_info(recordings)")}
-        for name, kind in ADDED_COLUMNS.items():
-            if name not in have:
-                self.db.execute(f"ALTER TABLE recordings ADD COLUMN {name} {kind}")
+        upgrade(self.db)
         # Files keep the names of their pieces: one renamed before its file followed takes its title now.
         for row in self.db.execute("SELECT id, title, midi_path FROM recordings").fetchall():
             named = str(self._named(Path(row["midi_path"]), row["title"]))
@@ -237,8 +284,9 @@ class Library:
         stats = midi_stats(midi_path)
         self.execute(
             """INSERT INTO recordings (title, composer, performer, aliases, tags, source_type, source_url,
-                   midi_path, notes, velocity_min, velocity_max, pedal_presses, duration_s, added_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   midi_path, notes, velocity_min, velocity_max, pedal_presses, duration_s, added_at, fingerprint,
+                   stamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(midi_path) DO UPDATE SET title = excluded.title,
                    composer = COALESCE(NULLIF(excluded.composer, ''), composer),
                    performer = COALESCE(NULLIF(excluded.performer, ''), performer),
@@ -248,11 +296,70 @@ class Library:
                    source_url = COALESCE(NULLIF(excluded.source_url, ''), source_url),
                    notes = excluded.notes, velocity_min = excluded.velocity_min,
                    velocity_max = excluded.velocity_max, pedal_presses = excluded.pedal_presses,
-                   duration_s = excluded.duration_s""",
+                   duration_s = excluded.duration_s, fingerprint = excluded.fingerprint, stamp = excluded.stamp""",
             (title, composer, performer, aliases, tags, source_type, source_url, str(midi_path),
              stats["notes"], stats["velocity_min"], stats["velocity_max"], stats["pedal_presses"],
-             stats["duration_s"], _now()))
+             stats["duration_s"], _now(), fingerprint(midi_path), stamp(midi_path)))
         return self._public(self.execute("SELECT * FROM recordings WHERE midi_path = ?", (str(midi_path),))[0])
+
+    def refresh(self, rec_id: int) -> None:
+        """A file changed where it is: what the library knows of its content follows."""
+        rec = self.get(rec_id)
+        path = Path(rec["midi_path"])
+        stats = midi_stats(path)
+        self.execute("UPDATE recordings SET notes = ?, velocity_min = ?, velocity_max = ?, pedal_presses = ?, "
+                     "duration_s = ?, fingerprint = ?, stamp = ? WHERE id = ?",
+                     (*(stats[k] for k in ("notes", "velocity_min", "velocity_max", "pedal_presses", "duration_s")),
+                      fingerprint(path), stamp(path), rec_id))
+
+    def moved(self, fingerprint: str) -> dict | None:
+        """The piece whose file, now gone, had this content: the file it is moved or renamed to is it."""
+        rows = self.execute("SELECT * FROM recordings WHERE fingerprint = ? ORDER BY id", (fingerprint,))
+        return next((rec for rec in map(self._public, rows) if not rec["file_exists"]), None)
+
+    def move(self, rec_id: int, path: Path) -> None:
+        self.execute("UPDATE recordings SET midi_path = ?, stamp = ? WHERE id = ?",
+                     (str(Path(path).resolve()), stamp(path), rec_id))
+
+    # ---- the recordings to transcribe (audio) ------------------------------------------------------
+    def audio(self) -> list[dict]:
+        return [dict(r) for r in self.execute("SELECT * FROM audio ORDER BY id")]
+
+    def audio_item(self, audio_id: int) -> dict | None:
+        rows = self.execute("SELECT * FROM audio WHERE id = ?", (audio_id,))
+        return dict(rows[0]) if rows else None
+
+    def audio_at(self, path: Path) -> dict | None:
+        rows = self.execute("SELECT * FROM audio WHERE path = ?", (str(Path(path).resolve()),))
+        return dict(rows[0]) if rows else None
+
+    def add_audio(self, path: Path) -> None:
+        path = Path(path).resolve()
+        self.execute("INSERT INTO audio (path, fingerprint, stamp, added_at) VALUES (?, ?, ?, ?)",
+                     (str(path), fingerprint(path), stamp(path), _now()))
+
+    def moved_audio(self, fingerprint: str) -> dict | None:
+        """The recording to transcribe whose file, now gone, had this content."""
+        rows = self.execute("SELECT * FROM audio WHERE fingerprint = ? ORDER BY id", (fingerprint,))
+        return next((dict(r) for r in rows if not self.here(Path(r["path"]))), None)
+
+    def move_audio(self, audio_id: int, path: Path) -> None:
+        """Its piece keeps pointing at it (source_url, as for every piece made from a file)."""
+        path = Path(path).resolve()
+        with self.lock:
+            old = self.audio_item(audio_id)
+            self.execute("UPDATE audio SET path = ?, stamp = ? WHERE id = ?", (str(path), stamp(path), audio_id))
+            self.execute("UPDATE recordings SET source_url = ? WHERE source_url = ?", (str(path), old["path"]))
+
+    def refresh_audio(self, audio_id: int) -> None:
+        path = Path(self.audio_item(audio_id)["path"])
+        self.execute("UPDATE audio SET fingerprint = ?, stamp = ? WHERE id = ?",
+                     (fingerprint(path), stamp(path), audio_id))
+
+    def set_audio(self, audio_id: int, **fields) -> None:
+        """status, recording_id and error."""
+        assignments = ", ".join(f"{k} = ?" for k in fields)
+        self.execute(f"UPDATE audio SET {assignments} WHERE id = ?", (*fields.values(), audio_id))
 
     def update(self, rec_id: int, **fields) -> dict | None:
         fields = {k: v for k, v in fields.items() if k in FIELDS and v is not None}
@@ -313,6 +420,7 @@ class Library:
             return False
         with self.lock:
             self.db.execute("DELETE FROM recordings WHERE id = ?", (rec_id,))
+            self.db.execute("UPDATE audio SET recording_id = NULL WHERE recording_id = ?", (rec_id,))
             self.db.commit()
         midi = Path(rec["midi_path"])
         if midi.parent == self.transcribed:
@@ -366,24 +474,11 @@ class Library:
                     reverse=True)
         return [self._public(r) | {"score": round(s, 1)} for s, r in scored[:limit]]
 
-    def index_midi_folder(self) -> int:
-        """Pick up MIDI files put into the library folder by hand."""
-        known = {r["midi_path"] for r in self.all()}
-        added = 0
-        for f in sorted(self.music_dir.glob("*.mid")):
-            if str(f.resolve()) not in known:
-                try:
-                    self.add(f, f.stem, source_type="folder")
-                    added += 1
-                except Exception:
-                    pass
-        return added
-
     def import_folder(self, folder: Path) -> list[dict]:
         """Copy the MIDI files in a folder into the library folder, as yours, and add them."""
         added = []
         for src in sorted(Path(folder).expanduser().rglob("*")):
-            if src.suffix.lower() not in {".mid", ".midi"} or src.name.startswith("."):
+            if src.suffix.lower() not in MIDI_TYPES or src.name.startswith("."):
                 continue
             if src.name.endswith(".raw.mid") or "extras" in src.parts:  # PianaSoul side files
                 continue
@@ -401,10 +496,16 @@ class Library:
         with self.lock:
             self.db.close()
 
-    @staticmethod
-    def _public(row: sqlite3.Row) -> dict:
+    def here(self, path: Path) -> bool:
+        """Whether a file is in the library: in its folder (the one in use now), and there to be read."""
+        return path.is_relative_to(self.music_dir) and present(path)
+
+    def _public(self, row: sqlite3.Row) -> dict:
+        """A record, with whether its file is in the library and whose it is: transcribed (in Transcribed/) or
+        yours."""
         d = dict(row)
-        d["file_exists"] = Path(d["midi_path"]).is_file()
+        d["file_exists"] = self.here(Path(d["midi_path"]))
+        d["origin"] = "transcribed" if Path(d["midi_path"]).is_relative_to(self.transcribed) else "yours"
         return d
 
 

@@ -58,11 +58,12 @@ class PlaybackTests(unittest.TestCase):
         self.root_context = tempfile.TemporaryDirectory()
         self.addCleanup(self.root_context.cleanup)
         self.root = Path(self.root_context.name)
-        self.lib = Library(self.root/'library.db')
+        self.lib = Library(self.root/'library.db', self.root/'Music')
         self.addCleanup(self.lib.db.close)
         self.records = []
         for title in ('贝加尔湖畔', '月光'):
-            path = self.root/(title+'.mid')
+            path = self.root/'Music'/(title+'.mid')
+            path.parent.mkdir(exist_ok=True)
             midi = mido.MidiFile(); track = mido.MidiTrack(); midi.tracks.append(track)
             track.append(mido.Message('note_on', note=60, velocity=64, time=0))
             track.append(mido.Message('note_off', note=60, time=480*240))
@@ -515,7 +516,7 @@ class ReconnectTests(unittest.TestCase):
         self.addCleanup(folder.cleanup)
         self.path = Path(folder.name)/'月光.mid'
         self.path.touch()
-        self.lib = Library(Path(folder.name)/'library.db')
+        self.lib = Library(Path(folder.name)/'library.db', Path(folder.name)/'Music')
         self.addCleanup(self.lib.close)
 
     def test_continue_says_the_piano_is_gone_then_plays_on_once_it_is_back(self):

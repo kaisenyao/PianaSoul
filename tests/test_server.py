@@ -38,8 +38,8 @@ class AppTests(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         root = Path(folder.name)
-        lib = Library(root / 'library.db')
-        self.ids = [lib.add(make_midi(root / 'MIDI Files' / f'{t}.mid'), t)['id']
+        lib = Library(root / 'library.db', root / 'Music')
+        self.ids = [lib.add(make_midi(root / 'Music' / f'{t}.mid'), t)['id']
                     for t in ('周杰伦 - 晴天 (MappleZS)', '周杰伦 - 搁浅 (MappleZS)')]
         for patcher in (patch.object(Playback, 'play'), patch.object(Playback, 'check_connection')):
             patcher.start()

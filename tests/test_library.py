@@ -43,13 +43,6 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(len(list(self.music.iterdir())), 4, 'The same files again are not copied twice')
         self.assertTrue((self.root / 'elsewhere' / 'Waltz.mid').is_file(), 'The originals stay')
 
-    def test_startup_picks_up_files_put_in_by_hand(self):
-        make_midi(self.music / 'Kept.mid')
-        make_midi(self.music / 'Gone.mid')
-        self.assertEqual(self.lib.index_midi_folder(), 2)
-        self.assertEqual(self.lib.index_midi_folder(), 0)
-        self.assertFalse(list(self.root.rglob('*.m3u')), 'No playlist file: nothing reads one')
-
     def test_a_title_has_its_parts_and_is_made_from_them(self):
         for title, parts in [('周杰伦 - 搁浅 (MappleZS)', ('周杰伦', '搁浅', 'MappleZS')),
                              ('贝加尔湖畔（赵海洋）', ('李健', '贝加尔湖畔', '赵海洋')),

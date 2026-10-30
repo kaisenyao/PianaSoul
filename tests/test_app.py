@@ -59,9 +59,9 @@ class Base(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
-        self.lib = Library(self.root / 'library.db')
+        self.lib = Library(self.root / 'library.db', self.root / 'Music')
         self.addCleanup(self.lib.close)
-        self.ids = [self.lib.add(make_midi(self.root / 'MIDI Files' / f'{t}.mid'), t)['id']
+        self.ids = [self.lib.add(make_midi(self.root / 'Music' / f'{t}.mid'), t)['id']
                     for t in ('周杰伦 - 晴天 (MappleZS)', '周杰伦 - 搁浅 (MappleZS)', 'Chopin - Nocturne (Lang Lang)')]
         quiet = contextlib.redirect_stdout(io.StringIO())
         quiet.__enter__()
