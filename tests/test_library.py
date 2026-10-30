@@ -1,20 +1,21 @@
-"""The library: MIDI files and playlist next to the index, titles in parts, and what the app changes."""
+"""The library: its folder (yours, and Transcribed/ for the pieces PianaSoul makes), titles in parts, and what the app
+changes."""
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 import mido
 
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul.library import Library, file_result, make_title, title_parts
 
 
-def make_midi(path: Path) -> Path:
+def make_midi(path: Path, note: int = 60) -> Path:
     midi = mido.MidiFile()
     track = mido.MidiTrack()
     midi.tracks.append(track)
-    track.append(mido.Message('note_on', note=60, velocity=64, time=0))
-    track.append(mido.Message('note_off', note=60, time=480))
+    track.append(mido.Message('note_on', note=note, velocity=64, time=0))
+    track.append(mido.Message('note_off', note=note, time=480))
     path.parent.mkdir(parents=True, exist_ok=True)
     midi.save(path)
     return path
@@ -25,30 +26,29 @@ class LibraryTests(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
-        self.lib = Library(self.root / 'library.db')
+        self.music = self.root / 'Music'
+        self.transcribed = self.music / 'Transcribed'
+        self.lib = Library(self.root / 'data' / 'library.db', self.music)
         self.addCleanup(self.lib.close)
-        self.playlist = self.root / 'MIDI Files' / 'playlist.m3u'
 
-    def test_import_copies_next_to_the_index_and_writes_the_playlist_once(self):
+    def test_import_copies_into_the_library_folder_as_yours(self):
         for name in ('Nocturne', 'Waltz', 'Etude'):
             make_midi(self.root / 'elsewhere' / f'{name}.mid')
-        with patch.object(self.lib, 'write_playlist', wraps=self.lib.write_playlist) as write:
-            added = self.lib.import_folder(self.root / 'elsewhere')
+        make_midi(self.music / 'Waltz.mid', note=62)  # another Waltz, already there
+        added = self.lib.import_folder(self.root / 'elsewhere')
         self.assertEqual(len(added), 3)
-        write.assert_called_once()
-        self.assertTrue((self.root / 'MIDI Files' / 'Waltz.mid').is_file())
-        self.assertEqual(self.playlist.read_text().count('#EXTINF'), 3)
+        self.assertEqual(sorted(p.name for p in self.music.iterdir()),
+                         ['Etude.mid', 'Nocturne.mid', 'Waltz (2).mid', 'Waltz.mid'])
+        self.assertEqual(len(self.lib.import_folder(self.root / 'elsewhere')), 3)
+        self.assertEqual(len(list(self.music.iterdir())), 4, 'The same files again are not copied twice')
+        self.assertTrue((self.root / 'elsewhere' / 'Waltz.mid').is_file(), 'The originals stay')
 
-    def test_startup_picks_up_files_put_in_by_hand_and_drops_deleted_ones(self):
-        kept = make_midi(self.root / 'MIDI Files' / 'Kept.mid')
-        gone = make_midi(self.root / 'MIDI Files' / 'Gone.mid')
-        with patch.object(self.lib, 'write_playlist', wraps=self.lib.write_playlist) as write:
-            self.assertEqual(self.lib.index_midi_folder(), 2)
-        write.assert_called_once()
-        gone.unlink()
+    def test_startup_picks_up_files_put_in_by_hand(self):
+        make_midi(self.music / 'Kept.mid')
+        make_midi(self.music / 'Gone.mid')
+        self.assertEqual(self.lib.index_midi_folder(), 2)
         self.assertEqual(self.lib.index_midi_folder(), 0)
-        self.assertIn(kept.name, self.playlist.read_text())
-        self.assertNotIn(gone.name, self.playlist.read_text())
+        self.assertFalse(list(self.root.rglob('*.m3u')), 'No playlist file: nothing reads one')
 
     def test_a_title_has_its_parts_and_is_made_from_them(self):
         for title, parts in [('周杰伦 - 搁浅 (MappleZS)', ('周杰伦', '搁浅', 'MappleZS')),
@@ -62,7 +62,7 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(make_title('Greensleeves'), 'Greensleeves')
 
     def test_the_app_names_favorites_and_deletes_a_piece(self):
-        midi = make_midi(self.root / 'MIDI Files' / 'Song.mid')
+        midi = make_midi(self.transcribed / 'Song.mid')
         rec = self.lib.add(midi, 'Song')
         rec = self.lib.edit(rec['id'], '晴天', '周杰伦', 'MappleZS')
         self.assertEqual((rec['title'], rec['composer'], rec['performer']), ('周杰伦 - 晴天 (MappleZS)', '周杰伦', 'MappleZS'))
@@ -76,27 +76,26 @@ class LibraryTests(unittest.TestCase):
         self.assertIsNone(self.lib.get(rec['id']))
         self.assertFalse(Path(rec['midi_path']).exists(), 'Its file goes too')
 
-    def test_a_piece_renamed_takes_its_file_along(self):
-        folder = self.root / 'MIDI Files'
+    def test_a_piece_renamed_takes_its_file_along_in_transcribed_only(self):
+        folder = self.transcribed
         rec = self.lib.add(make_midi(folder / 'Song.mid'), 'Song')
         rec = self.lib.edit(rec['id'], '小幸运', '田馥甄', "Melody's Piano Garden")
         name = "田馥甄 - 小幸运 (Melody's Piano Garden)"
         self.assertEqual(Path(rec['midi_path']), (folder / f'{name}.mid').resolve())
         self.assertTrue(rec['file_exists'])
         self.assertFalse((folder / 'Song.mid').exists())
-        self.assertIn(f'{name}.mid', self.playlist.read_text())
         self.lib.update(rec['id'], tags='华语')
         self.assertEqual(self.lib.get(rec['id'])['midi_path'], rec['midi_path'], 'Other changes leave it')
         twin = self.lib.add(make_midi(folder / 'Twin.mid'), 'Twin')
         twin = self.lib.edit(twin['id'], '小幸运', '田馥甄', "Melody's Piano Garden")
         self.assertEqual(Path(twin['midi_path']).name, f'{name} (2).mid', 'Another piece with the same title')
-        outside = make_midi(self.root / 'elsewhere' / 'Mine.mid')
-        mine = self.lib.import_folder(self.root / 'elsewhere', copy=False)[0]
-        self.lib.edit(mine['id'], '晴天', '周杰伦')
-        self.assertTrue(outside.is_file(), 'A file imported in place keeps its name')
+        yours = self.lib.add(make_midi(self.music / 'Mine.mid'), 'Mine')
+        yours = self.lib.edit(yours['id'], '晴天', '周杰伦')
+        self.assertEqual(Path(yours['midi_path']).name, 'Mine.mid', 'Your file keeps its name')
+        self.assertEqual(yours['title'], '周杰伦 - 晴天')
 
     def test_a_name_still_held_by_a_piece_whose_file_is_gone_is_not_taken(self):
-        folder = self.root / 'MIDI Files'
+        folder = self.transcribed
         a = self.lib.add(make_midi(folder / 'A.mid'), 'A')
         b = self.lib.add(make_midi(folder / 'B.mid'), 'B')
         Path(a['midi_path']).unlink()  # deleted by hand
@@ -122,29 +121,22 @@ class LibraryTests(unittest.TestCase):
         self.assertIsNotNone(self.lib.get(first['id'])['favorited_at'])
 
     def test_a_library_from_before_files_followed_their_titles_catches_up_when_opened(self):
-        rec = self.lib.add(make_midi(self.root / 'MIDI Files' / 'Song.mid'), 'Song')
+        rec = self.lib.add(make_midi(self.transcribed / 'Song.mid'), 'Song')
         self.lib.execute('UPDATE recordings SET title = ? WHERE id = ?', ('周杰伦 - 晴天 (MappleZS)', rec['id']))
         self.lib.close()
-        self.lib = Library(self.root / 'library.db')
+        self.lib = Library(self.root / 'data' / 'library.db', self.music)
         self.addCleanup(self.lib.close)
         rec = self.lib.get(rec['id'])
         self.assertEqual(Path(rec['midi_path']).name, '周杰伦 - 晴天 (MappleZS).mid')
         self.assertTrue(rec['file_exists'])
-        self.assertIn('周杰伦 - 晴天 (MappleZS).mid', self.playlist.read_text())
 
     def test_search_puts_the_best_match_first_then_a_favorite_then_the_one_played_last(self):
-        ids = [self.lib.add(make_midi(self.root / 'MIDI Files' / f'{n}.mid'), f'Chopin - Waltz in A Minor ({n})')['id']
+        ids = [self.lib.add(make_midi(self.music / f'{n}.mid'), f'Chopin - Waltz in A Minor ({n})')['id']
                for n in ('Barton', 'Kolesnikov', 'Rubinstein')]
         self.lib.played(ids[0])
         self.lib.favorite(ids[1], True)
         self.assertEqual([r['id'] for r in self.lib.search('waltz in a minor')], [ids[1], ids[0], ids[2]])
         self.assertEqual(self.lib.search('Kolesnikov waltz')[0]['id'], ids[1])
-
-    def test_a_file_imported_in_place_stays_when_its_piece_is_deleted(self):
-        outside = make_midi(self.root / 'elsewhere' / 'Mine.mid')
-        rec = self.lib.import_folder(self.root / 'elsewhere', copy=False)[0]
-        self.lib.delete(rec['id'])
-        self.assertTrue(outside.exists())
 
     def test_an_older_library_gets_the_new_columns_and_keeps_its_records(self):
         import sqlite3

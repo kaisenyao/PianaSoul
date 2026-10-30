@@ -3,8 +3,8 @@
     ./run.sh chat
 
 The assistant looks in the local library first, then searches YouTube (YOUTUBE_API_KEY), gets the chosen video
-ready through the same queue as the app's downloads (download, transcribe, file it in output/MIDI Files and the
-library), and plays it on the piano over MIDI.
+ready through the same queue as the app's downloads (download, transcribe, file it in the library folder's
+Transcribed/), and plays it on the piano over MIDI.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 from . import youtube
 from .conversations import QUIET_S as NEW_CONVERSATION_AFTER_S, Conversations, seconds_since
-from .library import ALIASES, DB_PATH, MIDI_DIR, NAMES, Library, enrich, format_row, title_parts
+from .library import ALIASES, DB_PATH, NAMES, Library, enrich, format_row, title_parts
 from .lines import line
 from .play import clock
 from .playback_commands import is_chinese, match_command
@@ -634,7 +634,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     lib, chat, assistant = core.lib, core.chat, core.assistant
     print(startup("chat", chat=core.label, search=search_label(),
-                  library=f"{lib.count()} recording(s) in {DB_PATH} · MIDI folder: {MIDI_DIR}"))
+                  library=f"{lib.count()} recording(s) in {DB_PATH} · folder: {lib.music_dir}"))
     print(HELP + "\n")
     try:
         import readline  # noqa: F401  (line editing and history)

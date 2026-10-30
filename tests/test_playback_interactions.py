@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import mido
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import youtube
 from pianasoul.chat import MAX_TOOL_ROUNDS, NEW_CONVERSATION_AFTER_S, Assistant, TOOLS
 from pianasoul.library import Library

@@ -48,8 +48,8 @@ _notes: dict[int, list] = {}
 
 def saved_token() -> str:
     """The phone's access token, kept so the address and a Home Screen app survive restarts."""
-    from .library import CACHE_DIR
-    path = CACHE_DIR / 'phone-token'
+    from .library import DATA_DIR
+    path = DATA_DIR / 'phone-token'
     if not path.is_file() or not path.read_text().strip():  # an empty token would let anyone in
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch(mode=0o600)
@@ -567,7 +567,7 @@ def main(argv=None):
     parser.add_argument('--debug', action='store_true', help='also show what happens in detail, with times')
     show_details(parser.parse_args(argv).debug)
     from .core import Core, version as running
-    from .library import CACHE_DIR
+    from .library import DATA_DIR
     from .web_tls import CA_FILE, local_name, prepare_https
     TOKEN = saved_token()
     try:
@@ -583,7 +583,7 @@ def main(argv=None):
         parser.exit(2, f'The app needs the extras: uv pip install --python .venv/bin/python -e ".[app]" ({exc})\n')
     except (OSError, RuntimeError, ValueError) as exc:  # no network for the first download, or no OpenAI key
         parser.exit(2, f'Cannot start her voice: {exc}\n')
-    tls = CACHE_DIR / 'phone-tls'
+    tls = DATA_DIR / 'phone-tls'
     try:
         host, new = prepare_https(tls)
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:

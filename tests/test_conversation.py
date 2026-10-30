@@ -7,6 +7,7 @@ import urllib.error
 
 import numpy as np
 
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import voice
 from pianasoul.lines import LINES
 

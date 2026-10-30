@@ -76,8 +76,8 @@ GREETING_SETTINGS = {**VOICE_SETTINGS, "stability": 0.25, "style": 0.4, "speed":
 # loud and excited, and "volume down" whispered.
 STEADY = ("louder", "softer", "loudest", "silent")
 STEADY_SETTINGS = {**VOICE_SETTINGS, "stability": 0.85}
-# Her ready-made lines (lines.py) and how each is said: made once with her ElevenLabs voice and kept in
-# output/.cache/voice. The greetings and the lines about a setting as above; the rest as her replies are, so that a
+# Her ready-made lines (lines.py) and how each is said: made once with her ElevenLabs voice and kept in the data
+# folder (voice/). The greetings and the lines about a setting as above; the rest as her replies are, so that a
 # ready-made line and the reply after it sound like one person. Without ElevenLabs the macOS voice says them.
 READY = {**{text: GREETING_SETTINGS for lines in LINES["greet"].values() for text in lines},
          **{text: VOICE_SETTINGS for text in recorded()},
@@ -185,9 +185,9 @@ class Microphone:
 
 def wake_model() -> Path:
     """The keyword spotting model's folder, downloaded on first use (only the files needed are kept)."""
-    from .library import CACHE_DIR
+    from .library import DATA_DIR
 
-    folder = CACHE_DIR / "models" / WAKE_MODEL
+    folder = DATA_DIR / "models" / WAKE_MODEL
     if all((folder / name).is_file() for name in WAKE_PARTS.values()):
         return folder
     print("Downloading the wake word model (about 33 MB, once)…", flush=True)
@@ -217,9 +217,9 @@ def download(url: str, path: Path) -> Path:
 
 
 def vad_model() -> Path:
-    from .library import CACHE_DIR
+    from .library import DATA_DIR
 
-    return download(VAD_URL, CACHE_DIR / "models" / "silero_vad.onnx")
+    return download(VAD_URL, DATA_DIR / "models" / "silero_vad.onnx")
 
 
 class Speech:
@@ -403,13 +403,13 @@ class Speaker:
                                       headers={"xi-api-key": self.key, "Content-Type": "application/json"})
 
     def clip_path(self, text: str, settings: dict = VOICE_SETTINGS) -> Path:
-        from .library import CACHE_DIR
+        from .library import DATA_DIR
 
         key = hashlib.sha1(json.dumps([VOICE_ID, TTS_MODEL, settings, text]).encode()).hexdigest()[:16]
-        return CACHE_DIR / "voice" / f"{key}.wav"
+        return DATA_DIR / "voice" / f"{key}.wav"
 
     def clip(self, text: str, settings: dict = VOICE_SETTINGS) -> np.ndarray:
-        """The voice saying text as 24 kHz audio, made once and then read from output/.cache/voice."""
+        """The voice saying text as 24 kHz audio, made once and then read from the data folder (voice/)."""
         path = self.clip_path(text, settings)
         if not path.is_file():
             with urllib.request.urlopen(self._request(text, settings), timeout=30) as resp:

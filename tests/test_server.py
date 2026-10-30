@@ -15,6 +15,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import server, voice
 from pianasoul.chat import Worker
 from pianasoul.playback import Playback
@@ -352,7 +353,7 @@ class StartTests(unittest.TestCase):
     def test_one_command_serves_the_iphone_at_the_macs_address(self):
         parts = SimpleNamespace(stt=SimpleNamespace(label='OpenAI x'), speaker=SimpleNamespace(label='ElevenLabs y'))
         with tempfile.TemporaryDirectory() as tmp:
-            with patch('pianasoul.library.CACHE_DIR', Path(tmp)), \
+            with patch('pianasoul.library.DATA_DIR', Path(tmp)), \
                  patch('pianasoul.core.Core', return_value=Mock(label='test')), \
                  patch('pianasoul.core.version', return_value={'commit': 'abc', 'repo': ''}), \
                  patch.object(server, 'voice_parts', return_value=SimpleNamespace(
@@ -374,7 +375,7 @@ class StartTests(unittest.TestCase):
         opened.assert_called_once_with(['open', '-R', str(Path(tmp) / 'phone-tls' / 'PianaSoul-CA.cer')], check=False)
 
     def test_token_is_kept_privately_across_restarts(self):
-        with tempfile.TemporaryDirectory() as tmp, patch('pianasoul.library.CACHE_DIR', Path(tmp)):
+        with tempfile.TemporaryDirectory() as tmp, patch('pianasoul.library.DATA_DIR', Path(tmp)):
             first = server.saved_token()
             self.assertGreaterEqual(len(first), 32)
             self.assertEqual(server.saved_token(), first)

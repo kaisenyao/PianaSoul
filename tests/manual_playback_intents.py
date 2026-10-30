@@ -2,6 +2,7 @@
 import argparse
 import json
 
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul.chat import INSTRUCTIONS, TOOLS
 from pianasoul.llm import make_chat
 from test_playback_interactions import PlaybackTests

@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 
 import mido
 
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul.chat import Assistant
 from pianasoul.conversations import QUIET_S, Conversations
 from pianasoul.downloads import Downloads

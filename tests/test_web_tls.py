@@ -8,6 +8,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import web_tls
 from pianasoul.web_tls import CA_FILE, prepare_https
 

@@ -1,14 +1,19 @@
 """Local MIDI library: a small SQLite index of every MIDI file PianaSoul knows about.
 
-    python -m pianasoul.library import ~/Desktop/midi      # copy MIDI files in and index them
+    python -m pianasoul.library import ~/Desktop/midi      # copy MIDI files into the library folder
     python -m pianasoul.library list
     python -m pianasoul.library enrich                     # let the chat model add artists, aliases, tags
+
+The library is a folder of music (MUSIC_DIR): yours, as you put it there, and Transcribed/, where PianaSoul files
+the pieces it makes. Its index and other lasting data are in DATA_DIR, and work files that may go in CACHE_DIR.
+Each can be moved with an environment variable (PIANASOUL_MUSIC, PIANASOUL_DATA, PIANASOUL_CACHE).
 """
 
 from __future__ import annotations
 
 import argparse
 import filecmp
+import os
 import re
 import shutil
 import sqlite3
@@ -22,10 +27,18 @@ import pretty_midi
 
 from .cleanup import pedal_intervals
 
-OUTPUT_DIR = Path(__file__).resolve().parents[2] / "output"  # in the project, wherever a command runs from
-MIDI_DIR = OUTPUT_DIR / "MIDI Files"          # the MIDI files you play
-DB_PATH = OUTPUT_DIR / "library.db"
-CACHE_DIR = OUTPUT_DIR / ".cache"              # downloads, raw MIDI, statistics, task state
+
+
+def _place(variable: str, default: Path) -> Path:
+    return Path(os.environ.get(variable) or default).expanduser().resolve()
+
+
+MUSIC_DIR = _place("PIANASOUL_MUSIC", Path.home() / "Music" / "PianaSoul")  # the library: your music, and
+TRANSCRIBED = "Transcribed"  # the subfolder only PianaSoul writes to, with the pieces it made
+DATA_DIR = _place("PIANASOUL_DATA", Path.home() / "Library" / "Application Support" / "PianaSoul")  # what lasts
+CACHE_DIR = _place("PIANASOUL_CACHE", Path.home() / "Library" / "Caches" / "PianaSoul")  # what may go
+DB_PATH = DATA_DIR / "library.db"
+OLD_OUTPUT = Path(__file__).resolve().parents[2] / "output"  # where a checkout kept everything before (migrate.py)
 
 FIELDS = ("title", "composer", "performer", "aliases", "tags")
 SCHEMA = """
@@ -144,6 +157,16 @@ def safe_name(name: str) -> str:
     return name or "Untitled"
 
 
+def free_name(folder: Path, name: str, same_as: Path | None = None) -> Path:
+    """Where a file named name goes in folder: name itself, or "<stem> (2)<suffix>" and so on when it is taken. A file
+    there with the same content as same_as is the one wanted, and is returned as it is."""
+    stem, suffix = Path(name).stem, Path(name).suffix
+    dest, n = folder / name, 2
+    while dest.exists() and not (same_as and dest.is_file() and filecmp.cmp(same_as, dest, shallow=False)):
+        dest, n = folder / f"{stem} ({n}){suffix}", n + 1
+    return dest
+
+
 def file_result(lib: "Library", produced: Path, title: str, *, source_type: str, source_url: str,
                 composer: str = "", performer: str = "", aliases: str = "", tags: str = "") -> dict:
     """Put a freshly transcribed MIDI into the MIDI folder and the library.
@@ -167,9 +190,10 @@ class Library:
     """The recordings, and the app's other small tables, in one SQLite file. Safe to use from several threads:
     the app's server, its downloads and the piano all use the same library."""
 
-    def __init__(self, db_path: Path = DB_PATH):
+    def __init__(self, db_path: Path = DB_PATH, music_dir: Path = MUSIC_DIR):
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.midi_dir = db_path.parent / MIDI_DIR.name  # the MIDI files and playlist sit next to their index
+        self.music_dir = Path(music_dir).resolve()
+        self.transcribed = self.music_dir / TRANSCRIBED  # where the pieces PianaSoul makes are filed, by title
         self.lock = threading.RLock()  # one statement and its commit at a time
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
@@ -179,15 +203,11 @@ class Library:
             if name not in have:
                 self.db.execute(f"ALTER TABLE recordings ADD COLUMN {name} {kind}")
         # Files keep the names of their pieces: one renamed before its file followed takes its title now.
-        renamed = False
         for row in self.db.execute("SELECT id, title, midi_path FROM recordings").fetchall():
             named = str(self._named(Path(row["midi_path"]), row["title"]))
             if named != row["midi_path"]:
                 self.db.execute("UPDATE recordings SET midi_path = ? WHERE id = ?", (named, row["id"]))
-                renamed = True
         self.db.commit()
-        if renamed:
-            self.write_playlist()
 
     def execute(self, sql: str, params=()) -> list[sqlite3.Row]:
         """Run one statement, commit it, and return its rows."""
@@ -211,9 +231,8 @@ class Library:
         return [self._public(r) for r in self.execute("SELECT * FROM recordings ORDER BY title")]
 
     def add(self, midi_path: Path, title: str, *, composer: str = "", performer: str = "",
-            aliases: str = "", tags: str = "", source_type: str = "local", source_url: str = "",
-            playlist: bool = True) -> dict:
-        """Add or update a recording; playlist=False leaves the playlist to the caller, for many at once."""
+            aliases: str = "", tags: str = "", source_type: str = "local", source_url: str = "") -> dict:
+        """Add or update a recording."""
         midi_path = Path(midi_path).resolve()
         stats = midi_stats(midi_path)
         self.execute(
@@ -233,8 +252,6 @@ class Library:
             (title, composer, performer, aliases, tags, source_type, source_url, str(midi_path),
              stats["notes"], stats["velocity_min"], stats["velocity_max"], stats["pedal_presses"],
              stats["duration_s"], _now()))
-        if playlist:
-            self.write_playlist()
         return self._public(self.execute("SELECT * FROM recordings WHERE midi_path = ?", (str(midi_path),))[0])
 
     def update(self, rec_id: int, **fields) -> dict | None:
@@ -246,11 +263,10 @@ class Library:
                     fields["midi_path"] = str(self._named(Path(rec["midi_path"]), fields["title"]))
                 assignments = ", ".join(f"{k} = ?" for k in fields)
                 self.execute(f"UPDATE recordings SET {assignments} WHERE id = ?", (*fields.values(), rec_id))
-            self.write_playlist()
         return self.get(rec_id)
 
     def _taken(self, path: Path, own: Path | None = None) -> bool:
-        """Whether a name in the MIDI folder is another piece's: its file is there, or its record still is (the file
+        """Whether a name in Transcribed/ is another piece's: its file is there, or its record still is (the file
         gone by hand). A piece never takes another's name, so a file and its record always belong together."""
         if path.exists() and not (own and path.samefile(own)):  # samefile: only the letters' case changes
             return True
@@ -258,28 +274,28 @@ class Library:
         return self.db.execute(query, (str(path.resolve()),)).fetchone() is not None
 
     def place(self, src: Path, title: str) -> Path:
-        """Copy a MIDI file into the MIDI folder as '<title>.mid', or '<title> (2).mid' and so on when the name is
-        another piece's; the same file already there is used as it is."""
-        self.midi_dir.mkdir(parents=True, exist_ok=True)
+        """Copy a MIDI file PianaSoul made into Transcribed/ as '<title>.mid', or '<title> (2).mid' and so on when the
+        name is another piece's; the same file already there is used as it is."""
+        self.transcribed.mkdir(parents=True, exist_ok=True)
         safe, n = safe_name(title), 2
-        dest = self.midi_dir / f"{safe}.mid"
+        dest = self.transcribed / f"{safe}.mid"
         while self._taken(dest) and not (dest.is_file() and filecmp.cmp(src, dest, shallow=False)):
-            dest, n = self.midi_dir / f"{safe} ({n}).mid", n + 1
+            dest, n = self.transcribed / f"{safe} ({n}).mid", n + 1
         if not dest.exists():
             shutil.copy2(src, dest)
         return dest
 
     def _named(self, midi: Path, title: str) -> Path:
-        """A file in the library's MIDI folder is named after its title, as place names a new one; a file imported
-        in place keeps its name. Returns where the file is now."""
-        if midi.parent != self.midi_dir.resolve() or not midi.is_file():
+        """A file in Transcribed/ is named after its title, as place names a new one; any other file is yours and
+        keeps its name. Returns where the file is now."""
+        if midi.parent != self.transcribed or not midi.is_file():
             return midi
         safe = safe_name(title)
         if re.fullmatch(re.escape(safe) + r"( \(\d+\))?", midi.stem):  # " (2)": another piece has the same title
             return midi
-        dest, n = self.midi_dir / f"{safe}.mid", 2
+        dest, n = self.transcribed / f"{safe}.mid", 2
         while self._taken(dest, midi):
-            dest, n = self.midi_dir / f"{safe} ({n}).mid", n + 1
+            dest, n = self.transcribed / f"{safe} ({n}).mid", n + 1
         midi.rename(dest)
         return dest.resolve()
 
@@ -291,8 +307,7 @@ class Library:
         return self.update(rec_id, title=make_title(piece, artist, performer), composer=artist, performer=performer)
 
     def delete(self, rec_id: int) -> bool:
-        """Take a recording out of the library. Its MIDI file goes too when it is in the library's MIDI folder;
-        a file imported in place stays where it is."""
+        """Take a recording out of the library. Its MIDI file goes too when it is in Transcribed/."""
         rec = self.get(rec_id)
         if rec is None:
             return False
@@ -300,9 +315,8 @@ class Library:
             self.db.execute("DELETE FROM recordings WHERE id = ?", (rec_id,))
             self.db.commit()
         midi = Path(rec["midi_path"])
-        if midi.parent == self.midi_dir.resolve():
+        if midi.parent == self.transcribed:
             midi.unlink(missing_ok=True)
-        self.write_playlist()
         return True
 
     def favorite(self, rec_id: int, on: bool) -> None:
@@ -333,18 +347,6 @@ class Library:
         rows = (self._public(r) for r in self.execute("SELECT * FROM recordings ORDER BY id"))
         return [r for r in rows if r["file_exists"]]
 
-    def write_playlist(self) -> None:
-        """Rewrite the .m3u playlist from playlist(); files deleted by hand drop out."""
-        path = self.midi_dir / "playlist.m3u"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        folder = path.parent.resolve()
-        lines = ["#EXTM3U"]
-        for r in self.playlist():
-            midi = Path(r["midi_path"])
-            entry = midi.name if midi.parent == folder else str(midi)
-            lines += [f'#EXTINF:{round(r["duration_s"] or 0)},{r["title"]}', entry]
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
     def search(self, query: str, limit: int = 8) -> list[dict]:
         wanted = _terms(query)
         if not wanted:
@@ -365,20 +367,20 @@ class Library:
         return [self._public(r) | {"score": round(s, 1)} for s, r in scored[:limit]]
 
     def index_midi_folder(self) -> int:
-        """Pick up MIDI files put into the MIDI folder by hand, and bring the playlist up to date."""
+        """Pick up MIDI files put into the library folder by hand."""
         known = {r["midi_path"] for r in self.all()}
         added = 0
-        for f in sorted(self.midi_dir.glob("*.mid")):
+        for f in sorted(self.music_dir.glob("*.mid")):
             if str(f.resolve()) not in known:
                 try:
-                    self.add(f, f.stem, source_type="folder", playlist=False)
+                    self.add(f, f.stem, source_type="folder")
                     added += 1
                 except Exception:
                     pass
-        self.write_playlist()  # once; files deleted by hand drop out too
         return added
 
-    def import_folder(self, folder: Path, *, copy: bool = True) -> list[dict]:
+    def import_folder(self, folder: Path) -> list[dict]:
+        """Copy the MIDI files in a folder into the library folder, as yours, and add them."""
         added = []
         for src in sorted(Path(folder).expanduser().rglob("*")):
             if src.suffix.lower() not in {".mid", ".midi"} or src.name.startswith("."):
@@ -386,12 +388,13 @@ class Library:
             if src.name.endswith(".raw.mid") or "extras" in src.parts:  # PianaSoul side files
                 continue
             try:
-                path = self.place(src, src.stem) if copy else src
-                added.append(self.add(path, src.stem, source_type="import", source_url=str(src.resolve()),
-                                      playlist=False))
+                self.music_dir.mkdir(parents=True, exist_ok=True)
+                dest = free_name(self.music_dir, src.name, same_as=src)
+                if not dest.exists():
+                    shutil.copy2(src, dest)
+                added.append(self.add(dest, src.stem, source_type="import", source_url=str(src.resolve())))
             except Exception as exc:  # skip unreadable files, keep importing
                 print(f"  skipped {src.name}: {exc}", file=sys.stderr)
-        self.write_playlist()
         return added
 
     def close(self) -> None:
@@ -442,16 +445,15 @@ def format_row(r: dict) -> str:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pianasoul library", description="Manage the local MIDI library.")
     sub = p.add_subparsers(dest="cmd", required=True)
-    imp = sub.add_parser("import", help="add MIDI files from a folder (copied into output/MIDI Files)")
+    imp = sub.add_parser("import", help="add MIDI files from a folder (copied into the library folder)")
     imp.add_argument("folder")
-    imp.add_argument("--in-place", action="store_true", help="index the files where they are instead of copying")
     sub.add_parser("list", help="list the library")
     sub.add_parser("enrich", help="use the chat model to add artists, aliases and tags")
     args = p.parse_args(argv)
 
     lib = Library()
     if args.cmd == "import":
-        added = lib.import_folder(Path(args.folder), copy=not args.in_place)
+        added = lib.import_folder(Path(args.folder))
         print(f"Imported {len(added)} MIDI file(s). Library now has {lib.count()} recording(s).")
     elif args.cmd == "list":
         rows = lib.all()

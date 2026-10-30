@@ -14,7 +14,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 from . import show_details
 from .audio import find_audio_files
-from .library import CACHE_DIR, MIDI_DIR, Library, file_result
+from .library import CACHE_DIR, Library, file_result
 from .pipeline import Options, convert_file
 
 
@@ -27,7 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--csv", metavar="TASKS", help="video URL task CSV (updated in place)")
     p.add_argument("-o", "--output", default=None,
                    help="write MIDI and work files to this folder instead of the library "
-                        "(default: output/MIDI Files, work files in output/.cache)")
+                        "(default: the library folder's Transcribed/, work files in the cache folder)")
     p.add_argument("--overwrite", action="store_true",
                    help="convert again and replace MIDI files that already exist (default: skip them)")
     p.add_argument("--legato", action="store_true",
@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
                     file_result(lib, produced, row["name"] or produced.stem, source_type="url",
                                 source_url=row["url"])
                     filed += 1
-            print(f"Library: {filed} MIDI file(s) saved to {MIDI_DIR.resolve()}")
+            print(f"Library: {filed} MIDI file(s) saved to {lib.transcribed}")
         return code
 
     try:
@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
             failed.append(f)
 
     print(f"\nDone: {len(done)} converted, {len(failed)} failed, {len(skipped)} skipped. "
-          f"MIDI files are in {(MIDI_DIR if use_library else Path(args.output)).resolve()}")
+          f"MIDI files are in {lib.transcribed if lib else Path(args.output).resolve()}")
     for f in failed:
         print(f"  failed: {f.name} (see {Path(args.output) / 'extras' / f'{f.stem}.error.log'})")
     return 1 if failed else 0

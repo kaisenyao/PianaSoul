@@ -5,12 +5,24 @@ import unittest
 from unittest.mock import MagicMock, patch
 import wave
 
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import audio, download, library, youtube
 
 
 class LimitTests(unittest.TestCase):
-    def test_the_library_is_in_the_project_wherever_a_command_runs(self):
-        self.assertEqual(library.OUTPUT_DIR, Path(__file__).resolve().parents[1] / 'output')
+    def test_tests_never_touch_the_real_library_data_or_cache(self):
+        for place in (library.MUSIC_DIR, library.DATA_DIR, library.CACHE_DIR, library.DB_PATH.parent):
+            self.assertTrue(place.is_relative_to(places.ROOT.resolve()), place)
+
+    def test_the_places_are_the_macos_ones_unless_moved(self):
+        import os, subprocess, sys
+        env = {k: v for k, v in os.environ.items() if not k.startswith('PIANASOUL_')}
+        found = subprocess.run([sys.executable, '-c', 'from pianasoul import library as l; print(l.MUSIC_DIR); '
+                                'print(l.DATA_DIR); print(l.CACHE_DIR)'], env=env, capture_output=True, text=True,
+                               check=True).stdout.split('\n')
+        home = Path.home().resolve()
+        self.assertEqual(found[:3], [str(home / 'Music/PianaSoul'), str(home / 'Library/Application Support/PianaSoul'),
+                                     str(home / 'Library/Caches/PianaSoul')])
 
     def test_decoding_refuses_a_recording_over_the_limit(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import unittest
 
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 import pianasoul
 from pianasoul import show_details
 
