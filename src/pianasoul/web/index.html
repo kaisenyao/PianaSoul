@@ -227,15 +227,16 @@
     <div class="grabber"></div>
     <div class="sheet-head"><button class="l" id="edit-cancel" data-t="cancel"></button><h3 data-t="edit"></h3><button class="r" id="edit-save" data-t="done"></button></div>
     <div class="sheet-body">
+      <div class="ghead" data-t="pieceInfo"></div>
       <div class="form">
         <div class="frow"><label for="f-piece" data-t="piece"></label><input id="f-piece" autocomplete="off"></div>
         <div class="frow"><label for="f-artist" data-t="artist"></label><input id="f-artist" autocomplete="off"></div>
         <div class="frow"><label for="f-performer" data-t="performer"></label><input id="f-performer" autocomplete="off"></div>
-      </div>
-      <div class="form spaced">
         <div class="frow"><label data-t="source"></label><span class="val" id="f-source"></span></div>
-        <div class="frow"><label data-t="length"></label><span class="val" id="f-duration"></span></div>
+        <div class="frow"><label data-t="added"></label><span class="val" id="f-added"></span></div>
       </div>
+      <button class="ghead fold" aria-expanded="false"><span data-t="technical"></span><span class="chev"><i data-icon="chevron"></i></span></button>
+      <div class="form" id="f-technical" hidden></div>
     </div>
   </section>
 
@@ -267,7 +268,7 @@
 
   <!-- Instead of an empty page, when the Mac does not let this page in: it paired anew, or it was never paired -->
   <div id="signed-out" hidden>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2M20 14v6h-4M14 18v2"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13.5a4.5 4.5 0 0 0 6.4.4l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.6 1.6"/><path d="M14 10.5a4.5 4.5 0 0 0-6.4-.4l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.6-1.6"/></svg>
     <b id="signed-out-title"></b>
     <p id="signed-out-text"></p>
   </div>

@@ -399,12 +399,13 @@ svg { display: block; }
 /* Edit form */
 .form { margin: 8px 16px; border-radius: 12px; background: var(--card2); overflow: hidden; }
 :root[data-theme=light] .form { background: var(--card); }
-.form.spaced { margin-top: 20px; }
 .frow { display: flex; align-items: center; min-height: 48px; padding: 0 16px; gap: 12px; position: relative; }
 .frow + .frow::before { content: ""; position: absolute; left: 16px; right: 0; top: 0; border-top: 1px solid var(--sep-form); }
 .frow label { width: 92px; flex: none; font-size: 16px; }
 .frow input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--text); font: inherit; font-size: 16px; text-align: right; }
 .frow .val { flex: 1; text-align: right; color: var(--text2); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ghead.fold { display: flex; align-items: center; justify-content: space-between; width: calc(100% - 32px); min-height: 32px; }
+.form[hidden] { display: none; }
 
 /* Action sheet */
 .action { position: absolute; z-index: 46; left: 8px; right: 8px; bottom: calc(var(--safe-bottom) + 8px); transform: translateY(130%); transition: transform .4s var(--ease); }
@@ -607,10 +608,15 @@ button.grow:active { background: var(--press); }
 /* 曲目信息 as Apple TV lays out its details: a small label over each value, in two columns */
 .facts-h { margin: 24px 0 16px; padding-top: 22px; border-top: 1px solid var(--p-line); font-size: 20px; font-weight: 700; }
 .facts-h.first { margin-top: 0; padding-top: 0; border-top: 0; }
+.facts-h.fold { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.facts-h .chev { color: var(--p-text3); }
+.fold .chev svg { transition: transform .25s var(--ease); }
+.fold[aria-expanded=true] .chev svg { transform: rotate(90deg); }
+.facts[hidden] { display: none; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 18px; }
 .facts div { min-width: 0; }
 .facts span { display: block; font-size: 13px; color: var(--p-text3); }
-.facts b { display: block; margin-top: 4px; font-size: 18px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.facts b { display: block; margin-top: 4px; font-size: 18px; font-weight: 500; word-break: keep-all; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
   #main, #sidebar, #scrim, .swipe .content, .sheet, .action, .alert, #pages > .view, .art, .compose, #mini { transition: none; }

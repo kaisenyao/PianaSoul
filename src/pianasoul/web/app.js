@@ -715,11 +715,13 @@ function openEdit(id) {
   $('#f-piece').value = p.piece;
   $('#f-artist').value = p.artist;
   $('#f-performer').value = p.performer;
-  const web = /^https?:/.test(p.source_url || '');
-  $('#f-source').textContent = web ? [siteOf(p.source_url), p.channel].filter(Boolean).join(' · ') : (p.source_url || '').split('/').pop() || '—';
-  $('#f-duration').textContent = mmss(p.duration_s);
+  $('#f-source').textContent = originOf(p);
+  $('#f-added').textContent = addedOf(p);
+  $('#f-technical').innerHTML = technicalOf(p).map(([k, v]) =>
+    `<div class="frow"><label>${esc(k)}</label><span class="val">${esc(v)}</span></div>`).join('');
   showSheet($('#sheet-edit'));
 }
+$('#sheet-edit .fold').addEventListener('click', () => showTechnical(!technicalOpen));
 $('#edit-cancel').addEventListener('click', closeOverlays);
 $('#edit-save').addEventListener('click', async () => {
   const piece = $('#f-piece').value.trim(), id = editId;
@@ -889,22 +891,35 @@ function showScreen(n) {
   view.addEventListener('pointercancel', end);
 })();
 
-// 详细信息: only what is really there. The video as YouTube shows it (when the piece came from one), then the
-// library's own facts about the piece.
-let infoId = null;
+// 详细信息: the video as YouTube shows it (when the piece came from one), then the library's facts about the piece,
+// always the same four in the same places, then the technical details, folded at first. 编辑信息 has the same groups
+// in the same order.
+let infoId = null, technicalOpen = false;
 // How a piece came: made by PianaSoul from a video or from a recording of yours, sent from a phone, or a file of yours
 // in the library folder (where its file is: Transcribed/, Uploaded/ or anywhere else).
 const originOf = p => p.origin === 'transcribed'
   ? (/^https?:/.test(p.source_url || '') ? T.origins.video(siteOf(p.source_url)) : T.origins.recording)
   : T.origins[p.origin] || T.origins.yours;
 const dateOf = stamp => { const d = new Date(stamp); return T.date(d.getFullYear(), d.getMonth() + 1, d.getDate()); };
+const addedOf = p => p.added_at ? dateOf(p.added_at) : '—';
+const aboutOf = p => [
+  [T.artist, p.artist || '—'], [T.performer, p.performer || '—'], [T.source, originOf(p)], [T.added, addedOf(p)],
+];
+const technicalOf = p => [
+  [T.notes, p.notes != null ? T.noteCount(p.notes) : '—'], [T.pedal, p.pedal_presses != null ? T.times(p.pedal_presses) : '—'],
+  [T.velocity, p.velocity_min != null ? `${p.velocity_min}–${p.velocity_max}` : '—'], [T.length, mmss(p.duration_s)],
+];
+// Opening or folding the technical details does it in both places.
+function showTechnical(open) {
+  technicalOpen = open;
+  for (const fold of document.querySelectorAll('.fold')) {
+    fold.setAttribute('aria-expanded', open);
+    fold.nextElementSibling.hidden = !open;
+  }
+}
 function renderInfo(p) {
-  const facts = [
-    [T.artist, p.artist || '—'], [T.performer, p.performer || '—'], [T.source, originOf(p)],
-    [T.notes, p.notes != null ? T.noteCount(p.notes) : '—'], [T.pedal, p.pedal_presses != null ? T.times(p.pedal_presses) : '—'],
-    [T.velocity, p.velocity_min != null ? `${p.velocity_min}–${p.velocity_max}` : '—'], [T.length, mmss(p.duration_s)],
-    [T.added, p.added_at ? dateOf(p.added_at) : '—'], [T.lastPlayed, p.last_played_at ? `${dayName(p.last_played_at)} ${clockTime(p.last_played_at)}` : '—'],
-  ];
+  const facts = (list, hidden = false) => `<div class="facts"${hidden ? ' hidden' : ''}>${
+    list.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>`;
   const seen = [p.channel, p.views != null ? T.views(p.views) : '', p.published ? dateOf(p.published + 'T12:00') : ''].filter(Boolean);
   const video = p.video_title && /^https?:/.test(p.source_url || '') ? `
     <a class="video" id="p-video" href="${esc(p.source_url)}" target="_blank" rel="noopener" draggable="false">
@@ -914,11 +929,14 @@ function renderInfo(p) {
       <span class="vs">${esc([siteOf(p.source_url), ...seen].join(' · '))}</span>
     </a>` : '';
   $('#p-info').innerHTML = `<h3>${esc(T.details)}</h3>${video}
-    <div class="facts-h${video ? '' : ' first'}">${esc(T.pieceInfo)}</div>
-    <div class="facts">${facts.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>`;
+    <div class="facts-h${video ? '' : ' first'}">${esc(T.pieceInfo)}</div>${facts(aboutOf(p))}
+    <button class="facts-h fold" aria-expanded="${technicalOpen}">${esc(T.technical)}${CHEV}</button>${facts(technicalOf(p), !technicalOpen)}`;
 }
 // Watching the original on YouTube: one sound at a time, so the piano pauses.
-$('#p-info').addEventListener('click', e => { if (e.target.closest('#p-video')) pausePiano(); });
+$('#p-info').addEventListener('click', e => {
+  if (e.target.closest('#p-video')) pausePiano();
+  if (e.target.closest('.fold')) showTechnical(!technicalOpen);
+});
 // Dragging the bar moves the playing position; the piano continues from there.
 (function scrubber() {
   const el = $('#scrub');
