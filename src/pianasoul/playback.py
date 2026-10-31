@@ -28,17 +28,15 @@ from .play import GAP_S, Output, Player
 
 log = logging.getLogger(__spec__.name)
 MODES = ("order", "one", "shuffle")
+RESTART_AFTER_S = 3.0  # ⏮ past this point starts the piece over
+DEFAULT_VOLUME = 80  # percent, until one is chosen: about where MIDI's own default (100 of 127) is
+
 
 
 def _check_mode(mode: str | None) -> None:
     """ValueError for a mode that is not one of MODES (None: as it is)."""
     if mode is not None and mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
-
-
-RESTART_AFTER_S = 3.0  # ⏮ past this point starts the piece over
-DEFAULT_VOLUME = 80  # percent, until one is chosen: about where MIDI's own default (100 of 127) is
-
 
 class Playback(Player):
     def __init__(self, lib, port=None, lead: float | None = None):
@@ -157,15 +155,12 @@ class Playback(Player):
         with self._lock:
             self.start([item], from_s, ready)
 
-    def show(self, rec_id: int, ids: list[int] | None = None, scope: dict | None = None,
-             mode: str | None = None) -> None:
+    def show(self, rec_id: int, ids: list[int] | None = None, scope: dict | None = None) -> None:
         """The list a piece belongs to, for the piece already playing: tapping it in another list changes what
         comes next, not what plays now."""
-        _check_mode(mode)
         with self._lock:
             if rec_id != self.current_id:
                 return
-            self.mode = mode or self.mode
             self.ids = list(dict.fromkeys(ids or [rec_id]))
             if rec_id not in self.ids:
                 self.ids.append(rec_id)

@@ -213,12 +213,12 @@ def session(request: Request, response: Response, token: str = Body(embed=True))
 # ---- what the page shows ------------------------------------------------------------------------------
 @app.get('/api/state')
 def state():
-    her = core.assistant
-    return {'recordings': core.recordings(), 'jobs': core.downloads.snapshot(),
+    her, recordings = core.assistant, core.recordings()
+    return {'recordings': recordings, 'jobs': core.downloads.snapshot(),
             'playback': core.playback.snapshot(), 'conversations': core.conversations.all() if her else [],
             'current': her.conversation_id if her else None, 'busy': core.busy, 'settings': core.settings(),
             'devices': core.devices(), 'piano': core.piano, 'version': version, 'features': core.features(),
-            'audio': core.audio(), 'playlists': core.lib.playlists(), 'pictures': core.pictures()}
+            'audio': core.audio(), 'playlists': core.lib.playlists(), 'pictures': core.pictures(recordings)}
 
 
 @app.get('/api/recordings')
@@ -305,7 +305,7 @@ def play(id: int = Body(), ids: list[int] = Body(default=[]), scope: dict = Body
     playback = core.playback
     try:
         if mode is None and id == playback.current_id and not playback.ended and playback.state != 'stopped':
-            playback.show(id, ids, scope, mode)
+            playback.show(id, ids, scope)
         else:
             playback.select(id, ids, scope, mode=mode)
     except ValueError:
@@ -374,7 +374,7 @@ def edit(rec_id: int, change: dict = Body()):
         core.lib.played(rec_id, False)
     if 'piece' in change:
         core.lib.edit(rec_id, str(change['piece']), str(change.get('artist', '')), str(change.get('performer', '')))
-    core.emit({'type': 'library'})
+    core.library_changed()
     return next(r for r in core.recordings() if r['id'] == rec_id)
 
 
@@ -383,23 +383,25 @@ PICTURE_LIMIT = 4 * 1024 * 1024  # what a phone makes, a square JPEG of about 10
 
 
 async def _picture(request: Request) -> bytes | None:
-    """The JPEG of a PUT, as the phone makes it; None for a DELETE (taken away). 413 too large, 400 not a JPEG."""
+    """The JPEG of a PUT, as the phone makes it; None for a DELETE (taken away). Read as it comes, and stopped as
+    soon as it is too large (413); 400 for what is not a JPEG."""
     if request.method == 'DELETE':
         return None
-    if int(request.headers.get('content-length') or 0) > PICTURE_LIMIT:
-        raise HTTPException(413)
-    body = await request.body()
-    if len(body) > PICTURE_LIMIT:
-        raise HTTPException(413)
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > PICTURE_LIMIT:
+            raise HTTPException(413)
     if not body.startswith(b'\xff\xd8\xff'):
         raise HTTPException(400)
-    return body
+    return bytes(body)
 
 
 def _picture_file(path: Path) -> FileResponse:
+    """A picture, asked for by its version (?v=): the same address is always the same picture."""
     if not path.is_file():
         raise HTTPException(404)
-    return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'no-cache'})
+    return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'private, max-age=31536000, immutable'})
 
 
 @app.get('/api/recordings/{rec_id}/artwork')
@@ -409,10 +411,12 @@ def piece_artwork(rec_id: int):
 
 @app.api_route('/api/recordings/{rec_id}/artwork', methods=['PUT', 'DELETE'])
 async def keep_piece_artwork(rec_id: int, request: Request):
-    """A piece's artwork from the phone (PUT), or taken away (DELETE)."""
+    """A piece's artwork from the phone (PUT), or taken away (DELETE). 409 while its file is not wholly here (in
+    iCloud only): the artwork is kept by the file's content."""
     _recording(rec_id)
-    core.lib.set_piece_artwork(rec_id, await _picture(request))
-    core.emit({'type': 'library'})
+    if not core.lib.set_piece_artwork(rec_id, await _picture(request)):
+        raise HTTPException(409)
+    core.library_changed()
     return {'ok': True}
 
 
@@ -441,7 +445,7 @@ async def keep_artist_picture(name: str, request: Request):
     if not name.strip():
         raise HTTPException(400)
     core.lib.set_artist_picture(name, await _picture(request))
-    core.emit({'type': 'pictures', 'pictures': core.pictures()})
+    core.library_changed()
     return {'ok': True}
 
 

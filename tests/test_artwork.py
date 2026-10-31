@@ -45,6 +45,21 @@ class LibraryArtworkTests(Base):
             self.lib.delete(a)
         self.assertIn(str(artwork), [c.args[0] for c in trash.call_args_list], 'With its file, to the Trash')
 
+    def test_two_pieces_of_one_content_keep_it_when_one_changes_and_none_takes_anothers(self):
+        a, b, c = self.ids
+        copy = Path(self.lib.get(a)['midi_path']).with_name('copy.mid')
+        copy.write_bytes(Path(self.lib.get(a)['midi_path']).read_bytes())
+        twin = self.lib.add(copy, 'copy')['id']  # a copy of a, as the folder takes one in
+        self.lib.set_piece_artwork(a, JPEG)
+        make_midi(Path(self.lib.get(a)['midi_path']), note=73)  # a is edited
+        self.lib.refresh(a)
+        self.assertEqual(self.lib.piece_artwork(self.lib.get(a)).read_bytes(), JPEG, 'It goes along...')
+        self.assertEqual(self.lib.piece_artwork(self.lib.get(twin)).read_bytes(), JPEG, '...and the copy keeps it')
+        self.lib.set_piece_artwork(c, JPEG + b'c')
+        Path(self.lib.get(a)['midi_path']).write_bytes(Path(self.lib.get(c)['midi_path']).read_bytes())  # a becomes c
+        self.lib.refresh(a)
+        self.assertEqual(self.lib.piece_artwork(self.lib.get(c)).read_bytes(), JPEG + b'c', "c's is not overwritten")
+
     def test_taken_away_and_only_for_a_piece_that_is_there(self):
         a = self.ids[0]
         self.lib.set_piece_artwork(a, JPEG)
@@ -66,6 +81,18 @@ class LibraryArtworkTests(Base):
         self.assertEqual(set(self.lib.pictures(['AC/DC', '周杰伦'])), {'AC/DC'})
         self.lib.set_artist_picture('AC/DC', None)
         self.assertEqual(self.lib.pictures(['AC/DC']), {})
+        long = '周杰伦' * 120  # far over a file name's 255 bytes
+        self.assertEqual(self.lib.pictures([long]), {}, 'No picture, and no failure')
+        self.lib.set_artist_picture(long, JPEG)
+        self.assertEqual(list(self.lib.pictures([long])), [long])
+
+    def test_a_new_playlist_does_not_take_the_artwork_of_one_deleted_with_its_id(self):
+        made = self.lib.new_playlist('一')
+        self.lib.set_playlist_cover(made['id'], JPEG)
+        self.lib.execute('DELETE FROM playlists WHERE id = ?', (made['id'],))  # gone without its file, as in a crash
+        again = self.lib.new_playlist('二')
+        self.assertEqual(again['id'], made['id'], 'The id is used again')
+        self.assertIsNone(self.lib.playlist(again['id'])['artwork'])
 
 
 class ArtworkApiTests(Base):
@@ -89,7 +116,7 @@ class ArtworkApiTests(Base):
         a = self.ids[0]
         self.assertEqual(self.client.get(f'/api/recordings/{a}/artwork').status_code, 404)
         self.assertEqual(self.client.put(f'/api/recordings/{a}/artwork', content=JPEG).json(), {'ok': True})
-        self.assertEqual(self.events[-1], {'type': 'library'})
+        self.assertEqual(self.events[-1], {'type': 'library', 'pictures': {}})
         self.assertEqual(self.client.get(f'/api/recordings/{a}/artwork').content, JPEG)
         self.assertTrue(next(r for r in self.client.get('/api/state').json()['recordings'] if r['id'] == a)['artwork'])
         self.client.delete(f'/api/recordings/{a}/artwork')
@@ -102,6 +129,8 @@ class ArtworkApiTests(Base):
         self.assertEqual(self.client.put('/api/recordings/999/artwork', content=JPEG).status_code, 404)
         self.assertEqual(self.client.put('/api/playlists/999/artwork', content=JPEG).status_code, 404)
         self.assertEqual(self.client.put('/api/pictures', params={'name': ' '}, content=JPEG).status_code, 400)
+        self.lib.execute("UPDATE recordings SET fingerprint = '' WHERE id = ?", (a,))  # not yet known (in iCloud)
+        self.assertEqual(self.client.put(f'/api/recordings/{a}/artwork', content=JPEG).status_code, 409)
 
     def test_a_playlists_and_an_artists_from_the_phone(self):
         pid = self.client.post('/api/playlists', json={'name': '睡前'}).json()['id']
@@ -109,8 +138,9 @@ class ArtworkApiTests(Base):
         self.assertTrue(self.events[-1]['playlists'][0]['artwork'])
         self.assertEqual(self.client.get(f'/api/playlists/{pid}/artwork').content, JPEG)
         self.client.put('/api/pictures', params={'name': '周杰伦'}, content=JPEG)
-        self.assertEqual(list(self.events[-1]['pictures']), ['周杰伦'])
+        self.assertEqual((self.events[-1]['type'], list(self.events[-1]['pictures'])), ('library', ['周杰伦']))
         self.assertEqual(self.client.get('/api/state').json()['pictures'], self.events[-1]['pictures'])
-        self.assertEqual(self.client.get('/api/pictures', params={'name': '周杰伦'}).content, JPEG)
+        picture = self.client.get('/api/pictures', params={'name': '周杰伦', 'v': 1})
+        self.assertEqual((picture.content, picture.headers['cache-control']), (JPEG, 'private, max-age=31536000, immutable'))
         self.client.delete('/api/pictures', params={'name': '周杰伦'})
-        self.assertEqual(self.events[-1], {'type': 'pictures', 'pictures': {}})
+        self.assertEqual(self.events[-1], {'type': 'library', 'pictures': {}})

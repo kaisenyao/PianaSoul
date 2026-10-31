@@ -100,7 +100,7 @@ class Core:
             self._playing = snapshot["id"]
             if self.assistant:
                 self.assistant.pending = None
-            self.emit({"type": "library"})
+            self.library_changed()
 
     def _fill_in_videos(self) -> None:
         """Pieces downloaded before the library kept their videos' details get them from YouTube, with the
@@ -116,7 +116,7 @@ class Core:
         for r in missing:
             if r["source_url"] in found:
                 self.lib.set_video(r["id"], found[r["source_url"]])
-        self.emit({"type": "library"})
+        self.library_changed()
 
     # ---- the piano -----------------------------------------------------------------------------------
     def _piano_now(self) -> dict:
@@ -152,7 +152,7 @@ class Core:
         self.emit({"type": "jobs", "jobs": jobs})
         if len(jobs) != self._jobs:  # a piece came in, or went: the library changed
             self._jobs = len(jobs)
-            self.emit({"type": "library"})
+            self.library_changed()
             self._name.set()
         self._audio_changed()
 
@@ -173,11 +173,11 @@ class Core:
                 continue
             if named:
                 log.debug("named %d piece(s) in other languages", named)
-                self.emit({"type": "library"})
+                self.library_changed()
 
     def _folder_changed(self) -> None:
         """Something came into the library folder, moved in it, or changed."""
-        self.emit({"type": "library"})
+        self.library_changed()
         self._audio_changed()
         self._transcribe_waiting()
         self._name.set()
@@ -208,9 +208,14 @@ class Core:
     def recordings(self) -> list[dict]:
         return [recording(r) for r in self.lib.all() if r["file_exists"]]
 
-    def pictures(self) -> dict[str, int]:
+    def pictures(self, recordings: list[dict] | None = None) -> dict[str, int]:
         """The artists' own pictures (原作者 and 演奏者 alike), by name: their versions."""
-        return self.lib.pictures(n for r in self.recordings() for n in (r["artist"], r["performer"]) if n)
+        return self.lib.pictures(n for r in recordings or self.recordings() for n in (r["artist"], r["performer"]) if n)
+
+    def library_changed(self) -> None:
+        """The app hears the library changed (and reads it again), with the artists' pictures as they are now: a new
+        piece may be by an artist who has one."""
+        self.emit({"type": "library", "pictures": self.pictures()})
 
     def audio(self) -> list[dict]:
         """The recordings in the library folder that are not pieces (yet, or any more): waiting for this Mac to
@@ -300,7 +305,7 @@ class Core:
             self.playback.forget(rec_id)
             self.lib.delete(rec_id)
             self.conversations.forget(rec_id)
-        self.emit({"type": "library"})
+        self.library_changed()
         self.playlists_changed()
         self._audio_changed()  # a transcribed piece gone: its recording is back
 

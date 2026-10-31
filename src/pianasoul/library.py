@@ -131,7 +131,7 @@ def _version(path: Path) -> int | None:
     """When a picture was last kept (the page asks for it again once this changes), or None when there is none."""
     try:
         return path.stat().st_mtime_ns
-    except FileNotFoundError:
+    except OSError:  # none, or none that could be (a name too long)
         return None
 
 
@@ -144,11 +144,6 @@ def _keep_picture(path: Path, jpeg: bytes | None) -> None:
     part = path.with_name(f".{path.name}.part")
     part.write_bytes(jpeg)
     part.replace(path)
-
-
-def _file_name(name: str) -> str:
-    """A name as a file's: no folder separators or control characters, and not hidden."""
-    return re.sub(r"[/:\x00-\x1f]", "_", name).strip().lstrip(".") or "_"
 
 
 PLAYLIST_TIME = "microseconds"  # which of two playlists changed last, even within a second (her choice by name)
@@ -379,13 +374,28 @@ class Library:
         rec = self.get(rec_id)
         path = Path(rec["midi_path"])
         stats, content = midi_stats(path), fingerprint(path)
-        artwork = self.piece_artwork(rec)
-        if rec["fingerprint"] and content != rec["fingerprint"] and artwork.exists():
-            artwork.replace(self.piece_artwork({"fingerprint": content}))
-        self.execute("UPDATE recordings SET notes = ?, velocity_min = ?, velocity_max = ?, pedal_presses = ?, "
-                     "duration_s = ?, fingerprint = ?, stamp = ? WHERE id = ?",
-                     (*(stats[k] for k in ("notes", "velocity_min", "velocity_max", "pedal_presses", "duration_s")),
-                      content, stamp(path), rec_id))
+        with self.lock:  # with a picture being kept for it, one after the other
+            if rec["fingerprint"] and content != rec["fingerprint"]:
+                self._artwork_follows(rec["fingerprint"], content)
+            self.execute("UPDATE recordings SET notes = ?, velocity_min = ?, velocity_max = ?, pedal_presses = ?, "
+                         "duration_s = ?, fingerprint = ?, stamp = ? WHERE id = ?",
+                         (*(stats[k] for k in ("notes", "velocity_min", "velocity_max", "pedal_presses", "duration_s")),
+                          content, stamp(path), rec_id))
+
+    def _artwork_follows(self, old: str, new: str) -> None:
+        """A piece's content changed from old to new: its artwork goes along. Copied when another piece still has the
+        old content (a copy of the file), and never over the artwork the new content has already (another piece's)."""
+        source, target = self.piece_artwork({"fingerprint": old}), self.piece_artwork({"fingerprint": new})
+        if not source.exists():
+            return
+        shared = len(self.execute("SELECT id FROM recordings WHERE fingerprint = ?", (old,))) > 1
+        if target.exists():
+            if not shared:
+                source.unlink()
+        elif shared:
+            shutil.copy2(source, target)
+        else:
+            source.replace(target)
 
     def moved(self, fingerprint: str) -> dict | None:
         """The piece whose file, now gone, had this content: the file it is moved or renamed to is it."""
@@ -506,8 +516,9 @@ class Library:
             return False
         if rec["file_exists"]:
             send2trash(rec["midi_path"])
-        artwork = self.piece_artwork(rec)
-        if artwork.exists() and len(self.execute("SELECT id FROM recordings WHERE fingerprint = ?", (rec["fingerprint"],))) == 1:
+        artwork = self.piece_artwork(rec) if rec["fingerprint"] else None
+        sharing = self.execute("SELECT id FROM recordings WHERE fingerprint = ?", (rec["fingerprint"],))
+        if artwork and artwork.exists() and len(sharing) == 1:
             send2trash(str(artwork))  # with its file: put back together, they belong together again
         with self.lock:
             self.db.execute("DELETE FROM recordings WHERE id = ?", (rec_id,))
@@ -537,6 +548,7 @@ class Library:
                                           (name, now, now)).lastrowid
             self._renumber(playlist_id, self._known(ids))
             self.db.commit()
+            self.playlist_cover(playlist_id).unlink(missing_ok=True)  # one deleted before may have had this id
         return self.playlist(playlist_id)
 
     def rename_playlist(self, playlist_id: int, name: str) -> dict | None:
@@ -601,28 +613,29 @@ class Library:
         return self.artwork / "Pieces" / f"{rec['fingerprint']}.jpg"
 
     def artist_picture(self, name: str) -> Path:
-        return self.artwork / "Artists" / f"{_file_name(name)}.jpg"
+        return self.artwork / "Artists" / f"{safe_name(name)}.jpg"
 
     def playlist_cover(self, playlist_id: int) -> Path:
         return self.playlist_artwork / f"{int(playlist_id)}.jpg"
 
     def set_piece_artwork(self, rec_id: int, jpeg: bytes | None) -> bool:
         """A piece's artwork (None takes it away). False when there is no such piece, or its file is not there."""
-        rec = self.get(rec_id)
-        if not rec or not rec["file_exists"] or not rec["fingerprint"]:
-            return False
-        _keep_picture(self.piece_artwork(rec), jpeg)
+        with self.lock:  # its content does not change meanwhile (refresh)
+            rec = self.get(rec_id)
+            if not rec or not rec["file_exists"] or not rec["fingerprint"]:
+                return False
+            _keep_picture(self.piece_artwork(rec), jpeg)
         return True
 
     def set_artist_picture(self, name: str, jpeg: bytes | None) -> None:
         _keep_picture(self.artist_picture(name), jpeg)
 
     def set_playlist_cover(self, playlist_id: int, jpeg: bytes | None) -> bool:
-        with self.lock:
+        with self.lock:  # not for a playlist deleted meanwhile
             if not self._touch(playlist_id):
                 return False
             self.db.commit()
-        _keep_picture(self.playlist_cover(playlist_id), jpeg)
+            _keep_picture(self.playlist_cover(playlist_id), jpeg)
         return True
 
     def pictures(self, names) -> dict[str, int]:
