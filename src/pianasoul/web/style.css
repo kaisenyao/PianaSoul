@@ -154,14 +154,20 @@ svg { display: block; }
 .sheeted #main, .sheeted #pages { transform: translateY(var(--card-top)) scale(.92); border-radius: 14px; }
 .sheeted #main { transition-duration: .45s; }
 #pages { position: absolute; inset: 0; z-index: 35; pointer-events: none; transform-origin: 50% 0; transition: transform .45s var(--ease); }
-#pages > .view { pointer-events: auto; background: var(--bg); box-shadow: var(--page-shadow); transition: transform .38s var(--ease), padding-bottom .3s var(--kb-ease); }
+/* A page that moves aside is a card, its corners rounded as it goes, as home is beside the sidebar. --off: how far it
+   is from its place, 0 to 1, as the finger takes it or as it slides. */
+@property --off { syntax: '<number>'; inherits: false; initial-value: 0; }
+#pages > .view {
+  pointer-events: auto; background: var(--bg); box-shadow: var(--page-shadow); border-radius: clamp(0px, var(--off) * 176px, 44px);
+  transition: transform .38s var(--ease), --off .38s var(--ease), padding-bottom .3s var(--kb-ease);
+}
 /* What sits under a page's content: nothing, the mini player, or while typing the keyboard. It changes on the iOS
    keyboard's own curve, so the field rides up with the keyboard and settles back when it (or the mini player) goes. */
 #pages { --below: 0px; }
 #pages.has-mini { --below: calc(var(--safe-bottom) + 76px); }
 #pages.kb-up { --below: var(--kb); }
 #pages > .view:not(#view-player) { padding-bottom: var(--below); }
-#pages > .view.off { transform: translateX(100%); }
+#pages > .view.off { transform: translateX(100%); --off: 1; }
 #pages > #mini, #pages > #selbar { pointer-events: auto; }
 .dragging #pages > .view, .dragging #mini { transition: none; }
 .view { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; }

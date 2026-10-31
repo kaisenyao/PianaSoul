@@ -304,7 +304,7 @@ function ready(view, id = null) {
   el.dataset.gen = +(el.dataset.gen || 0) + 1;
   el.hidden = false;
   el.style.zIndex = view === 'player' ? 30 : stack.length + 1;  // the player also covers the mini player
-  el.style.transform = '';
+  moveAside(el, null);
   el.classList.add('off');
   if (view === 'session') toLatest();  // a conversation opens at its latest message, or at a line search found
   renderEntry({view, id});
@@ -317,7 +317,7 @@ function push(view, id = null, el = ready(view, id)) {
   stack.push({view, id});
   el.offsetWidth;
   el.classList.remove('off');
-  el.style.transform = '';
+  moveAside(el, null);
   settle();
 }
 function pop() {
@@ -326,9 +326,16 @@ function pop() {
   settle();
   if (state.view === 'session') drawChat(state.session);  // what came while it was covered
 }
+// A page the finger holds x pixels from its place, rounding as it goes (--off); null gives it back to its place, or to
+// its slide in or out.
+function moveAside(el, x) {
+  el.style.transform = x === null ? '' : `translateX(${x}px)`;
+  if (x === null) el.style.removeProperty('--off');
+  else el.style.setProperty('--off', Math.min(1, x / app.offsetWidth));
+}
 function slideOut(el) {
   const gen = el.dataset.gen;
-  el.style.transform = '';
+  moveAside(el, null);
   el.classList.add('off');
   setTimeout(() => { if (el.dataset.gen === gen) { el.hidden = true; el.classList.remove('off'); } }, 400);
 }
@@ -1897,10 +1904,10 @@ app.addEventListener('pointermove', e => {
   drag.lx = e.clientX; drag.t = now;
   if (drag.player) {
     drag.dx = Math.min(0, dx);
-    drag.player.style.transform = `translateX(${app.offsetWidth + drag.dx}px)`;
+    moveAside(drag.player, app.offsetWidth + drag.dx);
   } else if (drag.page) {
     drag.dx = Math.max(0, dx);
-    drag.page.style.transform = `translateX(${drag.dx}px)`;
+    moveAside(drag.page, drag.dx);
     if (stack.length === 1 && herOn()) $('#mini').style.transform = drag.page.style.transform;  // going home, where it is not shown
   } else {
     drag.p = Math.max(0, Math.min(1, drag.p0 + dx / sidebarWidth()));
@@ -1916,7 +1923,7 @@ const endDrag = e => {
       else slideOut(drag.player);
     } else if (drag.page) {
       if (drag.dx > 90 || drag.v > .3) pop();
-      else drag.page.style.transform = $('#mini').style.transform = '';
+      else { moveAside(drag.page, null); $('#mini').style.transform = ''; }
     } else setOpen(drag.v > .3 ? true : drag.v < -.3 ? false : drag.p > .5);
     guardUntil = performance.now() + 300;
   }
