@@ -551,7 +551,6 @@ button.grow:active { background: var(--press); }
 .cover.new svg { width: 40%; height: 40%; }
 #addto-list .in { flex: none; margin-left: auto; color: var(--accent); }
 #addto-list .in svg { width: 22px; height: 22px; }
-.agroup .accent { color: var(--accent); }
 .cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
 #f-artwork { flex: none; display: grid; place-items: center; color: var(--accent); }
 #f-artwork img { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; }

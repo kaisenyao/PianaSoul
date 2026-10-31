@@ -910,7 +910,7 @@ $('#group-hero').addEventListener('click', e => {
   play(shuffle ? ids[Math.floor(Math.random() * ids.length)] : ids[0], ids, {kind: 'playlist', id: g.id}, b,
        shuffle ? 'shuffle' : 'order');
 });
-// An action sheet of choices: [label, then, kind] (kind: 'accent' or 'danger'), falsy ones left out. build makes them,
+// An action sheet of choices: [label, then, kind] (kind 'danger': red), falsy ones left out. build makes them,
 // and again whenever what they offer may have changed (closeGone). Over a sheet, only the choices close.
 let choices = null, choiceActions = [];
 function offer(build) {
