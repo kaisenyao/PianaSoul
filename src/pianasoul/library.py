@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import filecmp
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -21,6 +22,7 @@ import sqlite3
 import sys
 import threading
 import unicodedata
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -254,6 +256,12 @@ def title_parts(title: str, composer: str = "", performer: str = "") -> dict:
             "performer": (found.group(1).strip() if found else "") or performer}
 
 
+def artist_key(name: str) -> str:
+    """One artist however their name is written: the letters' case and width, accents, spaces and punctuation aside
+    (AC/DC and AC_DC, Adele and adele, Dvořák and Dvorak). Empty for a name with no letters or digits."""
+    return "".join(ch for ch in unicodedata.normalize("NFKD", str(name)).casefold() if ch.isalnum())
+
+
 def make_title(piece: str, artist: str = "", performer: str = "") -> str:
     """title_parts() the other way round: the one way a piece's title is made from its names (NAMES)."""
     title = f"{artist} - {piece}" if artist else piece
@@ -341,6 +349,7 @@ class Library:
             if named != row["midi_path"]:
                 self.db.execute("UPDATE recordings SET midi_path = ? WHERE id = ?", (named, row["id"]))
         self.db.commit()
+        self._merge_artists()
 
     def execute(self, sql: str, params=()) -> list[sqlite3.Row]:
         """Run one statement, commit it, and return its rows."""
@@ -526,8 +535,10 @@ class Library:
         return dest.resolve()
 
     def edit(self, rec_id: int, piece: str, artist: str = "", performer: str = "") -> dict | None:
-        """New names from the app: the title becomes "原作者 - 曲名 (演奏者)", and composer and performer follow."""
-        piece, artist, performer = piece.strip(), artist.strip(), performer.strip()
+        """New names from the app (or her): the title becomes "原作者 - 曲名 (演奏者)", and composer and performer
+        follow. An artist the library has under another spelling keeps theirs (known_artist)."""
+        piece = piece.strip()
+        artist, performer = self.known_artist(artist, rec_id), self.known_artist(performer, rec_id)
         if not piece:
             return self.get(rec_id)
         return self.update(rec_id, title=make_title(piece, artist, performer), composer=artist, performer=performer)
@@ -670,6 +681,49 @@ class Library:
         """Of these artists, those with a picture, and its version."""
         return {name: version for name in set(names) if (version := _version(self.artist_picture(name)))}
 
+    # ---- artists: one name each ---------------------------------------------------------------------------
+    def artist_names(self, besides: int | None = None) -> list[str]:
+        """The artists in the library (原作者 and 演奏者 alike, as the app and she see them: title_parts), the one
+        with the most pieces first; besides: not counting that piece."""
+        counts = Counter()
+        for row in self.execute("SELECT id, title, composer, performer FROM recordings"):
+            if row["id"] != besides:
+                parts = title_parts(row["title"], row["composer"], row["performer"])
+                counts.update({name for name in (parts["artist"], parts["performer"]) if name})
+        return sorted(counts, key=lambda name: (-counts[name], name))
+
+    def known_artist(self, name: str, besides: int | None = None) -> str:
+        """The name the library already has for this artist (artist_key), else the name as given: a new piece by
+        Adele, named adele, is Adele's. besides: not counting that piece's own names (being edited)."""
+        name, key = str(name).strip(), artist_key(name)
+        return next((known for known in self.artist_names(besides) if key and artist_key(known) == key), name)
+
+    def _merge_artists(self) -> None:
+        """An artist the library has under several spellings (from before names were matched as they came in) is
+        one artist: each piece takes the spelling with the most pieces, and the others' picture and description go
+        to it (a picture only where it has none, descriptions one after the other). Nothing is taken away."""
+        spellings: dict[str, list[str]] = {}
+        for name in self.artist_names():
+            spellings.setdefault(artist_key(name), []).append(name)
+        for key, (kept, *others) in spellings.items():
+            for other in others if key else ():
+                own = lambda name: kept if name == other else name
+                for row in self.execute("SELECT id, title, composer, performer FROM recordings"):
+                    parts = title_parts(row["title"], row["composer"], row["performer"])
+                    if other in (parts["artist"], parts["performer"], row["composer"], row["performer"]):
+                        self.update(row["id"], title=make_title(parts["piece"], own(parts["artist"]), own(parts["performer"])),
+                                    composer=own(row["composer"]), performer=own(row["performer"]))
+                picture, theirs = self.artist_picture(other), self.artist_picture(kept)
+                if picture.is_file() and not theirs.exists():
+                    picture.rename(theirs)
+                said = {name: text for name, text in self.execute(
+                    "SELECT name, description FROM artists WHERE name IN (?, ?)", (other, kept))}
+                if other in said:
+                    both = "\n\n".join(dict.fromkeys(t for t in (said.get(kept), said[other]) if t))
+                    self.execute("DELETE FROM artists WHERE name = ?", (other,))
+                    self.execute("INSERT INTO artists (name, description) VALUES (?, ?) ON CONFLICT (name) DO UPDATE "
+                                 "SET description = excluded.description", (kept, both))
+
     # ---- what the user wrote about artists ------------------------------------------------------------
     def set_artist_description(self, name: str, description: str) -> None:
         """An artist's description (简介), by name; an empty one takes it away. ValueError for one over
@@ -803,6 +857,14 @@ class Library:
         return d
 
 
+def known_artists(names: list[str], most: int = 200) -> str:
+    """For the chat model naming pieces: the artists the library has already (the most pieces first), whose names
+    it is to use as they are for the same person in another language or spelling (周杰伦 for Jay Chou)."""
+    names = names[:most]
+    return ("when it is one of the artists the library has already, in any language or spelling, their name exactly as "
+            f"it is here: {json.dumps(names, ensure_ascii=False)}") if names else ""
+
+
 def enrich(lib: Library, complete_json) -> int:
     """Ask the chat model to fill in the artist (where the library has none), aliases (other-language titles)
     and tags: once for each piece, which the model may not know either."""
@@ -813,7 +875,7 @@ def enrich(lib: Library, complete_json) -> int:
         listing = "\n".join(f'{r["id"]}: {r["title"]}' for r in batch)
         prompt = (
             "These are titles of piano recordings (MIDI files). For each, return a JSON object mapping the id "
-            f"to {{\"artist\": str, \"aliases\": str, \"tags\": str}}. artist: {NAMES['artist']}. "
+            f"to {{\"artist\": str, \"aliases\": str, \"tags\": str}}. artist: {NAMES['artist']}; {known_artists(lib.artist_names())} "
             f"aliases: {ALIASES}. tags: 2-4 short English words about genre "
             "and mood, separated by ', '. Use an empty string when unsure; do not guess names you do not know."
             "\nReturn only the JSON object.\n\n" + listing)
@@ -824,7 +886,7 @@ def enrich(lib: Library, complete_json) -> int:
             rec = lib.get(int(key))
             if rec is None:
                 continue
-            lib.update(int(key), composer=rec["composer"] or info.get("artist", ""),
+            lib.update(int(key), composer=rec["composer"] or lib.known_artist(info.get("artist", ""), rec["id"]),
                        aliases=rec["aliases"] or info.get("aliases", ""),
                        tags=rec["tags"] or info.get("tags", ""))
             changed += 1

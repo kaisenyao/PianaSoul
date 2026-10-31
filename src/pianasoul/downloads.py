@@ -105,7 +105,7 @@ class Downloads:
         self.lib = lib
         self.jobs: list[Job] = []  # queued and running, in order
         self.listeners: list = []  # called after every change, on the downloads' thread or the caller's
-        self.name_piece = name_piece  # (query, video) -> {piece, artist, performer, aliases}, or None: the video's
+        self.name_piece = name_piece  # (query, video, artists) -> {piece, artist, performer, aliases}, or None: the video's
         self._engine = engine
         self._speed = SECONDS_PER_SECOND
         self._ids = itertools.count(1)
@@ -250,16 +250,17 @@ class Downloads:
 
     def _name(self, job: Job, details: dict) -> None:
         """Name the piece from what was asked and what the video says, or for a recording of yours its file's name;
-        the names already given stay."""
+        the names already given stay. An artist the library has already keeps the name it has there."""
         video = {**details, **job.video, **({"file_name": Path(job.source).stem} if job.local else {})}
         named = None
         if self.name_piece:
             with contextlib.suppress(Exception):
-                named = self.name_piece(job.query, video)
+                named = self.name_piece(job.query, video, self.lib.artist_names())
         named = named or {"piece": video.get("video_title") or Path(job.source).stem}
         job.piece = named["piece"]
         for name in ("artist", "performer", "aliases"):
             setattr(job, name, getattr(job, name) or named.get(name, ""))
+        job.artist, job.performer = self.lib.known_artist(job.artist), self.lib.known_artist(job.performer)
 
     def _transcribe(self, job: Job, audio: Path, seconds: float) -> dict:
         from .pipeline import Options, convert_file

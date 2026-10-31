@@ -1023,7 +1023,7 @@ function renderAddTo() {
   $('#addto-list').innerHTML = `<button class="arow" data-new-playlist><span class="cover new">${ICON_ADD}</span>
       <div class="text"><div class="t1">${esc(T.newPlaylist)}</div></div></button>`
     + data.playlists.map(pl => `<button class="arow" data-playlist="${pl.id}">${cover(pl)}${playlistText(pl)}
-      ${holds(pl) ? `<span class="in">${CHECK}</span>` : ''}</button>`).join('');
+      ${holds(pl) ? `<span class="in" aria-label="${esc(T.inPlaylist)}">${CHECK}</span>` : ''}</button>`).join('');
 }
 $('#addto-list').addEventListener('click', e => {
   const row = e.target.closest('.arow');
@@ -1049,7 +1049,7 @@ function renderPick() {
   const q = $('#pick-q').value.trim().toLowerCase();
   const ps = [...data.recordings].sort(byNewest).filter(p => !q || matches(p, q));
   $('#pick-pieces').innerHTML = ps.map(p => `<div class="prow">${pieceText(p)}
-      <button class="addbtn" data-add-piece="${p.id}" aria-label="${esc(T.addToPlaylistShort)}">${pl.ids.includes(p.id) ? CHECK : ICON_ADD}</button>
+      <button class="addbtn" data-add-piece="${p.id}" aria-label="${esc(pl.ids.includes(p.id) ? T.inPlaylist : T.addToPlaylistShort)}">${pl.ids.includes(p.id) ? CHECK : ICON_ADD}</button>
     </div>`).join('') || `<p class="empty">${esc(T.notFound)}</p>`;
 }
 $('#pick-q').addEventListener('input', renderPick);
@@ -1305,6 +1305,9 @@ let artFor = null;
 function renderArtwork(p) {
   const art = $('#view-player .art'), src = artworkOf(p);
   art.classList.toggle('has-artwork', !!src);
+  // With artwork it is a button (it turns over), as a tap is: reached and pressed from a keyboard, and named.
+  if (src) for (const [name, value] of [['role', 'button'], ['tabindex', '0'], ['aria-label', T.turnArtwork]]) art.setAttribute(name, value);
+  else for (const name of ['role', 'tabindex', 'aria-label']) art.removeAttribute(name);
   if (artFor !== p.id) { artFor = p.id; art.classList.remove('flipped'); }
   if (src && $('#p-artwork').getAttribute('src') !== src) $('#p-artwork').src = src;
   $('#mini-art').hidden = !src;
@@ -1313,6 +1316,9 @@ function renderArtwork(p) {
 }
 $('#view-player .art').addEventListener('click', e => {
   if (e.currentTarget.classList.contains('has-artwork')) e.currentTarget.classList.toggle('flipped');
+});
+$('#view-player .art').addEventListener('keydown', e => {
+  if (isEnter(e) || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); }
 });
 
 // The player and 详细信息 are two screens, one above the other. A swipe up or down anywhere, buttons included,

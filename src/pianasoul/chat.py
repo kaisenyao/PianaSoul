@@ -9,7 +9,9 @@ Transcribed/), and plays it on the piano over MIDI.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from concurrent.futures import Future
 import inspect
 import json
@@ -28,7 +30,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 from . import youtube
 from .conversations import QUIET_S as NEW_CONVERSATION_AFTER_S, Conversations, seconds_since
-from .library import ALIASES, DB_PATH, NAMES, Library, enrich, format_row, title_parts
+from .library import ALIASES, DB_PATH, NAMES, Library, artist_key, enrich, format_row, title_parts
 from .lines import line
 from .play import clock
 from .playback_commands import is_chinese, match_command, strip_fillers
@@ -38,6 +40,7 @@ log = logging.getLogger(__spec__.name)
 MAX_TOOL_ROUNDS = 8
 MATCH_SCORE = 2.0  # a library match on a whole word (two characters or more), not on one character by chance
 VOLUME_STEP = 10  # percent, for "louder" and "softer"
+LIST_MOST, OVERVIEW_MOST = 40, 15  # pieces in one answer of library_info; artists (and pianists) in its overview
 ACTIONS = {"play_recording", "control_playback", "play_playlist", "set_volume"}  # tools that do something she then confirms
 WAITS = {"search_youtube": "searching", "transcribe_url": "preparing", "transcribe_local": "preparing"}  # long steps
 ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "First call search_library with the "
@@ -52,7 +55,8 @@ Language: answer in the language the user writes in. When a message mixes Chines
 right. Write Chinese in simplified characters unless the user clearly writes traditional ones. Do not force it;
 follow the user's habit.
 
-Style: one or two short, natural sentences, plain text without Markdown. Vary your wording; never repeat a sentence
+Style: one or two short, natural sentences (a few more when the user wants to chat or asks about their music),
+plain text without Markdown. Vary your wording; never repeat a sentence
 you used earlier in the conversation, and say the same thing a different way each time (a small interjection or a
 light, cute touch is welcome). Do not mention tools, YouTube, downloads, transcription, MIDI, note counts, ids or
 file paths unless the user asks how it works or where something is; then answer truthfully. Describe the music
@@ -114,6 +118,12 @@ Playback:
 - If introduction_spoken=true, the application already spoke the introduction. Do not repeat it.
 - set_volume(level) sets the piano's volume, 0-100, playing or not; the application state has the current level.
   For louder or softer, change it by about 10 (more when asked for much more).
+Company: you are also company. The user may simply want to chat, or ask about their own music: what is in their
+library, what they have listened to lately, their favorites, an artist or a playlist of theirs. Talk with them warmly
+and briefly, and ask a little back now and then. For anything about their library or their listening, call
+library_info first and say only what it returns; never guess it. What the user wrote about an artist or a playlist
+(its description) is theirs, and you may draw on it. You may also say what you know of composers and pieces in
+general, briefly and only what you are sure of. Do not play anything unless they ask; you may offer to.
 When the user asks for one of their own playlists (歌单; the application state lists their names), call play_playlist
 with its name as listed, shuffle=true if they ask to shuffle; do not search the library or online for it. If there is
 no such playlist, say which there are; if it has no pieces, say so.
@@ -146,6 +156,15 @@ TOOLS = [
          "path": {"type": "string"}, **NAME_PROPERTIES,
          "tags": {"type": "string", "description": "comma-separated English tags"}},
          "required": ["path", "piece"]}},
+    {"name": "library_info",
+     "description": "What the user's own library holds, to talk about it: overview (how many pieces, the artists and "
+                    "pianists with the most, playlists, favorites, what was played last), recently_played, favorites, "
+                    "artist (by name: their pieces, as artist and as pianist, and what the user wrote about them) or "
+                    "playlist (by name: its pieces and description). Its pieces may then be played with play_recording.",
+     "parameters": {"type": "object", "properties": {
+         "about": {"type": "string", "enum": ["overview", "recently_played", "favorites", "artist", "playlist"]},
+         "name": {"type": "string", "description": "the artist's or the playlist's name, for those"}},
+         "required": ["about"], "additionalProperties": False}},
     {"name": "play_recording",
      "description": "Select a NEW recording from library_matches, search_library or transcription in this request, and play it from zero. "
                     "For continuing, retrying or restarting the existing piece, use control_playback instead.",
@@ -431,12 +450,17 @@ class Assistant:
         return {"status": "playing", "how": how, "title": player.current[1], "from": clock(player.position),
                 "introduction_spoken": announced, **({"playlist": request.playlist} if request.playlist else {})}
 
-    def play_playlist(self, name: str, shuffle: bool = False) -> dict:
+    def _playlist(self, name: str) -> tuple[dict | None, list[dict]]:
         """One of the user's playlists, by name (whatever its case and spaces; of two with that name, the one changed
-        last): from its first piece in its order, or shuffled. Its pieces whose files are not there are left out."""
-        wanted, shuffle = str(name).strip().casefold(), shuffle is True  # only a true true: not "false"
-        playlists = self.lib.playlists()
-        found = max((p for p in playlists if p["name"].casefold() == wanted), key=lambda p: p["updated_at"], default=None)
+        last), or None; and all of them."""
+        wanted, playlists = str(name).strip().casefold(), self.lib.playlists()
+        return max((p for p in playlists if p["name"].casefold() == wanted), key=lambda p: p["updated_at"], default=None), playlists
+
+    def play_playlist(self, name: str, shuffle: bool = False) -> dict:
+        """One of the user's playlists, by name: from its first piece in its order, or shuffled. Its pieces whose files
+        are not there are left out."""
+        shuffle = shuffle is True  # only a true true: not "false"
+        found, playlists = self._playlist(name)
         if found is None:
             return {"error": "playlist_not_found", "playlists": [p["name"] for p in playlists]}
         pieces = [rec for rec in map(self.lib.get, found["ids"]) if rec and rec["file_exists"]]
@@ -448,6 +472,49 @@ class Assistant:
             Path(first["midi_path"]), first["title"], recording_id=first["id"], playlist=found["name"],
             ids=tuple(p["id"] for p in pieces), scope={"kind": "playlist", "id": found["id"]},
             mode="shuffle" if shuffle else "order"))
+
+    def library_info(self, about: str = "overview", name: str = "") -> dict:
+        """The user's library, to talk about it (library_info in TOOLS); the pieces it names may be played."""
+        recs = [r for r in self.lib.all() if r["file_exists"]]
+        names = {r["id"]: title_parts(r["title"], r["composer"], r["performer"]) for r in recs}
+
+        def piece(r: dict, **more) -> dict:
+            self.selectable_ids.add(r["id"])
+            return {"id": r["id"], **{k: v for k, v in names[r["id"]].items() if v}, **more}
+
+        def when(stamp: str) -> str:  # in the user's own time, as they would say it
+            return datetime.fromisoformat(stamp).astimezone().strftime("%Y-%m-%d %H:%M")
+
+        played = sorted((r for r in recs if r["last_played_at"]), key=lambda r: r["last_played_at"], reverse=True)
+        liked = sorted((r for r in recs if r["favorited_at"]), key=lambda r: r["favorited_at"], reverse=True)
+        if about == "recently_played":
+            return {"now": when(datetime.now(timezone.utc).isoformat()),
+                    "pieces": [piece(r, played_at=when(r["last_played_at"])) for r in played[:LIST_MOST]]}
+        if about == "favorites":
+            return {"pieces": [piece(r) for r in liked[:LIST_MOST]], "count": len(liked)}
+        if about == "artist":
+            key = artist_key(name)
+            by = [r for r in recs if key and artist_key(names[r["id"]]["artist"]) == key]
+            plays = [r for r in recs if key and artist_key(names[r["id"]]["performer"]) == key]
+            if not by and not plays:
+                return {"error": "artist_not_found", "artists": self.lib.artist_names()[:LIST_MOST]}
+            known = names[(by or plays)[0]["id"]]["artist" if by else "performer"]
+            return {"name": known, "description": self.lib.descriptions([known]).get(known, ""),
+                    "as_artist": [piece(r) for r in by[:LIST_MOST]], "as_pianist": [piece(r) for r in plays[:LIST_MOST]]}
+        if about == "playlist":
+            found, playlists = self._playlist(name)
+            if found is None:
+                return {"error": "playlist_not_found", "playlists": [p["name"] for p in playlists]}
+            here = {r["id"]: r for r in recs}
+            return {"name": found["name"], "description": found["description"],
+                    "pieces": [piece(here[i]) for i in found["ids"] if i in here][:LIST_MOST]}
+        counts = lambda part: Counter(n[part] for n in names.values() if n[part]).most_common(OVERVIEW_MOST)
+        return {"pieces": len(recs),
+                "artists": [{"name": n, "pieces": c} for n, c in counts("artist")],
+                "pianists": [{"name": n, "pieces": c} for n, c in counts("performer")],
+                "playlists": [{"name": p["name"], "pieces": len(p["ids"])} for p in self.lib.playlists()],
+                "favorites": len(liked),
+                "played_last": [piece(r, played_at=when(r["last_played_at"])) for r in played[:OVERVIEW_MOST // 3]]}
 
     def play_recording(self, id: int) -> dict:
         if id not in self.selectable_ids:

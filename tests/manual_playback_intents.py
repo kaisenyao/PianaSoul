@@ -36,6 +36,10 @@ CASES = [
     ('弹一下卡农吧', 'library:Pachelbel - Canon in D (Kassia)'),
     # Not in the library: online only after the library was searched.
     ('弹一首陈奕迅的十年', 'online'),
+    # Company: about the user's own music she looks in the library first; a chat is a chat. Nothing plays.
+    ('我最近都听了些什么呀？', 'info'),
+    ('我的曲库里有几首贝多芬的曲子？', 'info'),
+    ('今天有点累，陪我聊聊天吧。', 'chat'),
 ]
 ENGLISH_TITLES = [expected.split(':', 1)[1] for _, expected in CASES if expected.startswith('library:')]
 
@@ -75,8 +79,8 @@ def main():
             original = fixture.a.run_tool
             def safe_tool(name, arguments):
                 trace.append((name, arguments))
-                if name not in {'control_playback', 'search_library', 'play_recording'}:
-                    return json.dumps({'error': 'Only playback and library search are enabled in this test.'})
+                if name not in {'control_playback', 'search_library', 'play_recording', 'library_info'}:
+                    return json.dumps({'error': 'Only playback and the library are enabled in this test.'})
                 return original(name, arguments)
             fixture.a.run_tool = safe_tool
             chat, label = make_chat(INSTRUCTIONS, TOOLS)
@@ -98,6 +102,10 @@ def main():
             elif expected.startswith('offline_'):
                 offset = 0 if expected == 'offline_restart' else 22
                 okay = pending is not None and pending.from_s == offset and '设备和钢琴' in answer
+            elif expected in {'info', 'chat'}:
+                looked = any(name == 'library_info' for name, _ in trace)
+                played = any(name in {'play_recording', 'control_playback'} for name, _ in trace)
+                okay = player.state == 'paused' and player.position == 22 and not played and (looked or expected == 'chat')
             elif expected == 'cancel':
                 okay = player.state == 'stopped' and pending is None
             else:

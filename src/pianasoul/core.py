@@ -22,7 +22,7 @@ from .chat import INSTRUCTIONS, TOOLS, Assistant, Worker
 from .conversations import Conversations
 from .downloads import Downloads
 from .folder import Folder
-from .library import ALIASES, NAMES, Library, enrich, title_parts
+from .library import ALIASES, NAMES, Library, enrich, known_artists, title_parts
 from .play import clock
 from .playback import Playback
 
@@ -348,13 +348,15 @@ def installed(*modules: str) -> bool:
         return False
 
 
-def name_piece(query: str, video: dict) -> dict | None:
+def name_piece(query: str, video: dict, artists: list[str] = ()) -> dict | None:
     """The names of a new piece (library.NAMES, and its aliases), asked of the chat model, from what its video says
     or, for a recording of yours, its file's name. query is what was searched for or asked, if anything; the user's
-    language is its language."""
+    language is its language. artists: those in the library already, whose names are kept for the same people."""
     from .llm import complete_json
 
+    known = known_artists(list(artists))
     meanings = "; ".join(f"{name} is {meaning}" for name, meaning in {**NAMES, "aliases": ALIASES}.items())
+    meanings += f"; artist and performer, {known}" if known else ""
     data = complete_json(
         "A piano recording, from a video or a file, is to be kept in a music library. Name it. Return only a JSON "
         f'object {{"piece": str, "artist": str, "performer": str, "aliases": str}}: {meanings}. Use empty strings '
