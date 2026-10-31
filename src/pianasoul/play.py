@@ -13,8 +13,8 @@ and for a network session joined by a device (the iPad).
 
 Each message leaves a little early (the lead) together with the time it should sound. A network MIDI session carries
 that time along, so the receiver plays every note on schedule even when Wi-Fi delivers it late: the lead is 1 second
-there, and none for a piano on USB or Bluetooth (PIANASOUL_LEAD sets it for all). Pause and stop take effect after
-the lead.
+there, and none for a piano on USB or Bluetooth (PIANASOUL_LEAD sets it for all). With a lead, nothing is sent
+without a time. Pause, stop and a new volume take effect after the lead.
 """
 
 from __future__ import annotations
@@ -469,10 +469,11 @@ class Player:
 
     def check_connection(self) -> None:
         """LookupError when the piano is not there. Before notes go out it opens the output afresh, so a piano
-        that disconnected and came back plays again; while notes are on their way, it only looks for it."""
+        that disconnected and came back plays again; while notes are on their way on the output open, it only looks
+        for it."""
         self.lost = None  # an earlier loss is old news once playback is tried again
         if self.opens:
-            if self.state == "playing" or time.perf_counter() < self._last_when:
+            if self.port is not None and (self.state == "playing" or time.perf_counter() < self._last_when):
                 self.find_piano()
             else:
                 self._open()
@@ -507,7 +508,7 @@ class Player:
             return
         import mido
 
-        when = max(self._last_when, time.perf_counter()) if self.lead else None
+        when = max(self._last_when, time.perf_counter() + self.lead) if self.lead else None
         with contextlib.suppress(OSError):  # a piano that went away has nothing to lift
             for channel in range(16):
                 self._send(mido.Message("control_change", channel=channel, control=ALL_NOTES_OFF, value=0), when)
@@ -566,8 +567,9 @@ class Player:
         self.state, self._offset = "stopped", 0.0
 
     def set_volume(self, percent: float) -> None:
-        """The piano's volume, in percent of its full range. Heard at once (the output is opened for it if none is
-        open yet), and told again before each piece, so a piano that came back or started afresh has it too."""
+        """The piano's volume, in percent of its full range. Heard at once, after the lead like everything sent (the
+        output is opened for it if none is open yet), and told again before each piece, so a piano that came back or
+        started afresh has it too."""
         self.volume = max(0, min(100, round(percent)))
         try:
             if self.port is None and self.opens:
@@ -580,13 +582,13 @@ class Player:
             pass
         log.debug("volume %d%%, for the next piece: the piano is not there now", self.volume)
 
-    def _send_volume(self) -> None:
+    def _send_volume(self, when: float | None = None) -> None:
         """The volume on every channel, as the pedal is lifted on every channel: a file may use any of them."""
         import mido
 
         value = round(self.volume * 127 / 100)
         for channel in range(16):
-            self._send(mido.Message("control_change", channel=channel, control=VOLUME_CONTROL, value=value))
+            self._send(mido.Message("control_change", channel=channel, control=VOLUME_CONTROL, value=value), when)
 
     def close(self) -> None:
         """Stop, let the notes already sent finish, and close the output, every note off. Call before the program
@@ -608,7 +610,10 @@ class Player:
         self.completed = None
 
     def _send(self, msg, when: float | None = None) -> None:
-        if self.lead and when is not None:
+        """With a lead, every message carries a time, one lead from now unless given, never none: an iPad on a network
+        session plays a note stamped for later at once when it arrives with a message stamped for now (M3, recorded)."""
+        if self.lead:
+            when = time.perf_counter() + self.lead if when is None else when
             self.port.send(msg, when)
             self._last_when = max(self._last_when, when)
         else:
@@ -641,7 +646,7 @@ class Player:
         look_at = time.perf_counter() + LOOK_EVERY_S
         try:
             if self.volume is not None:
-                self._send_volume()  # at once: the first notes follow it
+                self._send_volume(self._t0 + from_s)  # first, with the time the first notes sound
             for msg in midi:  # merged tracks, msg.time in seconds since the previous message
                 at += msg.time
                 if msg.is_meta or msg.type not in SENT:

@@ -281,7 +281,8 @@ the time it should sound, and the iPad plays it on time:
   </picture>
 </p>
 
-In return, playing, pausing and stopping take about a second. Bluetooth and USB deliver notes evenly, so a piano
+In return, playing, pausing, stopping and a change of volume take about a second: with a lead, every message
+carries its time, since an iPad plays a note stamped for later at once when it arrives with one stamped for now. Bluetooth and USB deliver notes evenly, so a piano
 connected that way gets no lead and answers at once. `PIANASOUL_LEAD` sets the lead in seconds for every output: `2`
 for an unsteady network, `0.5` for quicker responses.
 

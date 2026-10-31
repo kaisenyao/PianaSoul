@@ -160,6 +160,27 @@ class ChoiceTests(unittest.TestCase):
         for sent, msg, when in notes:
             self.assertAlmostEqual(when - sent, 1.0, delta=0.05, msg=f'{msg}: leaves one lead early, not all at once')
 
+    def test_on_a_network_session_nothing_is_sent_for_at_once(self):
+        # An iPad plays a note stamped for later at once when it arrives with a message stamped for now (recorded
+        # M3): so the volume, All Notes Off when the output is opened again, and a volume change carry a time too.
+        self.p.choose(SESSION)
+        left = []
+        port = Mock(output=SESSION)
+        port.send.side_effect = lambda msg, when=None: left.append((time.perf_counter(), msg, when))
+        with patch('pianasoul.play.CoreMidiOut', return_value=port):
+            for _ in range(2):  # the second opens the output afresh: All Notes Off on the old one first
+                self.p.test_tone()
+                self.p._thread.join()
+                self.p._last_when = 0.0  # as long after as it takes to open it afresh
+            self.p.set_volume(40)
+        self.assertTrue(notes_off(port), 'the old output was closed')
+        for sent, msg, when in left:
+            self.assertIsNotNone(when, f'{msg}: sent for at once')
+            self.assertGreaterEqual(when - sent, 0.95, f'{msg}: stamped one lead ahead at least')
+        volume = next(when for _, msg, when in left if msg.type == 'control_change' and msg.control == 7)
+        first = next(when for _, msg, when in left if msg.type == 'note_on')
+        self.assertLessEqual(volume, first, 'The volume comes with the first note, not after it')
+
 
 class OutputsApiTests(unittest.TestCase):
     def setUp(self):
