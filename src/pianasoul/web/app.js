@@ -560,7 +560,7 @@ function renderLibrary() {
     + recordings.filter(a => !q || a.name.toLowerCase().includes(q)).map(audioRow).join('') + shown.map(p => pieceRow(p)).join('');
   $('#lib-online').innerHTML = q && data.features.search ? `<button class="online">${ICON_FIND}<span>${esc(T.searchOn('YouTube', libQ.trim()))}</span></button>` : '';
   $('#library-count').textContent = q ? (shown.length ? T.found(shown.length) : T.notFound)
-    : [T.pieces(ready.length), totalTime(ready), data.jobs.length ? T.downloading(data.jobs.length) : '',
+    : [T.pieces(ready.length), totalTime(ready), data.jobs.length ? T.preparing(data.jobs.length) : '',
        recordings.length ? T.toTranscribe(recordings.length) : ''].filter(Boolean).join(' · ');
   renderSelectionBar();
 }
