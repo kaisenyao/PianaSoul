@@ -117,7 +117,12 @@ def certificate_page(tls: Path, sock: socket.socket) -> None:
         def log_message(self, *args):  # not a line per request
             pass
 
-    httpd = ThreadingHTTPServer(sock.getsockname(), Certificate, bind_and_activate=False)
+    class Server(ThreadingHTTPServer):
+        def handle_error(self, request, client_address):
+            if not isinstance(sys.exc_info()[1], ConnectionError):  # a phone that went mid-request: nothing to say
+                super().handle_error(request, client_address)
+
+    httpd = Server(sock.getsockname(), Certificate, bind_and_activate=False)
     httpd.socket.close()
     httpd.socket = sock
     httpd.server_activate()

@@ -665,6 +665,22 @@ class PairingTests(unittest.TestCase):
                 urllib.request.urlopen(base + other)
             self.assertEqual(refused.exception.code, 404)
 
+    def test_a_phone_that_goes_mid_request_leaves_nothing_in_the_log(self):
+        import socket as sockets
+        import struct
+        sock = sockets.socket()
+        sock.bind(('127.0.0.1', 0))
+        sock.listen()
+        server.certificate_page(self.tls, sock)
+        said = io.StringIO()
+        with contextlib.redirect_stderr(said):
+            phone = sockets.create_connection(sock.getsockname())
+            phone.sendall(b'GET / HT')  # and gone, at once (a reset, not a goodbye)
+            phone.setsockopt(sockets.SOL_SOCKET, sockets.SO_LINGER, struct.pack('ii', 1, 0))
+            phone.close()
+            time.sleep(0.5)
+        self.assertEqual(said.getvalue(), '')
+
     def test_pairing_anew_from_the_mac_only(self):
         server.write_pairing()
         old = server.TOKEN
