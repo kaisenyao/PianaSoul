@@ -229,10 +229,7 @@ class PlaybackTests(Base):
             return False
         with patch.object(self.p, '_play_file', side_effect=gone):
             Player.play(self.p, [self.p.item(self.ids[0])])
-        self.assertEqual((self.changes[-1]['state'], self.changes[-1]['lost']), ('paused', 'gone'),
-                         'The phone hears why, to say so without her')
-        Player.check_connection(self.p)  # the real one: this test's is a stand-in
-        self.assertIsNone(self.p.snapshot()['lost'], 'Old news once it is tried again')
+        self.assertEqual(self.changes[-1]['state'], 'paused')
 
     def test_notes_that_no_longer_go_out_are_a_piano_that_went_away(self):
         player = Player(port=Mock())

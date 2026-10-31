@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 import os
 import re
 import subprocess
 import threading
 from pathlib import Path
 
-from . import youtube
+from . import play, youtube
 from .chat import INSTRUCTIONS, TOOLS, Assistant, Worker
 from .conversations import Conversations
 from .downloads import Downloads
@@ -25,7 +26,10 @@ from .library import ALIASES, NAMES, Library, title_parts
 from .play import clock
 from .playback import Playback
 
+log = logging.getLogger(__spec__.name)
 ROOT = Path(__file__).resolve().parents[2]
+PIANO_LOOK_S = 3.0  # how often a network session's participants are looked at: macOS does not say when one leaves
+PIANO_SAFETY_S = 15.0  # and any other output's, besides what CoreMIDI tells
 REPO = "https://github.com/kaisenyao/PianaSoul"
 
 
@@ -57,6 +61,11 @@ class Core:
         self.folder = Folder(self.lib, self._folder_changed)
         self.folder.watch()
         self._transcribe_waiting()
+        # The piano, watched all along: the page shows when it is not connected, without waiting for a piece to fail.
+        self.piano = self._piano_now()
+        self._piano_lock, self._look, self._closed = threading.Lock(), threading.Event(), False
+        play.on_change(self._look.set)
+        threading.Thread(target=self._watch_piano, daemon=True).start()
         self._playing = None
         self._told = False  # the piano's going away, while the piece waits for it
         threading.Thread(target=self._fill_in_videos, daemon=True).start()
@@ -70,6 +79,7 @@ class Core:
         self.emit({"type": "busy", "conversation": self.busy})
 
     def _playback_changed(self) -> None:
+        self.look_at_piano()  # it may have gone away, or a piece just started on it
         snapshot = self.playback.snapshot()
         self.emit({"type": "playback", **snapshot})
         lost = self.playback.lost
@@ -103,6 +113,35 @@ class Core:
             if r["source_url"] in found:
                 self.lib.set_video(r["id"], found[r["source_url"]])
         self.emit({"type": "library"})
+
+    # ---- the piano -----------------------------------------------------------------------------------
+    def _piano_now(self) -> dict:
+        """The output chosen (or found by name), as the page shows it: its name, its kind and whether it is
+        connected; the one chosen, not connected, when it is not there at all."""
+        out = self.playback.target()
+        if out is None:
+            chosen = self.playback.chosen() or {}
+            return {"name": chosen.get("name") or self.playback.wanted, "kind": chosen.get("kind", "other"),
+                    "connected": False}
+        return {"name": out.name, "kind": out.kind, "connected": out.connected}
+
+    def look_at_piano(self) -> None:
+        """Look at the piano now (CoreMIDI said something changed, a piece could not play, another was chosen)."""
+        self._look.set()
+
+    def _watch_piano(self) -> None:
+        while not self._closed:
+            self._look.wait(PIANO_LOOK_S if self.piano["kind"] == "network" else PIANO_SAFETY_S)
+            self._look.clear()
+            if self._closed:
+                return
+            with self._piano_lock:
+                now = self._piano_now()
+                if now == self.piano:
+                    continue
+                self.piano = now
+            log.debug("the piano: %s %s", now["name"], "connected" if now["connected"] else "not connected")
+            self.emit({"type": "piano", "piano": now})
 
     def _downloads_changed(self) -> None:
         jobs = self.downloads.snapshot()
@@ -176,14 +215,13 @@ class Core:
                 out = next((o for o in self.outputs() if str(o.id) == str(value)), None)
                 if out:
                     self.playback.choose(out)
+                    self.look_at_piano()
             elif value in allowed.get(key, ()):
                 self.lib.set_setting(key, value)
         self.emit({"type": "settings", **self.settings()})
         return self.settings()
 
     def outputs(self) -> list:
-        from . import play
-
         return play.outputs()
 
     def devices(self) -> list[dict]:
@@ -244,6 +282,8 @@ class Core:
 
     def close(self) -> None:
         """Stop the piano, letting the notes already sent finish."""
+        self._closed = True
+        self._look.set()
         self.folder.close()
         self.playback.close()
 

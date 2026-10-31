@@ -95,6 +95,7 @@ dark.addEventListener('change', () => { if (data.settings.appearance === 'system
 // ---------- What the Mac keeps ----------
 const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
   conversations: [], current: null, busy: null, settings: {language: '', appearance: 'dark'}, devices: [],
+  piano: {name: '', kind: 'other', connected: true},
   version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
 // What the Mac can do: kept on this phone too, so that the page opens on the right home (her orb, or the library)
@@ -138,7 +139,7 @@ function listen() {
   socket.onmessage = ({data: raw}) => {
     let e = null;
     try { e = JSON.parse(raw); } catch { return; }
-    if (e.type === 'playback') { delete e.type; onPlayback(e); }
+    if (e.type === 'playback') { delete e.type; data.playback = e; heardAt = performance.now(); refresh(); }
     else if (e.type === 'jobs') onJobs(e.jobs);
     else if (e.type === 'library') recordings();
     else if (e.type === 'conversations') conversations();
@@ -146,6 +147,7 @@ function listen() {
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
     else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
+    else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); }
   };
   socket.onclose = () => setTimeout(() => load().then(listen, listen), 2000);
 }
@@ -214,20 +216,7 @@ async function control(action, value, index, from) {
     data.playback = await api('/api/playback', 'POST', {action, value, index});
     heardAt = performance.now();
     refresh();
-  } catch (error) { failed(error, from); }
-}
-// The piano going away while it plays pauses the piece; she says so in the conversation, and without her the page
-// does, once.
-function onPlayback(snapshot) {
-  if (snapshot.lost && !pb().lost && !herOn()) toast(T.pianoMissing);
-  data.playback = snapshot;
-  heardAt = performance.now();
-  refresh();
-}
-// A piece that cannot play: the row shakes; when the piano is not there, she says so, or without her the page does.
-function failed(error, from) {
-  shake(from);
-  if (error.json?.error === 'piano' && !herOn()) toast(T.pianoMissing);
+  } catch { shake(from); }
 }
 // Tapping a piece plays it (unless it is already the current one) and opens the player over the list.
 // ids and scope: the list it was tapped in, which becomes the list that plays.
@@ -237,7 +226,7 @@ async function play(id, ids, scope, from) {
     heardAt = performance.now();
     refresh();
     openPlayer();
-  } catch (error) { failed(error, from); }
+  } catch { shake(from); }
 }
 const pausePiano = () => { if (pb().state === 'playing') control('toggle'); };
 function scopeName(scope) {
@@ -336,6 +325,7 @@ function renderEntry({view, id}) {
 }
 // Redraw every open page, the 播放列表 if it is open, and what is playing.
 function refresh() {
+  renderPiano();
   if (!herOn()) renderLibrary();  // home
   for (const e of stack) if (e.view !== 'session') renderEntry(e);
   if (openSheet === $('#sheet-queue')) renderQueue();
@@ -540,13 +530,7 @@ const trashAudio = id => {
   refresh();
   api(`/api/audio/${id}`, 'DELETE').catch(() => {});
 };
-function audioInfo() {
-  $('#info-title').textContent = T.recording;
-  $('#info-text').textContent = T.needsAdvanced;
-  $('#dim').classList.add('show');
-  $('#info').classList.add('show');
-}
-$('#info-ok').addEventListener('click', closeOverlays);
+const audioInfo = () => info(T.recording, T.needsAdvanced);
 // A job's progress moves its ring only; the list is redrawn when the jobs themselves change.
 function onJobs(jobs) {
   const same = jobs.length === data.jobs.length && jobs.every((j, i) => j.id === data.jobs[i].id && j.status === data.jobs[i].status);
@@ -1498,14 +1482,25 @@ function closeOverlays() {
   document.activeElement?.blur?.();
 }
 const overlayOpen = () => openSheet || ['#confirm', '#rename', '#info'].some(id => $(id).classList.contains('show'));
-// A word at the top of the screen, for a few seconds.
-let toastLater = null;
-function toast(text) {
-  $('#toast').textContent = text;
-  $('#toast').classList.add('show');
-  clearTimeout(toastLater);
-  toastLater = setTimeout(() => $('#toast').classList.remove('show'), 4000);
+// Something to know, with one button, as iOS says it.
+function info(title, text) {
+  $('#info-title').textContent = title;
+  $('#info-text').textContent = text;
+  $('#dim').classList.add('show');
+  $('#info').classList.add('show');
 }
+$('#info-ok').addEventListener('click', closeOverlays);
+
+// The piano, as the Mac watches it: while the one chosen is not connected, a bar at the top of every page says so,
+// and the pages make room for it; a tap says how to connect it. It goes once the piano is back. With her, she says so
+// too, as ever.
+function renderPiano() {
+  const off = !data.piano.connected;
+  app.classList.toggle('piano-off', off);
+  $('#piano-bar').hidden = !off;
+  if (off) $('#piano-text').textContent = T.pianoOff(data.piano.name);
+}
+$('#piano-bar').addEventListener('click', () => info(T.howToConnect, T.connectHow[data.piano.kind] || T.connectHow.other));
 $('#dim').addEventListener('click', closeOverlays);
 
 // Long-press menu, for a piece and for a conversation: the row lifts and its actions show by it. With html null it is

@@ -211,7 +211,8 @@ def state():
     return {'recordings': core.recordings(), 'jobs': core.downloads.snapshot(),
             'playback': core.playback.snapshot(), 'conversations': core.conversations.all() if her else [],
             'current': her.conversation_id if her else None, 'busy': core.busy, 'settings': core.settings(),
-            'devices': core.devices(), 'version': version, 'features': core.features(), 'audio': core.audio()}
+            'devices': core.devices(), 'piano': core.piano, 'version': version, 'features': core.features(),
+            'audio': core.audio()}
 
 
 @app.get('/api/recordings')
@@ -343,7 +344,9 @@ def playback(action: str = Body(embed=True), value: float | str | None = Body(de
 
 
 def _piano_missing(exc) -> JSONResponse:
-    """The piano is not there: why shows here, and on the page; she tells you in the conversation too."""
+    """The piano is not there: why shows here, and the page shows it is not connected; she tells you in the
+    conversation too."""
+    core.look_at_piano()
     if core.assistant:
         core.assistant.piano_news(core.assistant.piano_missing(exc))
     else:

@@ -65,12 +65,14 @@ svg { display: block; }
   --card-top: max(calc(var(--safe-top) - 8px), 10px);  /* where a page sheet pushes the screen back to (below) */
   padding-bottom: var(--safe-bottom);  /* read by the long-press menu */
   --p: 0; --w: 78vw;
+  --bar: 0px;  /* the room the piano's bar takes below the status bar, while it shows */
 }
+#app.piano-off { --bar: 38px; }
 
 /* ---------- Sidebar: stays put underneath; the main screen slides right to reveal it ---------- */
 #sidebar {
   position: absolute; top: 0; bottom: 0; left: 0; width: var(--w); background: var(--bg);
-  display: flex; flex-direction: column; padding-top: calc(var(--safe-top) + 4px);
+  display: flex; flex-direction: column; padding-top: calc(var(--safe-top) + var(--bar) + 4px);
   transform: translateX(calc((var(--p) - 1) * 36px));
   opacity: calc(.25 + .75 * var(--p));
 }
@@ -163,7 +165,8 @@ svg { display: block; }
 .dragging #pages > .view, .dragging #mini { transition: none; }
 .view { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; }
 .view header {
-  position: sticky; top: 0; z-index: 10; height: calc(var(--safe-top) + 54px); padding: var(--safe-top) 90px 0;
+  position: sticky; top: 0; z-index: 10; height: calc(var(--safe-top) + var(--bar) + 54px);
+  padding: calc(var(--safe-top) + var(--bar)) 90px 0;
   display: grid; place-items: center; background: var(--header);
   -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
 }
@@ -521,15 +524,15 @@ button.grow:active { background: var(--press); }
    them and below; on a short screen the artwork gives way. */
 .pmain {
   position: relative; height: 100%; display: flex; flex-direction: column; container-type: size;
-  padding: calc(var(--safe-top) + 52px) 28px calc(var(--safe-bottom) + 6px);
+  padding: calc(var(--safe-top) + var(--bar) + 52px) 28px calc(var(--safe-bottom) + 6px);
 }
 /* ✕ stops the piece and closes the player; share sends its MIDI */
-.pcorner { position: absolute; top: calc(var(--safe-top) + 2px); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: rgba(255, 255, 255, .85); }
+.pcorner { position: absolute; top: calc(var(--safe-top) + var(--bar) + 2px); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: rgba(255, 255, 255, .85); }
 .pcorner:active { background: rgba(255, 255, 255, .1); }
 .pcorner svg { width: 22px; height: 22px; }
 #p-close { left: 14px; }
 #p-share { right: 14px; }
-.pinfo { height: 100%; overflow-y: auto; padding: calc(var(--safe-top) + 8px) 20px calc(var(--safe-bottom) + 24px); }
+.pinfo { height: 100%; overflow-y: auto; padding: calc(var(--safe-top) + var(--bar) + 8px) 20px calc(var(--safe-bottom) + 24px); }
 .art { width: min(100%, 100cqh - 352px); align-self: center; aspect-ratio: 1; margin-top: auto; flex: none; border-radius: 14px; overflow: hidden; box-shadow: 0 22px 50px rgba(0, 0, 0, .5); transition: transform .5s var(--ease); }
 .paused-art .art { transform: scale(.84); }
 .art canvas { display: block; width: 100%; height: 100%; }
@@ -626,11 +629,12 @@ button.grow:active { background: var(--press); }
 .abtns.one { grid-template-columns: 1fr; }
 .abtns.one button { font-weight: 600; }
 
-/* A word at the top of the screen, for a moment */
-#toast {
-  position: absolute; z-index: 47; left: 12px; right: 12px; top: calc(var(--safe-top) + 6px); padding: 12px 16px;
-  border-radius: 14px; background: var(--menu); color: var(--text); font-size: 15px; line-height: 1.4;
-  box-shadow: var(--mini-shadow); opacity: 0; transform: translateY(-12px); pointer-events: none;
-  transition: opacity .25s, transform .3s var(--ease);
+/* The piano's bar: below the status bar, over every page, which makes room for it (--bar) */
+#piano-bar {
+  position: absolute; z-index: 38; left: 0; right: 0; top: var(--safe-top); height: var(--bar);  /* above the pages, under #dim */
+  display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px;
+  background: var(--card); color: var(--text); font-size: 14px; font-weight: 500; text-align: center;
 }
-#toast.show { opacity: 1; transform: none; }
+#piano-bar[hidden] { display: none; }
+#piano-bar span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#piano-bar .pdot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); flex: none; }

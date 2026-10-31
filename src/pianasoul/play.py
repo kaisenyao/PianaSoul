@@ -50,6 +50,7 @@ KINDS = {"com.apple.AppleMIDIUSBDriver": "usb", "com.apple.AppleMIDIBluetoothDri
          "com.apple.AppleMIDIRTPDriver": "network", "com.apple.AppleMIDIIACDriver": "virtual"}  # by driver
 _client_lock = threading.Lock()
 _client: int | None = None
+_changes: list = []  # called, with nothing, whenever CoreMIDI's outputs change (on CoreMIDI's own thread)
 
 
 @dataclass(frozen=True)
@@ -185,9 +186,27 @@ def _property(key: str) -> int:
     return ctypes.c_void_p.in_dll(_coremidi(), key).value
 
 
+def on_change(listener) -> None:
+    """listener() is called whenever CoreMIDI's outputs change: one comes or goes, goes online or offline, or a
+    property of one changes. Called on CoreMIDI's thread; a listener only takes note. macOS only."""
+    _changes.append(listener)
+    if sys.platform == "darwin":
+        client()
+
+
+@ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
+def _notified(message, _ref) -> None:
+    for listener in list(_changes):
+        try:
+            listener()
+        except Exception:
+            log.exception("a listener to CoreMIDI's changes failed")
+
+
 def client() -> int:
     """The program's CoreMIDI client, made once on a thread of its own that runs a run loop: CoreMIDI passes the
-    changes in its outputs to that run loop, so that every thread sees them as they are."""
+    changes in its outputs to that run loop, so that every thread sees them as they are, and tells on_change's
+    listeners."""
     global _client
     with _client_lock:
         if _client is None:
@@ -195,7 +214,8 @@ def client() -> int:
 
             def run():
                 try:
-                    if _coremidi().MIDIClientCreate(_cfstring("PianaSoul"), None, None, ctypes.byref(made)):
+                    if _coremidi().MIDIClientCreate(_cfstring("PianaSoul"), ctypes.cast(_notified, ctypes.c_void_p),
+                                                    None, ctypes.byref(made)):
                         made.value = 0
                 finally:
                     ready.set()

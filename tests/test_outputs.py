@@ -64,7 +64,7 @@ class ChoiceTests(unittest.TestCase):
         self.outputs.insert(0, twin)
         self.p.check_connection()
         self.assertEqual(self.opened[-1].output.id, USB.id)
-        self.assertEqual(json.loads(self.lib.setting('output')), {'id': USB.id, 'name': 'Roland Digital Piano'})
+        self.assertEqual(json.loads(self.lib.setting('output')), {'id': USB.id, 'name': 'Roland Digital Piano', 'kind': 'usb'})
 
     def test_one_that_is_offline_is_waited_for_never_swapped_for_its_namesake(self):
         self.p.choose(USB)
@@ -185,6 +185,45 @@ class OutputsApiTests(unittest.TestCase):
         self.assertEqual(self.client.patch('/api/settings', json={'output': 12345}).json()['output'], USB.id,
                          'Only an output this Mac has')
 
+    def test_the_page_is_told_whenever_the_piano_comes_or_goes(self):
+        import threading
+        from pianasoul import core as core_module
+        told, heard = [], threading.Event()
+        self.core.listeners.append(lambda e: e['type'] == 'piano' and (told.append(e['piano']), heard.set()))
+        self.client.patch('/api/settings', json={'output': USB.id})
+        self.assertTrue(heard.wait(2))
+        self.assertEqual(self.client.get('/api/state').json()['piano'],
+                         {'name': 'Roland Digital Piano', 'kind': 'usb', 'connected': True})
+        heard.clear()
+        self.outputs[0] = dataclasses.replace(USB, online=False)  # unplugged
+        self.core.look_at_piano()  # as CoreMIDI's change does
+        self.assertTrue(heard.wait(2))
+        self.assertEqual(told[-1], {'name': 'Roland Digital Piano', 'kind': 'usb', 'connected': False})
+        heard.clear()
+        del self.outputs[0]  # gone from the Mac altogether: still the one chosen, not connected
+        with patch.object(core_module, 'PIANO_SAFETY_S', .1):
+            self.core.look_at_piano()
+            self.assertFalse(heard.wait(.5), 'Nothing new to tell')
+        self.outputs.insert(0, USB)
+        self.core.look_at_piano()
+        self.assertTrue(heard.wait(2))
+        self.assertTrue(told[-1]['connected'])
+
+    def test_a_network_session_is_looked_at_every_few_seconds(self):
+        import threading
+        from pianasoul import core as core_module
+        heard = threading.Event()
+        self.core.listeners.append(lambda e: e['type'] == 'piano' and heard.set())
+        self.client.patch('/api/settings', json={'output': SESSION.id})
+        heard.wait(2)
+        heard.clear()
+        with patch.object(core_module, 'PIANO_LOOK_S', .2):
+            self.core.look_at_piano()  # the next waits are short ones
+            time.sleep(.3)
+            self.outputs[1] = dataclasses.replace(SESSION, peers=())  # the iPad left: CoreMIDI says nothing
+            self.assertTrue(heard.wait(2), 'Found by looking, not told')
+        self.assertFalse(self.core.piano['connected'])
+
     def test_the_test_arpeggio_or_why_not(self):
         self.client.patch('/api/settings', json={'output': USB.id})
         self.assertEqual(self.client.post('/api/outputs/test').json(), {'ok': True})
@@ -241,6 +280,19 @@ class CoreMidiTests(unittest.TestCase):
             for data in self.received:
                 parser.feed(data)
         return list(parser)
+
+    def test_coremidi_tells_when_an_output_comes_or_goes(self):
+        import threading
+        told = threading.Event()
+        play.on_change(told.set)
+        self.addCleanup(play._changes.remove, told.set)
+        from ctypes import byref, c_uint32
+        cm, other = play._coremidi(), c_uint32()
+        cm.MIDIDestinationCreate(play.client(), play._cfstring(self.name + ' 2'), self.read, None, byref(other))
+        self.assertTrue(told.wait(3), 'One came')
+        told.clear()
+        cm.MIDIEndpointDispose(other)
+        self.assertTrue(told.wait(3), 'One went')
 
     def test_listed_chosen_and_played_on(self):
         mine = next(o for o in play.outputs() if o.name == self.name)

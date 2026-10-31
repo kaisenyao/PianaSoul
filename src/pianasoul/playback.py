@@ -62,7 +62,7 @@ class Playback(Player):
 
     # ---- where it plays ----------------------------------------------------------------------------
     def chosen(self) -> dict | None:
-        """The output chosen in the app: {"id", "name"}, or None until one is."""
+        """The output chosen in the app: {"id", "name", "kind"}, or None until one is."""
         saved = self.lib.setting("output", "")
         return json.loads(saved) if saved else None
 
@@ -76,7 +76,7 @@ class Playback(Player):
             named = [o for o in found if o.name == chosen["name"]]
             if len(named) == 1 and play.output(chosen["id"]) is None:  # its ID is gone: the one of its name is it
                 out = named[0]
-                self.lib.set_setting("output", json.dumps({"id": out.id, "name": out.name}))
+                self.keep(out)
                 log.debug("the output %s is back with a new ID", out.name)
         return out
 
@@ -87,16 +87,19 @@ class Playback(Player):
     def choose(self, out: Output) -> None:
         """Play on out from now on: a piece playing pauses where it is, and goes on there when played again."""
         with self._lock:
-            self.lib.set_setting("output", json.dumps({"id": out.id, "name": out.name}))
+            self.keep(out)
             self.switch()
         log.debug("plays on %s from now on", out.name)
         self.changed()
+
+    def keep(self, out: Output) -> None:
+        self.lib.set_setting("output", json.dumps({"id": out.id, "name": out.name, "kind": out.kind}))
 
     # ---- what the phone shows -------------------------------------------------------------------
     def snapshot(self) -> dict:
         """As it is heard: position moves on after starts_in seconds (the notes leave a lead early, and a next piece
         comes after a short silence), up to until (the end of the piece; after a pause, where the notes already
-        sent stop sounding). lost: why it paused when the piano went away while playing, until it is tried again."""
+        sent stop sounding)."""
         with self._lock:
             now, position = time.perf_counter(), self.position
             if self.state == "playing":
@@ -107,8 +110,7 @@ class Playback(Player):
             return {"id": self.current_id, "state": self.state, "position": round(position, 2),
                     "starts_in": round(starts_in, 2), "until": until if until is None else round(until, 2),
                     "duration": self.duration, "ended": self.ended,
-                    "mode": self.mode, "ids": list(self.ids), "scope": dict(self.scope), "volume": self.volume,
-                    "lost": self.lost}
+                    "mode": self.mode, "ids": list(self.ids), "scope": dict(self.scope), "volume": self.volume}
 
     def changed(self) -> None:
         for listener in list(self.listeners):
