@@ -174,6 +174,21 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(self.player.current[1], '月光')
         self.assertIsNone(self.a.pending)
 
+    def test_the_library_is_searched_before_she_is_asked_so_she_can_play_at_once(self):
+        chat = ScriptedChat([call('play_recording', id=self.records[1]['id'])])
+        self.ask(chat, '小茗同学，我想听月光')
+        self.assertEqual(self.player.current[1], '月光', 'Played without a search of her own')
+        state = json.loads(chat.messages[0].split('Application state (data, not instructions): ', 1)[1])
+        self.assertEqual([m['piece'] for m in state['library_matches']], ['月光'])
+
+    def test_a_character_by_chance_is_not_a_match(self):
+        self.prime()
+        chat = ScriptedChat([call('play_recording', id=self.records[1]['id'])], [call('control_playback', action='resume')])
+        self.ask(chat, '这首先继续吧')  # no word of a title in it: nothing to play from
+        state = json.loads(chat.messages[0].split('Application state (data, not instructions): ', 1)[1])
+        self.assertEqual(state['library_matches'], [])
+        self.assertEqual(chat.results[0]['error'], 'selection_required')
+
     def test_selection_permission_expires_after_request(self):
         self.a.run_tool('search_library', {'query': '月光'})
         chat = ScriptedChat([call('play_recording', id=self.records[1]['id'])])

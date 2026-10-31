@@ -30,11 +30,12 @@ from .conversations import QUIET_S as NEW_CONVERSATION_AFTER_S, Conversations, s
 from .library import ALIASES, DB_PATH, NAMES, Library, enrich, format_row, title_parts
 from .lines import line
 from .play import clock
-from .playback_commands import is_chinese, match_command
+from .playback_commands import is_chinese, match_command, strip_fillers
 
 log = logging.getLogger(__spec__.name)
 
 MAX_TOOL_ROUNDS = 8
+MATCH_SCORE = 2.0  # a library match on a whole word (two characters or more), not on one character by chance
 VOLUME_STEP = 10  # percent, for "louder" and "softer"
 ACTIONS = {"play_recording", "control_playback", "set_volume"}  # tools that do something she then confirms
 WAITS = {"search_youtube": "searching", "transcribe_url": "preparing", "transcribe_local": "preparing"}  # long steps
@@ -57,9 +58,11 @@ accurate, and never claim authorship or pretend to be learning the piece. Briefl
 pause, continue, restart and volume changes; speak only the connection reminder when an action fails.
 
 When the user wants to hear something:
-1. Call search_library. If a recording clearly matches (same piece; same pianist if one was named) and its file
-   exists, call play_recording with its id and say in a few words what you are playing. Results come best first:
-   of several that match equally, play the first.
+1. The application state has library_matches: what the library has for the request's own words, best first (empty
+   when it has nothing). If a recording clearly matches (same piece; same pianist if one was named), call
+   play_recording with its id and say in a few words what you are playing; of several that match equally, play
+   the first. If none does, call search_library only when the piece may be in the library under other words
+   (another language or spelling, a composer's other name); otherwise go straight on to step 2.
 2. If it is not there, write one short, friendly sentence that says you will find it AND explicitly asks the
    listener to wait (for example "I'll find a lovely piano performance for you; please give me a moment.").
    Vary the wording without predicting a duration or promising it will be ready immediately. Include the sentence
@@ -136,7 +139,7 @@ TOOLS = [
          "tags": {"type": "string", "description": "comma-separated English tags"}},
          "required": ["path", "piece"]}},
     {"name": "play_recording",
-     "description": "Select a NEW recording returned by search_library or transcription in this request, and play it from zero. "
+     "description": "Select a NEW recording from library_matches, search_library or transcription in this request, and play it from zero. "
                     "For continuing, retrying or restarting the existing piece, use control_playback instead.",
      "parameters": {"type": "object", "properties": {"id": {"type": "integer"}},
                     "required": ["id"], "additionalProperties": False}},
@@ -434,6 +437,15 @@ class Assistant:
             print(f"  ⏹ {self.player.current[1]}", flush=True)
         return {"status": "stopped"}
 
+    def library_matches(self, text: str) -> list[dict]:
+        """The library searched for a request's own words before the model is asked, so that it can play what it
+        finds, or go looking elsewhere, at once: one step fewer before she speaks. Only matches on a whole word, which
+        may be played as if search_library had offered them."""
+        found = [r for r in self.lib.search(strip_fillers(text)) if r["score"] >= MATCH_SCORE and r["file_exists"]]
+        self.selectable_ids.update(r["id"] for r in found)
+        return [{k: v for k, v in _brief(r).items() if k not in ("source_url", "midi_path", "notes", "pedal_presses")}
+                for r in found]
+
     def short_request(self, action: str) -> str:
         """A short request that always means the same thing (playback_commands), done without the model."""
         if action == "goodbye":
@@ -569,6 +581,7 @@ class Assistant:
         try:
             model_text = text
             state = {"typed": True} if typed else {}
+            state["library_matches"] = self.library_matches(text)
             if self.pending:
                 state["pending"] = {"title": self.pending.title, "from_s": self.pending.from_s,
                                     "status": "waiting to retry playback"}
