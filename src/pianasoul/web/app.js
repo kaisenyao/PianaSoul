@@ -1,9 +1,11 @@
 // The app: the orb at home, the sidebar beside it, and the pages over it (library, artists, conversations,
-// settings) with the player always one swipe away. Everything shown comes from the Mac (/api, /events); what is
-// done here goes back to it, so voice, chat and the phone always agree.
+// settings) with the player always one swipe away. Without her (the Mac has no key for her, or not the advanced
+// features), the library is home instead, and nothing of hers shows. Everything shown comes from the Mac (/api,
+// /events); what is done here goes back to it, so voice, chat and the phone always agree.
 import {LANGUAGES} from './strings.js';
 import {addOrb, animateOrb, homeColor, sameLook} from './orb.js';
 import {createCues} from './cues.js';
+import {uploader} from './upload.js';
 import {voice as makeVoice} from './voice.js';
 
 // ---------- Small things ----------
@@ -59,6 +61,8 @@ const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.9v
 const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5.5" y="4" width="4.6" height="16" rx="1.3"/><rect x="13.9" y="4" width="4.6" height="16" rx="1.3"/></svg>';
 const HEART_LINE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.3a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/></svg>';
 const HEART_FILL = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.3a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/></svg>';
+const ICON_ADD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+const ICON_UPLOAD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></svg>';
 const ICON_FIND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>';
 const ICON_DOWNLOAD = '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="14" r="11.5"/><path d="M14 8.6v10.2M9.7 14.6l4.3 4.3 4.3-4.3"/></svg>';
 const ICON_PLAY_CIRCLE = '<svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="2"><circle cx="14" cy="14" r="11.5"/><path d="M11.6 9.6v8.8c0 .5.5.8.9.5l6.9-4.4c.4-.2.4-.8 0-1l-6.9-4.4c-.4-.3-.9 0-.9.5z" fill="currentColor" stroke="none"/></svg>';
@@ -81,16 +85,22 @@ function applySettings() {
   for (const el of document.querySelectorAll('[data-t]')) el.textContent = T[el.dataset.t];
   for (const el of document.querySelectorAll('[data-t-placeholder]')) el.placeholder = T[el.dataset.tPlaceholder];
   for (const el of document.querySelectorAll('[data-t-label]')) el.setAttribute('aria-label', T[el.dataset.tLabel]);
+  $('#search-input').placeholder = herOn() ? T.searchAll : T.searchPieces;
+  $('#add-input').placeholder = data.features.search ? T.addHint : T.linkHint;
   voice?.render();
   refresh();
 }
 dark.addEventListener('change', () => { if (data.settings.appearance === 'system') applySettings(); });
 
 // ---------- What the Mac keeps ----------
-const data = {recordings: [], jobs: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
+const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
   conversations: [], current: null, busy: null, settings: {language: '', appearance: 'dark'}, devices: [],
-  version: {commit: '', repo: ''}, search: false};
+  version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
+// What the Mac can do: kept on this phone too, so that the page opens on the right home (her orb, or the library)
+// before the Mac has said.
+try { Object.assign(data.features, JSON.parse(localStorage.getItem('features')) || {}); } catch {}
+const herOn = () => !!data.features.assistant;
 
 // The address carries #token=…, and keeps it: Add to Home Screen saves this address, and the Home Screen app does
 // not share Safari's storage. The token buys a cookie that the page, its media and its connections carry.
@@ -135,12 +145,15 @@ function listen() {
     else if (e.type === 'message') onMessage(e.message);
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
     else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
+    else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
   };
   socket.onclose = () => setTimeout(() => load().then(listen, listen), 2000);
 }
 async function load() {
   Object.assign(data, await api('/api/state'));
   heardAt = performance.now();
+  try { localStorage.setItem('features', JSON.stringify(data.features)); } catch {}
+  applyFeatures();
   applySettings();
   renderRecent();
   for (const e of stack) if (e.view === 'session') renderSession(e.id);  // what was said while the Mac was away
@@ -182,7 +195,8 @@ const totalTime = list => {
   return T.duration(Math.floor(m / 60), m % 60);
 };
 const byNewest = (a, b) => b.id - a.id;
-const jobPieces = () => data.jobs.map(j => ({...titleParts(j.title || ''), key: jobKey(j), job: j}));
+const audioName = j => data.audio.find(a => a.id === j.audio)?.name || '';  // a recording's, until the piece is named
+const jobPieces = () => data.jobs.map(j => ({...titleParts(j.title || audioName(j)), key: jobKey(j), job: j}));
 
 // ---------- Playing ----------
 const pb = () => data.playback;
@@ -200,7 +214,12 @@ async function control(action, value, index, from) {
     data.playback = await api('/api/playback', 'POST', {action, value, index});
     heardAt = performance.now();
     refresh();
-  } catch { shake(from); }
+  } catch (error) { failed(error, from); }
+}
+// A piece that cannot play: the row shakes; when the piano is not there, she says so, or without her the page does.
+function failed(error, from) {
+  shake(from);
+  if (error.json?.error === 'piano' && !herOn()) toast(T.pianoMissing);
 }
 // Tapping a piece plays it (unless it is already the current one) and opens the player over the list.
 // ids and scope: the list it was tapped in, which becomes the list that plays.
@@ -210,7 +229,7 @@ async function play(id, ids, scope, from) {
     heardAt = performance.now();
     refresh();
     openPlayer();
-  } catch { shake(from); }
+  } catch (error) { failed(error, from); }
 }
 const pausePiano = () => { if (pb().state === 'playing') control('toggle'); };
 function scopeName(scope) {
@@ -231,8 +250,23 @@ const selected = new Set();
 const stack = [];
 function show(view, id = null) {
   for (const e of stack.splice(0)) slideOut($('#view-' + e.view));
-  if (view === 'orb') setOpen(false);
+  if (view === 'orb' || (view === 'library' && !herOn())) setOpen(false);  // home
   else { setOpen(true); push(view, id); }
+  settle();
+}
+// Home is her orb, or without her the library: then the library page itself sits where the orb would, and
+// everything else (the sidebar beside it, the player a left swipe away, the pages over it) is as it is with her.
+function applyFeatures() {
+  const lib = $('#view-library'), basic = !herOn();
+  app.classList.toggle('basic', basic);
+  if (basic === (lib.parentNode === main)) return;
+  for (const e of stack.splice(0)) Object.assign($('#view-' + e.view), {hidden: true}).classList.remove('off');
+  if (basic) main.append(lib);
+  else pages.prepend(lib);
+  lib.hidden = !basic;
+  lib.classList.remove('off');
+  lib.style.transform = lib.style.zIndex = '';
+  setOpen(false);
   settle();
 }
 // A page made ready just past the right edge: drawn, scrolled to where it opens, and above the pages under it.
@@ -272,7 +306,7 @@ function slideOut(el) {
 // After the stack changes: the top page decides what the rest of the screen shows.
 function settle() {
   const t = stack.at(-1);
-  state.view = t ? t.view : 'orb';
+  state.view = t ? t.view : herOn() ? 'orb' : 'library';
   state.session = t ? t.id : null;
   voice?.hold(state.open || stack.length > 0);
   setSelecting(false);
@@ -294,6 +328,7 @@ function renderEntry({view, id}) {
 }
 // Redraw every open page, the 播放列表 if it is open, and what is playing.
 function refresh() {
+  if (!herOn()) renderLibrary();  // home
   for (const e of stack) if (e.view !== 'session') renderEntry(e);
   if (openSheet === $('#sheet-queue')) renderQueue();
   if (openSheet === $('#sheet-add')) renderCands();
@@ -448,9 +483,10 @@ function renderTyping() {
 // ---------- The library ----------
 const favMark = p => p.favorited_at ? `<span class="fav" aria-label="${esc(T.favorite)}">${HEART_FILL}</span>` : '';
 const JOB_TEXT = () => ({queued: T.queued, downloading: T.downloadingNow, converting: T.converting});
+const tagMark = p => p.origin === 'transcribed' ? `<span class="tag">${esc(T.transcribedTag)}</span>` : '';
 const pieceText = p => p.job
   ? `<div class="text"><div class="t1">${esc(p.piece)}</div><div class="t2">${esc(JOB_TEXT()[p.job.status] || '')}</div></div>`
-  : `<div class="text"><div class="t1">${esc(p.piece)}${favMark(p)}</div><div class="t2">${esc(subtitle(p))}</div></div>`;
+  : `<div class="text"><div class="t1">${esc(p.piece)}${favMark(p)}${tagMark(p)}</div><div class="t2">${esc(subtitle(p))}</div></div>`;
 const RING = 72.26;  // 2πr for r = 11.5
 // Download ring, as on Apple Music: one lap for the whole job, the square in the middle stops it.
 const ringButton = j => `<button class="addbtn" data-stop="${j.id}" aria-label="${esc(T.stopDownload)}">
@@ -464,13 +500,45 @@ function pieceSide(p, label) {
   if (isPlaying(p.id)) return `<span class="eq${pb().state === 'paused' ? ' paused' : ''}"><i></i><i></i><i></i></span>`;
   return label ? `<span class="side when">${esc(label)}</span>` : `<span class="side">${mmss(p.duration_s)}</span>`;
 }
-// remove: what a left swipe does here. It deletes the piece in 曲库 and on an artist's page; in 收藏 and
-// 最近播放 it only takes the piece out of that list.
-const pieceRow = (p, label, remove = T.delete) => `<div class="swipe${p.job ? ' busy' : ''}${selected.has(p.id) ? ' selected' : ''}" data-id="${p.job ? p.key : p.id}">
+// remove: what a left swipe does here. It moves the piece to the Mac's Trash in 曲库 and on an artist's page; in 收藏
+// and 最近播放 it only takes the piece out of that list.
+const pieceRow = (p, label, remove = T.trash) => `<div class="swipe${p.job ? ' busy' : ''}${selected.has(p.id) ? ' selected' : ''}" data-id="${p.job ? p.key : p.id}">
     <button class="del" tabindex="-1">${esc(remove)}</button>
     <div class="content"><span class="check">${CHECK}</span>${pieceText(p)}${pieceSide(p, label)}</div>
   </div>`;
-const listIds = list => [...list.querySelectorAll('.swipe:not(.busy)')].map(r => +r.dataset.id);
+const listIds = list => [...list.querySelectorAll('.swipe:not(.busy):not(.audio)')].map(r => +r.dataset.id);
+
+// A recording in the library folder that is not a piece (yet): one that a job is making shows as that job; the rest
+// show what they need. Without transcription it is gray, and a tap says how to have it made; with it, a button
+// makes it now (again, if its piece was deleted, or once more after it failed).
+const audioKey = a => 'a' + a.id;
+const making = a => data.jobs.some(j => j.audio === a.id);
+const audioItems = () => data.audio.filter(a => !making(a));
+function audioRow(a) {
+  const can = data.features.transcribe, failedOnce = a.status === 'failed';
+  const said = !can ? T.needsTranscription : failedOnce ? T.transcribeFailed : a.status === 'done' ? T.canTranscribe
+    : T.waitingTranscription;
+  const side = !can ? '' : a.status === 'waiting' ? SPINNER
+    : `<button class="hbutton" data-transcribe="${a.id}">${esc(failedOnce ? T.retry : T.transcribe)}</button>`;
+  return `<div class="swipe audio${can ? '' : ' off'}" data-id="${audioKey(a)}">
+      <button class="del" tabindex="-1">${esc(T.trash)}</button>
+      <div class="content"><span class="check">${CHECK}</span><div class="text"><div class="t1">${esc(a.name)}</div>
+        <div class="t2">${esc(said)}</div></div>${side}</div>
+    </div>`;
+}
+const transcribeAudio = id => api(`/api/audio/${id}/transcribe`, 'POST').catch(() => {});
+const trashAudio = id => {
+  data.audio = data.audio.filter(a => a.id !== id);
+  refresh();
+  api(`/api/audio/${id}`, 'DELETE').catch(() => {});
+};
+function audioInfo() {
+  $('#info-title').textContent = T.recording;
+  $('#info-text').textContent = T.needsAdvanced;
+  $('#dim').classList.add('show');
+  $('#info').classList.add('show');
+}
+$('#info-ok').addEventListener('click', closeOverlays);
 // A job's progress moves its ring only; the list is redrawn when the jobs themselves change.
 function onJobs(jobs) {
   const same = jobs.length === data.jobs.length && jobs.every((j, i) => j.id === data.jobs[i].id && j.status === data.jobs[i].status);
@@ -485,13 +553,15 @@ let libQ = '';
 const matches = (p, q) => [p.title, p.piece, p.artist, p.performer, p.composer].some(x => (x || '').toLowerCase().includes(q));
 function renderLibrary() {
   const q = libQ.trim().toLowerCase();
-  const ready = [...data.recordings].sort(byNewest);
+  const ready = [...data.recordings].sort(byNewest), recordings = audioItems();
   const shown = q ? ready.filter(p => matches(p, q)) : ready;
   $('#library-list').classList.toggle('selecting', state.selecting);
-  $('#library-list').innerHTML = (q ? [] : jobPieces()).map(p => pieceRow(p)).join('') + shown.map(p => pieceRow(p)).join('');
-  $('#lib-online').innerHTML = q && data.search ? `<button class="online">${ICON_FIND}<span>${esc(T.searchOn('YouTube', libQ.trim()))}</span></button>` : '';
+  $('#library-list').innerHTML = (q ? [] : jobPieces()).map(p => pieceRow(p)).join('')
+    + recordings.filter(a => !q || a.name.toLowerCase().includes(q)).map(audioRow).join('') + shown.map(p => pieceRow(p)).join('');
+  $('#lib-online').innerHTML = q && data.features.search ? `<button class="online">${ICON_FIND}<span>${esc(T.searchOn('YouTube', libQ.trim()))}</span></button>` : '';
   $('#library-count').textContent = q ? (shown.length ? T.found(shown.length) : T.notFound)
-    : [T.pieces(ready.length), totalTime(ready), data.jobs.length ? T.downloading(data.jobs.length) : ''].filter(Boolean).join(' · ');
+    : [T.pieces(ready.length), totalTime(ready), data.jobs.length ? T.downloading(data.jobs.length) : '',
+       recordings.length ? T.toTranscribe(recordings.length) : ''].filter(Boolean).join(' · ');
   renderSelectionBar();
 }
 $('#lib-q').addEventListener('input', e => { libQ = e.target.value; renderLibrary(); });
@@ -506,9 +576,9 @@ function setSelecting(on, firstId) {
   state.selecting = on;
   selected.clear();
   if (on && firstId != null) selected.add(firstId);
-  pages.classList.toggle('selecting', on);
+  app.classList.toggle('selecting', on);
   document.querySelectorAll('#library-list .swipe.open').forEach(r => r.classList.remove('open'));
-  if (stack.some(e => e.view === 'library')) renderLibrary();
+  if (stack.some(e => e.view === 'library') || !herOn()) renderLibrary();
 }
 function renderSelectionBar() {
   const n = selected.size;
@@ -530,7 +600,7 @@ $('#sel-all').addEventListener('click', () => {  // the pieces shown: with words
   if (!all) shown.forEach(id => selected.add(id));
   renderLibrary();
 });
-$('#sel-delete').addEventListener('click', () => openAction(T.deleteN(selected.size), () => {
+$('#sel-delete').addEventListener('click', () => openAction(T.trashN(selected.size), () => {
   const ids = [...selected];
   collapse(ids.map(id => document.querySelector(`#library-list [data-id="${id}"]`)).filter(Boolean), () => {
     deletePieces(ids);
@@ -609,16 +679,20 @@ async function favorite(id, on) {
 // Long-press menus for a piece: what it can do here.
 function pieceMenu(key, row) {
   const job = data.jobs.find(j => jobKey(j) === key);
-  if (job) return showCtx(row, pieceText({...titleParts(job.title || ''), job}), [[T.stopDownload, ICON.trash, () => foldAway(row, () => stopJob(job.id)), true]]);
+  if (job) return showCtx(row, pieceText({...titleParts(job.title || audioName(job)), job}), [[T.stopDownload, ICON.trash, () => foldAway(row, () => stopJob(job.id)), true]]);
+  const a = data.audio.find(x => audioKey(x) === key);
+  if (a) return showCtx(row, row.querySelector('.text').outerHTML, [
+    data.features.transcribe && a.status !== 'waiting' && [T.transcribe, ICON.sparkle, () => transcribeAudio(a.id)],
+    [T.moveToTrash, ICON.trash, () => foldAway(row, () => trashAudio(a.id)), true],
+  ]);
   const id = +key, p = pieceById(id);
   if (!p) return;
-  // In 收藏 and 最近播放 a swipe only takes a piece out of the list, so the menu says plainly when it deletes it.
-  const listOnly = state.view === 'group' && (state.session.kind === 'favorites' || state.session.kind === 'recent');
+  // In 收藏 and 最近播放 a swipe only takes a piece out of the list; the menu says plainly where the file goes.
   showCtx(row, pieceText(p) + pieceSide(p), [
     [p.favorited_at ? T.unfavorite : T.favorite, ICON.heart, () => favorite(id, !p.favorited_at)],
     [T.edit, ICON.edit, () => openEdit(id)],
     state.view === 'library' && [T.selectSeveral, ICON.select, () => setSelecting(true, id)],
-    [listOnly ? T.deleteFromLibrary : T.delete, ICON.trash, () => foldAway(row, () => deletePieces([id])), true],
+    [T.moveToTrash, ICON.trash, () => foldAway(row, () => deletePieces([id])), true],
   ]);
 }
 // The list may have been redrawn while the menu was open, so the row to fold away is looked up again.
@@ -662,9 +736,9 @@ function openPlayer() {
 const MODES = ['order', 'one', 'shuffle'];
 function renderNow() {
   const p = nowPiece(), mini = $('#mini');
-  // The mini player is on every page, under the player when it is open; home (the orb, the sidebar) has none,
-  // since the player is one left swipe from the orb.
-  mini.hidden = !somethingPlaying() || !stack.length || stack[0].view === 'player';
+  // The mini player is on every page, under the player when it is open; her home (the orb, the sidebar) has none,
+  // since the player is one left swipe from the orb. The library as home has it, but not with the sidebar out.
+  mini.hidden = !somethingPlaying() || (!stack.length && (herOn() || state.open)) || stack[0]?.view === 'player';
   pages.classList.toggle('has-mini', !mini.hidden);
   const mode = pb().mode || 'order';
   $('#p-mode').innerHTML = ICON[mode];
@@ -1004,11 +1078,16 @@ function renderCands() {
       </div>`;
   }).join('');
 }
-// Opened from the library's search row, with those words already searched.
-function openAdd(q) {
+// Opened from the library's + (to upload, or with transcription to find a piece) or from its search row, with
+// those words already searched.
+function openAdd(q = '') {
+  $('#add-field').hidden = !data.features.transcribe;
   $('#add-input').value = q;
-  findCands(q);
+  uploads.tidy();
+  if (q) findCands(q);
+  else { query = ''; renderCands(); }
   showSheet($('#sheet-add'));
+  $('#add-scroll').scrollTop = 0;
 }
 $('#add-done').addEventListener('click', closeOverlays);
 $('#add-input').addEventListener('keydown', e => {
@@ -1016,9 +1095,36 @@ $('#add-input').addEventListener('keydown', e => {
   const q = e.target.value.trim();
   if (!q) return;
   e.target.blur();
-  findCands(q);
-  $('#add-body').scrollTop = 0;
+  $('#add-scroll').scrollTop = 0;
+  if (data.features.search || /^https?:/i.test(q)) return findCands(q);
+  query = '';
+  $('#add-body').innerHTML = `<div class="empty">${esc(T.searchOff)}</div>`;
 });
+$('#lib-add').innerHTML = ICON_ADD;
+$('#lib-add').addEventListener('click', () => openAdd());
+
+// Files from the phone go into the library folder on the Mac, one at a time, each with how far it has got; the Mac
+// then tells the library (an event), and the piece is there.
+const uploads = uploader(renderUploads);
+$('#upload-pick').insertAdjacentHTML('afterbegin', ICON_UPLOAD);
+$('#upload-pick').addEventListener('click', () => $('#upload-files').click());
+$('#upload-files').addEventListener('change', e => {
+  uploads.add([...e.target.files]);
+  e.target.value = '';  // the same files may be chosen again
+});
+function renderUploads(items) {
+  $('#upload-list').innerHTML = items.map(i => {
+    const pct = Math.round(100 * i.sent / (i.size || 1));
+    const said = i.status === 'waiting' ? T.uploadWaiting : i.status === 'sending' ? T.uploading(pct)
+      : i.status === 'done' ? T.uploaded : T.uploadFailed[i.error] || T.uploadFailed.other;
+    const side = i.status === 'done' ? `<span class="uok">${ICON.check}</span>`
+      : i.status === 'failed' ? `<span class="ubad">${ICON.close}</span>`
+      : `<svg viewBox="0 0 28 28" class="ring${i.status === 'waiting' ? ' waiting' : ''}"><g class="dial"><circle cx="14" cy="14" r="11.5" class="trk"/>
+          <circle cx="14" cy="14" r="11.5" class="arc" stroke-dasharray="${i.status === 'waiting' ? '18 100' : RING}" stroke-dashoffset="${i.status === 'waiting' ? 0 : RING * (1 - pct / 100)}"/></g></svg>`;
+    return `<div class="urow${i.status === 'failed' ? ' bad' : ''}"><div class="text"><div class="t1">${esc(i.name)}</div>
+        <div class="t2">${esc(said)}</div></div>${side}</div>`;
+  }).join('');
+}
 $('#add-body').addEventListener('click', e => {
   const add = e.target.closest('[data-add]');
   if (add) {
@@ -1337,12 +1443,13 @@ $('#view-settings').addEventListener('click', e => {
   }
   if (e.target.closest('#open-help')) push('help');
 });
+const topics = () => herOn() ? T.helpTopics : T.basicTopics;
 function renderHelp() {
-  $('#help-list').innerHTML = T.helpTopics.map(h =>
+  $('#help-list').innerHTML = topics().map(h =>
     `<button class="grow" data-article="${h.id}">${ICON[h.icon]}<span class="gl">${esc(h.title)}</span>${CHEV}</button>`).join('');
 }
 function renderArticle(id) {
-  const h = T.helpTopics.find(x => x.id === id);
+  const h = topics().find(x => x.id === id);
   $('#article-title').textContent = h.title;
   $('#article-body').innerHTML = h.items.map(([t, text]) => `<h4>${esc(t)}</h4><p>${esc(text)}</p>`).join('');
 }
@@ -1379,10 +1486,18 @@ function closeOverlays() {
   openSheet = null;
   naming = confirmed = null;
   app.classList.remove('sheeted');
-  for (const id of ['#dim', '#confirm', '#rename']) $(id).classList.remove('show');
+  for (const id of ['#dim', '#confirm', '#rename', '#info']) $(id).classList.remove('show');
   document.activeElement?.blur?.();
 }
-const overlayOpen = () => openSheet || $('#confirm').classList.contains('show') || $('#rename').classList.contains('show');
+const overlayOpen = () => openSheet || ['#confirm', '#rename', '#info'].some(id => $(id).classList.contains('show'));
+// A word at the top of the screen, for a few seconds.
+let toastLater = null;
+function toast(text) {
+  $('#toast').textContent = text;
+  $('#toast').classList.add('show');
+  clearTimeout(toastLater);
+  toastLater = setTimeout(() => $('#toast').classList.remove('show'), 4000);
+}
 $('#dim').addEventListener('click', closeOverlays);
 
 // Long-press menu, for a piece and for a conversation: the row lifts and its actions show by it. With html null it is
@@ -1485,12 +1600,14 @@ function setOpen(open) {
   app.style.setProperty('--p', open ? 1 : 0);
   if (open) document.querySelectorAll('.swipe.open').forEach(r => r.classList.remove('open'));
   else stopSearch();
+  renderNow();
 }
 let drag = null;
 app.addEventListener('pointerdown', e => {
   if (e.button > 0 || overlayOpen() || $('#ctx').classList.contains('show') || e.target.closest('.swipe.open, .scrub, textarea, #orb')) return;
   drag = {id: e.pointerId, x0: e.clientX, y0: e.clientY, p0: state.open ? 1 : 0, p: state.open ? 1 : 0, v: 0, t: performance.now(), lx: e.clientX,
-          active: false, page: stack.length ? $('#view-' + stack.at(-1).view) : null, player: null, dx: 0};
+          active: false, page: stack.length ? $('#view-' + stack.at(-1).view) : null, player: null, dx: 0,
+          row: !!e.target.closest('#main .swipe')};  // at the library home, a left swipe on a row is the row's
 });
 app.addEventListener('pointermove', e => {
   if (!drag || e.pointerId !== drag.id) return;
@@ -1499,7 +1616,7 @@ app.addEventListener('pointermove', e => {
   if (!drag.active) {
     if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { drag = null; return; }
     if (Math.abs(dx) < 10) return;
-    const goes = drag.page ? dx > 0 : drag.p0 ? dx < 0 : dx > 0 || !!nowPiece();
+    const goes = drag.page ? dx > 0 : drag.p0 ? dx < 0 : dx > 0 || (!!nowPiece() && !drag.row);
     if (!goes) { drag = null; return; }
     drag.active = true;
     if (!drag.page && !drag.p0 && dx < 0) drag.player = ready('player');
@@ -1515,7 +1632,7 @@ app.addEventListener('pointermove', e => {
   } else if (drag.page) {
     drag.dx = Math.max(0, dx);
     drag.page.style.transform = `translateX(${drag.dx}px)`;
-    if (stack.length === 1) $('#mini').style.transform = drag.page.style.transform;  // going home, where it is not shown
+    if (stack.length === 1 && herOn()) $('#mini').style.transform = drag.page.style.transform;  // going home, where it is not shown
   } else {
     drag.p = Math.max(0, Math.min(1, drag.p0 + dx / sidebarWidth()));
     app.style.setProperty('--p', drag.p);
@@ -1618,12 +1735,17 @@ function rowGestures(list, {tap, remove, hold}) {
     tap(row.dataset.id, row);
   });
 }
-const isJob = key => String(key).startsWith('j');
+const isJob = key => String(key).startsWith('j'), isAudio = key => String(key).startsWith('a');
 rowGestures($('#library-list'), {
-  tap: (id, row) => isJob(id) ? null : state.selecting ? toggleSelect(+id) : play(+id, listIds($('#library-list')), {kind: 'library'}, row),
-  remove: id => isJob(id) ? stopJob(+id.slice(1)) : deletePieces([+id]),
+  tap: (id, row) => isJob(id) || (isAudio(id) && (state.selecting || data.features.transcribe)) ? null
+    : isAudio(id) ? audioInfo() : state.selecting ? toggleSelect(+id) : play(+id, listIds($('#library-list')), {kind: 'library'}, row),
+  remove: id => isJob(id) ? stopJob(+id.slice(1)) : isAudio(id) ? trashAudio(+id.slice(1)) : deletePieces([+id]),
   hold: (id, row) => pieceMenu(id, row),
 });
+$('#library-list').addEventListener('click', e => {
+  const b = e.target.closest('[data-transcribe]');
+  if (b) { e.stopPropagation(); b.outerHTML = SPINNER; transcribeAudio(+b.dataset.transcribe); }
+}, true);
 rowGestures($('#group-list'), {
   tap: (id, row) => play(+id, listIds($('#group-list')), state.session, row),
   remove: id => {
@@ -1723,7 +1845,7 @@ $('#search-input').addEventListener('input', e => {
   const q = e.target.value.trim().toLowerCase();
   renderSearch(q);
   clearTimeout(asking);
-  if (q) asking = setTimeout(() => api('/api/search?q=' + encodeURIComponent(q)).then(chats => {
+  if (q && herOn()) asking = setTimeout(() => api('/api/search?q=' + encodeURIComponent(q)).then(chats => {
     found = {q, chats};
     if ($('#search-input').value.trim().toLowerCase() === q) renderSearch(q);
   }).catch(() => {}), 150);
@@ -1769,13 +1891,14 @@ document.addEventListener('gesturestart', event => event.preventDefault());  // 
 // ---------- The orbs ----------
 // The orb at home is her ears and voice; the others are the same picture on the same clock.
 const orbElement = $('#orb');
-voice = makeVoice(orbElement, $('#voice-toggle'), animateOrb(orbElement, () => state.view === 'orb' || state.open || flying),
+voice = makeVoice(orbElement, $('#voice-toggle'), animateOrb(orbElement, () => herOn() && (state.view === 'orb' || state.open || flying)),
                   createCues(), () => T.orb);
 const pulled = () => parseFloat($('#pull').style.getPropertyValue('--pull') || 0);
 addOrb($('#pull .porb'), () => homeColor() * pulled(), () => state.view === 'session' && pulled() > 0);
 addOrb($('#fly-orb'), homeColor, () => flying);
-addOrb($('#her-orb'), () => !voice.off(), () => state.view === 'settings');
+addOrb($('#her-orb'), () => !voice.off(), () => herOn() && state.view === 'settings');
 
+applyFeatures();
 applySettings();
 requestAnimationFrame(playClock);
 signIn();

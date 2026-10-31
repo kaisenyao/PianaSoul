@@ -587,3 +587,50 @@ button.grow:active { background: var(--press); }
   #main, #sidebar, #scrim, .swipe .content, .sheet, .action, .alert, #pages > .view, .art, .compose, #mini { transition: none; }
   .eq i, .orb-fallback::before, .ring.waiting .dial, .typing i { animation: none; }
 }
+
+/* ---------- Without her: the library is home, where the orb would be, and nothing of hers shows ---------- */
+.basic #view-orb, .basic #recent, .basic .sb-rule, .basic #sidebar [data-target=history], .basic #new-chat, .basic .me { display: none; }
+.basic .sb-foot { justify-content: flex-end; }
+#app:has(#pages.has-mini) #main > #view-library { padding-bottom: calc(var(--safe-bottom) + 76px); }
+
+/* ---------- The library: + to add pieces, the Transcribed tag, recordings to transcribe ---------- */
+#lib-add { width: 44px; height: 46px; display: grid; place-items: center; color: var(--accent); }
+#lib-add svg { width: 24px; height: 24px; }
+.selecting #lib-add { display: none; }
+.t1 .tag {
+  display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 4px; vertical-align: 2px;
+  font-size: 10.5px; font-weight: 600; line-height: 1.35; color: var(--text2); background: var(--chip);
+}
+.audio .check { visibility: hidden; }  /* not chosen with the pieces; kept, so the names line up */
+.audio.off .t1, .audio.off .t2 { color: var(--text3); }
+.hbutton { flex: none; padding: 5px 12px; border-radius: 14px; font-size: 14px; font-weight: 600; color: var(--accent); background: var(--chip); }
+.hbutton:active { opacity: .6; }
+
+/* Uploading, at the top of 添加曲目: a button, then each file with how far it has got */
+.uploads { padding: 4px 16px 6px; }
+.upload {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 48px; border-radius: 12px;
+  background: var(--sheet-field); color: var(--accent); font-size: 17px; font-weight: 600; text-align: center;
+}
+.upload svg { width: 22px; height: 22px; }
+.upload:active { opacity: .7; }
+.unote { margin: 8px 4px 4px; font-size: 13px; line-height: 1.45; color: var(--text2); }
+.urow { display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 0 4px; }
+.urow > span { width: 26px; height: 26px; flex: none; }
+.urow > span svg { width: 26px; height: 26px; }
+.uok { color: var(--green); }
+.ubad, .urow.bad .t2 { color: var(--red); }
+
+/* A word with one button, as iOS says something to know */
+.alert p { margin: 8px 16px 18px; font-size: 13px; line-height: 1.45; }
+.abtns.one { grid-template-columns: 1fr; }
+.abtns.one button { font-weight: 600; }
+
+/* A word at the top of the screen, for a moment */
+#toast {
+  position: absolute; z-index: 47; left: 12px; right: 12px; top: calc(var(--safe-top) + 6px); padding: 12px 16px;
+  border-radius: 14px; background: var(--menu); color: var(--text); font-size: 15px; line-height: 1.4;
+  box-shadow: var(--mini-shadow); opacity: 0; transform: translateY(-12px); pointer-events: none;
+  transition: opacity .25s, transform .3s var(--ease);
+}
+#toast.show { opacity: 1; transform: none; }

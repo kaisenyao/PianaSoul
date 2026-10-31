@@ -68,6 +68,7 @@
         <button class="htext hbtn left" id="sel-cancel" data-t="cancel"></button>
         <h2 id="library-title"></h2>
         <button class="htext strong hbtn right" id="sel-all"></button>
+        <button class="hbtn right" id="lib-add" data-t-label="addPieces"></button>
       </header>
       <div class="lsearch">
         <label class="field">
@@ -187,15 +188,24 @@
 
   <div id="dim"></div>
 
-  <!-- Add pieces: search YouTube or paste a link, watch on YouTube, download -->
+  <!-- Add pieces: upload files; with transcription, search YouTube or paste a link, watch on YouTube, download -->
   <section class="sheet" id="sheet-add">
     <div class="grabber"></div>
     <div class="sheet-head"><span></span><h3 data-t="addPieces"></h3><button class="r" id="add-done" data-t="done"></button></div>
-    <label class="field">
+    <label class="field" id="add-field">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
-      <input id="add-input" type="search" data-t-placeholder="addHint" autocomplete="off" enterkeyhint="search">
+      <input id="add-input" type="search" autocomplete="off" enterkeyhint="search">
     </label>
-    <div class="sheet-body" id="add-body"></div>
+    <div class="sheet-body" id="add-scroll">
+      <div class="uploads">
+        <button class="upload" id="upload-pick"><span data-t="upload"></span></button>
+        <input id="upload-files" type="file" multiple hidden
+               accept=".mid,.midi,.mp3,.m4a,.aac,.wav,.flac,.ogg,.aif,.aiff,audio/midi,audio/x-midi,audio/*">
+        <p class="unote" data-t="uploadNote"></p>
+        <div id="upload-list"></div>
+      </div>
+      <div id="add-body"></div>
+    </div>
   </section>
 
   <!-- The list that is playing -->
@@ -235,6 +245,16 @@
     <div id="ctx-card"></div>
     <div class="menu" id="ctx-menu"></div>
   </div>
+
+  <!-- Something to know, with one button: what a recording needs before it can be played -->
+  <div class="alert" id="info" role="dialog">
+    <b id="info-title"></b>
+    <p id="info-text"></p>
+    <div class="abtns one"><button id="info-ok" data-t="ok"></button></div>
+  </div>
+
+  <!-- A word at the top of the screen for a moment: the piano is not there -->
+  <div id="toast" role="status" aria-live="polite"></div>
 
   <!-- A conversation's name -->
   <div class="alert" id="rename" role="dialog">
