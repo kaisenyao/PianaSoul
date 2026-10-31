@@ -86,6 +86,11 @@ READY = {**{text: GREETING_SETTINGS for lines in LINES["greet"].values() for tex
 VAD_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
 GO_ON_FRAMES = 8  # after the wake word, up to 0.64 s to tell whether you go straight on with the request
 PRE_ROLL_FRAMES = 20  # in that case the request is sent from 1.6 s before the wake word was heard, name included
+# Speech that goes on this long after the wake word is heard, and then stops, may have been a short request said in
+# the same breath ("小茗同学，停止"): the wake word is heard about half a second late, so a short request is often over
+# by then. It is recognized, name and all: only her name, and she greets. Her name alone lingers 0 to 3 frames, a
+# request after it 2 to 12 (macOS's voice, M2); less than this is her name alone, greeted at once.
+SAME_BREATH_FRAMES = 2
 START_TIMEOUT_S = 6.0  # after her greeting, wait this long for the request to begin
 END_SILENCE_S = 0.7  # this much silence (after the detector's own 0.3 s) ends the request
 MAX_REQUEST_S = 15.0
@@ -729,8 +734,12 @@ class Conversation:
                 self.greet(word)
             return
         if self.woken and self.go_on < GO_ON_FRAMES:  # past it: one breath, name and request sent together
-            if not speaking:
-                self.greet(self.woken)
+            if not speaking:  # the breath is over: a short request, or only her name
+                if self.go_on >= SAME_BREATH_FRAMES:
+                    self.frames.append(pcm)
+                    self.respond()  # her name alone, recognized, gets her greeting there
+                else:
+                    self.greet(self.woken)
                 return
             self.go_on += 1
         self.frames.append(pcm)

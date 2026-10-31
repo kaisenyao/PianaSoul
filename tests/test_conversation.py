@@ -201,6 +201,26 @@ class ConversationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.c.frame(np.zeros(10, dtype=np.int16))
 
+    def test_a_short_request_in_the_same_breath_is_not_lost(self):
+        # "小茗同学，停止": her name is heard half a second late, and the request is over soon after
+        self.parts.stt.return_value = '小茗同学，停止。'
+        self.frames(1, speaking=True, name='小茗同学')
+        self.frames(voice.SAME_BREATH_FRAMES, speaking=True)
+        with patch.object(self.assistant, 'ask', return_value='') as ask:
+            self.frames(1, speaking=False)
+        self.parts.stt.assert_called_once()
+        ask.assert_called_once()
+        self.assertEqual(ask.call_args.args[1], '小茗同学，停止。', 'The request, not a greeting')
+        self.parts.speaker.stream.assert_not_called()
+
+    def test_her_name_lingering_a_moment_is_recognized_and_greeted(self):
+        self.parts.stt.return_value = '小茗同学。'
+        self.frames(1, speaking=True, name='小茗同学')
+        self.frames(voice.SAME_BREATH_FRAMES, speaking=True)
+        self.frames(1, speaking=False)
+        self.assertIn(self.parts.speaker.stream.call_args.args[0], LINES['greet']['zh'])
+        self.assertEqual(self.out.events[-1], ('turn_end', False), 'Then she listens for the request')
+
     def test_only_her_name_in_one_breath_gets_a_greeting(self):
         self.parts.stt.return_value = '小茗同学'
         self.frames(1, speaking=True, name='小茗同学')
