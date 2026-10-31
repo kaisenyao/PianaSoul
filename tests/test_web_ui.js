@@ -21,7 +21,11 @@ function harness(options = {}) {
       this.audioWorklet = {addModule: async () => {}};
       h.contexts.push(this);
     }
-    resume() { this.state = 'running'; return Promise.resolve(); }
+    resume() {
+      if (options.audioAsleep && !h.awake) return new Promise(() => {}); // as iOS may leave it after a long lock
+      this.state = 'running';
+      return Promise.resolve();
+    }
     close() { this.state = 'closed'; return Promise.resolve(); }
     createAnalyser() { return {...node(), getByteTimeDomainData: samples => samples.fill(160)}; }
     createGain() { return {...node(), gain: {}}; }
@@ -394,9 +398,20 @@ function harness(options = {}) {
   back.sandbox.document.hidden = false;
   await tick();
   assert.equal(back.sockets.length, 1, 'Coming back stays gray until tapped');
+  // Back after a long lock, the phone's audio does not wake: she does not stay starting, and the next tap works.
+  const asleep = harness({audioAsleep: true});
+  await asleep.tap();
+  assert.equal(asleep.orb.dataset.waking, 'true');
+  await asleep.fireTimer(5000);
+  assert.equal(asleep.orb.dataset.waking, 'false', 'Gray again');
+  assert.equal(asleep.active(), 'false');
+  assert.equal(asleep.socket().closed, true);
+  asleep.awake = true;
+  await asleep.tap();
+  assert.equal(asleep.active(), 'true', 'The next tap starts her afresh');
   const insecure = harness({insecure: true});
   await insecure.tap();
   assert.equal(insecure.mics + insecure.sockets.length, 0, 'No microphone outside a secure page');
   assert.equal(insecure.active(), 'false');
-  console.log('Voice passed: gray start, tap feedback, listening and replies, gray is off (quiet at once, all let go after the end sound), afresh when back on, away from the orb, on from elsewhere, refusals, the screen kept awake only while she is on, ends.');
+  console.log('Voice passed: gray start, tap feedback, listening and replies, gray is off (quiet at once, all let go after the end sound), afresh when back on, away from the orb, on from elsewhere, refusals, the screen kept awake only while she is on, ends, a start whose audio never wakes.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

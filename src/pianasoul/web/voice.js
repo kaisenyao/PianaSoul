@@ -7,6 +7,7 @@
 const STATES = ['waiting', 'listening', 'thinking', 'speaking', 'conversation'];
 const LISTENING = ['waiting', 'listening', 'conversation'];
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const STEP_MS = 5000; // the phone's audio waking and its worklet loading: quick, or stuck
 
 // element: the orb; toggle: the native switch over it; orb: its animation; cues: the start and end sounds;
 // labels(): the switch's words for each phase, in the app's language.
@@ -180,6 +181,14 @@ export function voice(element, toggle, orb, cues, labels) {
     });
   }
 
+  // A step of the phone's own that never ends (iOS can leave its audio asleep after a long lock) ends her start
+  // instead: gray again, so that the next tap starts afresh rather than finding her still starting.
+  function inTime(step) {
+    let timer;
+    return Promise.race([step, new Promise((_, reject) => { timer = setTimeout(() => reject(Error('stuck')), STEP_MS); })])
+      .finally(() => clearTimeout(timer));
+  }
+
   async function start() {
     if (!window.isSecureContext || !navigator.mediaDevices) return render();
     if (session) release(session, 'turned on again'); // still letting go after its end sound: no longer
@@ -196,9 +205,9 @@ export function voice(element, toggle, orb, cues, labels) {
       const resumed = s.ctx.resume(); // inside the tap
       const ready = connect(s); // the Mac prepares while the phone asks for the microphone
       ready.catch(() => {});
-      await resumed;
+      await inTime(resumed);
       if (!await openMicrophone(s)) return;
-      await s.ctx.audioWorklet.addModule('/capture.js');
+      await inTime(s.ctx.audioWorklet.addModule('/capture.js'));
       if (s !== session) return;
       const {ctx} = s;
       s.analyser = ctx.createAnalyser();
