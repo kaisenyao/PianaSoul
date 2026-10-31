@@ -295,18 +295,18 @@ class Core:
 
     def delete_recordings(self, ids: list[int]) -> None:
         """Pieces leave the library, their files to the Trash: out of the list that plays and of the playlists, and
-        gone where she played them. The app hears once."""
+        gone where she played them. The app hears, once, what changed."""
         for rec_id in ids:
             self.playback.forget(rec_id)
             self.lib.delete(rec_id)
             self.conversations.forget(rec_id)
         self.emit({"type": "library"})
         self.playlists_changed()
+        self._audio_changed()  # a transcribed piece gone: its recording is back
 
     def playlists_changed(self) -> None:
         """The app hears the playlists as they are now."""
         self.emit({"type": "playlists", "playlists": self.lib.playlists()})
-        self._audio_changed()  # a transcribed piece gone: its recording is back
 
     def delete_audio(self, audio_id: int) -> bool:
         """A recording to transcribe leaves the library, its file to the Trash."""

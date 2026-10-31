@@ -254,13 +254,12 @@ svg { display: block; }
 .selected .check { background: var(--accent); border-color: var(--accent); }
 .selected .check svg { opacity: 1; }
 #selbar {
-  position: absolute; z-index: 25; left: 0; right: 0; bottom: 0; display: none;
+  position: absolute; z-index: 25; left: 0; right: 0; bottom: 0; display: none; grid-template-columns: 1fr 1fr;
   height: calc(var(--safe-bottom) + 52px); padding-bottom: var(--safe-bottom);
   background: var(--selbar); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
   border-top: 1px solid var(--line); place-items: center;
 }
 .selecting #selbar { display: grid; }
-#selbar { grid-template-columns: 1fr 1fr; }
 #sel-delete { font-size: 17px; color: var(--red); padding: 10px 30px; }
 #sel-playlist { font-size: 17px; color: var(--accent); padding: 10px 20px; }
 #sel-delete:disabled, #sel-playlist:disabled { color: var(--disabled); }
@@ -530,12 +529,9 @@ button.grow:active { background: var(--press); }
 .hero b + span { font-size: 13px; color: var(--text2); }
 
 /* 歌单: a cover of its first four pieces' colors (or of the first, with fewer), as Apple Music makes one */
-.cover {
-  flex: none; display: grid; place-items: center; overflow: hidden; border-radius: 6px; color: rgba(255, 255, 255, .9);
-  background: linear-gradient(135deg, hsl(var(--h) 45% 46%), hsl(calc(var(--h) + 35) 45% 26%));
-}
-.cover.four { grid-template-columns: 1fr 1fr; place-items: stretch; }
-.cover.four i { background: linear-gradient(135deg, hsl(var(--h) 45% 46%), hsl(calc(var(--h) + 35) 45% 26%)); }
+.cover { flex: none; display: grid; place-items: center; overflow: hidden; border-radius: 6px; color: rgba(255, 255, 255, .9); }
+.cover, .cover.four i { background: linear-gradient(135deg, hsl(var(--h) 45% 46%), hsl(calc(var(--h) + 35) 45% 26%)); }
+.cover.four { grid-template-columns: 1fr 1fr; place-items: stretch; background: none; }
 .cover svg { width: 46%; height: 46%; }
 #playlist-list .cover { width: 52px; height: 52px; margin: 6px 0; }
 #playlist-list .content { gap: 14px; }
@@ -546,8 +542,6 @@ button.grow:active { background: var(--press); }
   background: var(--card); color: var(--accent); font-size: 16px; font-weight: 600;
 }
 .hero-acts svg { width: 18px; height: 18px; }
-#group-more { width: 44px; height: 46px; display: grid; place-items: center; color: var(--accent); }
-#group-more svg { width: 24px; height: 24px; }
 #group-foot .online svg { width: 22px; height: 22px; flex: none; }
 #pick-list { max-height: 55vh; overflow-y: auto; }
 #pick-list [data-new-playlist] { color: var(--accent); }
@@ -676,8 +670,9 @@ button.grow:active { background: var(--press); }
 #app:has(#pages.has-mini) #main > #view-library { padding-bottom: calc(var(--safe-bottom) + 76px); }
 
 /* ---------- The library: + to add pieces, recordings to transcribe ---------- */
-#lib-add, #new-playlist { width: 44px; height: 46px; display: grid; place-items: center; color: var(--accent); }
-#lib-add svg, #new-playlist svg { width: 24px; height: 24px; }
+/* A header's own button: + (曲库, 歌单) or … (a playlist) */
+#lib-add, #new-playlist, #group-more { width: 44px; height: 46px; display: grid; place-items: center; color: var(--accent); }
+#lib-add svg, #new-playlist svg, #group-more svg { width: 24px; height: 24px; }
 .selecting #lib-add { display: none; }
 .audio .check { visibility: hidden; }  /* not chosen with the pieces; kept, so the names line up */
 .audio.off .t1, .audio.off .t2 { color: var(--text3); }

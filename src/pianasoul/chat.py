@@ -235,8 +235,8 @@ REPLY_LINES = {  # a playback result, its error or status, and her line for it
 
 @dataclass(frozen=True)
 class PlaybackRequest:
-    """A piece to play, from where; with playlist, the user's playlist it starts (its name, its pieces, the
-    player's scope and mode), instead of the pieces she has played in the conversation."""
+    """A piece to play, from where. A request with a scope brings its own list (ids) and mode: a playlist, named
+    for her line; without one, the list is the pieces she has played in the conversation."""
     path: Path
     title: str
     from_s: float = 0.0
@@ -365,40 +365,43 @@ class Assistant:
             self.player = Playback(self.lib)  # opens the output each time playback starts
         return self.player
 
-    def play(self, id: int | None = None, from_start: bool = False, request: PlaybackRequest | None = None) -> dict:
+    def play(self, id: int | None = None, from_start: bool = False) -> dict:
+        """A new piece (id), the one waiting to be played again (pending), or the one in the player: from where it
+        was, or from the start."""
         self.touched_playback = True
-        already_playing = False
-        if request is not None:  # made ready: a playlist
-            pass
-        elif id is not None:
+        if id is not None:
             rec = self.lib.get(int(id))
             if not rec:
                 return {"error": "recording_not_found"}
             if not rec["file_exists"]:
                 return {"error": "recording_unavailable"}
-            request = PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=int(id))
-        elif self.pending:
+            return self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=int(id)))
+        if self.pending:
             request = replace(self.pending, from_s=0.0) if from_start else self.pending
             rec = self.lib.get(request.recording_id) if request.recording_id is not None else None
-            available = rec and rec["file_exists"] if request.recording_id is not None else request.path.is_file()
-            if not available:
+            if not (rec and rec["file_exists"] if request.recording_id is not None else request.path.is_file()):
                 self.pending = None
                 return {"error": "recording_unavailable"}
-        elif self.player and self.player.current:
+            return self._start(request, from_start)
+        if self.player and self.player.current:
             path, title = self.player.current
             if not path.is_file():
                 return {"error": "recording_unavailable"}
-            already_playing = self.player.state == "playing" and not from_start
             position = self.player.position if self.player.state in {"paused", "playing"} and not from_start else 0.0
-            request = PlaybackRequest(path, title, position, self.player.current_id)
-        else:
-            return {"error": "nothing_to_play"}
-        announced = False
+            return self._start(PlaybackRequest(path, title, position, self.player.current_id), from_start,
+                               going_on=self.player.state == "playing" and not from_start)
+        return {"error": "nothing_to_play"}
+
+    def _start(self, request: PlaybackRequest, from_start: bool = False, going_on: bool = False) -> dict:
+        """Play the request, saying so first: a piece from its list (a playlist's, or else the pieces she has played
+        in this conversation), or the piece in the player again. going_on: it is playing already, only looked at.
+        With the piano away nothing changes, and the request waits to be retried (pending)."""
         how = ("playlist_shuffled" if request.mode == "shuffle" else "playlist") if request.playlist \
             else "restart" if from_start else "resume" if request.from_s > 0 else "playing"  # her line (lines.py)
+        announced = False
         try:
             player = self._get_player()
-            if already_playing:
+            if going_on:
                 player.check_connection()
                 return {"status": "playing", "how": "now_playing", "title": request.title,
                         "from": clock(player.position)}
@@ -406,18 +409,16 @@ class Assistant:
             if self.speak:  # aloud, what she plays, before it sounds (and while the phone can still ask what plays)
                 self.tell(line(how, self.chinese(), request.playlist or spoken_title(request.title)))
                 announced = True
-            new = request.recording_id is not None and (request.recording_id != player.current_id or request.playlist)
-            if new and request.playlist:  # the list becomes the playlist's pieces
-                player.select(request.recording_id, list(request.ids), request.scope, request.from_s, mode=request.mode)
-                self.played_now.append((request.recording_id, request.title))
-            elif new:  # the list becomes the pieces she has played in this conversation
-                ids = [*self.conversations.pieces(self.conversation_id or 0), *(i for i, _ in self.played_now)]
-                player.select(request.recording_id, ids, {"kind": "conversation", "id": self.conversation_id},
-                              request.from_s)
-                self.played_now.append((request.recording_id, request.title))
-            else:  # the piece already in the player, from its file as the library has it now
+            if request.recording_id is None or (request.recording_id == player.current_id and request.scope is None):
+                # the piece already in the player, from its file as the library has it now
                 player.start([player.current if request.recording_id is not None else (request.path, request.title)],
                              from_s=request.from_s)
+            else:
+                ids, scope = (list(request.ids), request.scope) if request.scope is not None else (
+                    [*self.conversations.pieces(self.conversation_id or 0), *(i for i, _ in self.played_now)],
+                    {"kind": "conversation", "id": self.conversation_id})
+                player.select(request.recording_id, ids, scope, request.from_s, mode=request.mode)
+                self.played_now.append((request.recording_id, request.title))
         except LookupError as exc:
             if self.player and self.player.state == "playing":
                 self.player.pause()
@@ -442,7 +443,8 @@ class Assistant:
         if not pieces:
             return {"error": "playlist_empty"}
         first = random.choice(pieces) if shuffle else pieces[0]
-        return self.play(request=PlaybackRequest(
+        self.touched_playback = True
+        return self._start(PlaybackRequest(
             Path(first["midi_path"]), first["title"], recording_id=first["id"], playlist=found["name"],
             ids=tuple(p["id"] for p in pieces), scope={"kind": "playlist", "id": found["id"]},
             mode="shuffle" if shuffle else "order"))

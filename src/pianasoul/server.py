@@ -300,11 +300,11 @@ def _recording(rec_id: int) -> dict:
 @app.post('/api/play')
 def play(id: int = Body(), ids: list[int] = Body(default=[]), scope: dict = Body(default={}),
          mode: str | None = Body(default=None)):
-    """A piece tapped in a list: it plays (unless it is the one already playing), and that list plays on; in mode
-    when given (a playlist's 播放: order, its 随机播放: shuffle)."""
+    """A piece tapped in a list: it plays (unless it is the one already playing), and that list plays on. With a mode,
+    the list is played as a whole (a playlist's 播放: order, its 随机播放: shuffle), from its start."""
     playback = core.playback
     try:
-        if id == playback.current_id and not playback.ended and playback.state != 'stopped':
+        if mode is None and id == playback.current_id and not playback.ended and playback.state != 'stopped':
             playback.show(id, ids, scope, mode)
         else:
             playback.select(id, ids, scope, mode=mode)

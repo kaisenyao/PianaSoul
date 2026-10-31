@@ -28,6 +28,14 @@ from .play import GAP_S, Output, Player
 
 log = logging.getLogger(__spec__.name)
 MODES = ("order", "one", "shuffle")
+
+
+def _check_mode(mode: str | None) -> None:
+    """ValueError for a mode that is not one of MODES (None: as it is)."""
+    if mode is not None and mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}")
+
+
 RESTART_AFTER_S = 3.0  # ⏮ past this point starts the piece over
 DEFAULT_VOLUME = 80  # percent, until one is chosen: about where MIDI's own default (100 of 127) is
 
@@ -136,8 +144,7 @@ class Playback(Player):
         ids = list(dict.fromkeys(ids or [rec_id]))
         if rec_id not in ids:
             ids.append(rec_id)
-        if mode is not None and mode not in MODES:
-            raise ValueError(f"mode must be one of {MODES}")
+        _check_mode(mode)
 
         def ready():
             self._set_current(rec_id)
@@ -154,8 +161,7 @@ class Playback(Player):
              mode: str | None = None) -> None:
         """The list a piece belongs to, for the piece already playing: tapping it in another list changes what
         comes next, not what plays now."""
-        if mode is not None and mode not in MODES:
-            raise ValueError(f"mode must be one of {MODES}")
+        _check_mode(mode)
         with self._lock:
             if rec_id != self.current_id:
                 return
@@ -246,8 +252,7 @@ class Playback(Player):
         self.changed()
 
     def set_mode(self, mode: str) -> None:
-        if mode not in MODES:
-            raise ValueError(f"mode must be one of {MODES}")
+        _check_mode(mode)
         with self._lock:
             if mode == "shuffle" and self.mode != "shuffle":
                 self.mode = mode

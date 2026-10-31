@@ -117,6 +117,11 @@ class PlaylistApiTests(Base):
         snap = self.client.post('/api/play', json={'id': c, 'ids': [c, a, b], 'scope': scope, 'mode': 'order'}).json()
         self.assertEqual((snap['mode'], snap['ids']), ('order', [c, a, b]))
         self.assertEqual(self.client.post('/api/play', json={'id': c, 'mode': 'loud'}).status_code, 400)
+        with patch.object(self.core.playback, 'select', wraps=self.core.playback.select) as select:
+            self.client.post('/api/play', json={'id': c, 'ids': [c, a, b], 'scope': scope})
+            select.assert_not_called()  # tapped while it plays: it goes on
+            self.client.post('/api/play', json={'id': c, 'ids': [c, a, b], 'scope': scope, 'mode': 'order'})
+            select.assert_called_once()  # 播放: the whole list, from its start
         self.client.post('/api/playback', json={'action': 'remove', 'value': b})
         self.assertEqual(self.lib.playlist(pid)['ids'], [c, a, b], 'The list that plays is not the playlist')
 

@@ -247,7 +247,12 @@
     </div>
   </section>
 
-  <!-- Confirm what cannot be undone: deleting pieces, stopping the piece -->
+  <!-- Confirm what cannot be undone: deleting pieces or a playlist, stopping the piece -->
+  <div class="action" id="confirm">
+    <div class="agroup"><button class="danger" id="confirm-yes"></button></div>
+    <div class="agroup"><button class="cancel2" id="confirm-no" data-t="cancel"></button></div>
+  </div>
+
   <!-- Which playlist the pieces go into, a new one first -->
   <div class="action" id="pick-playlist">
     <div class="agroup" id="pick-list"></div>
@@ -269,11 +274,6 @@
 
   <!-- A word that something was done, for a moment -->
   <div id="hud" role="status" aria-live="polite"></div>
-
-  <div class="action" id="confirm">
-    <div class="agroup"><button class="danger" id="confirm-yes"></button></div>
-    <div class="agroup"><button class="cancel2" id="confirm-no" data-t="cancel"></button></div>
-  </div>
 
   <!-- Long-press menu -->
   <div id="ctx">

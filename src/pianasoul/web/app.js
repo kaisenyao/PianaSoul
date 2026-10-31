@@ -36,7 +36,6 @@ const ICON = {
   shuffle: svg('<path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>'),
   playlist: svg('<path d="M21 15V6"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M12 12H3M16 6H3M12 18H3"/>'),
   queue: svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/>'),
-  add: svg('<path d="M12 5v14M5 12h14"/>', ' stroke-width="2.2"'),
   addTo: svg('<path d="M4 7h11M4 12h11M4 17h7"/><path d="M18 14v6M15 17h6"/>'),
   more: svg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>'),
   grip: svg('<path d="M5 8h14M5 12h14M5 16h14"/>'),
@@ -87,10 +86,12 @@ function applySettings() {
   const theme = data.settings.appearance === 'system' ? (dark.matches ? 'dark' : 'light') : data.settings.appearance;
   document.documentElement.dataset.theme = theme;
   $('meta[name=theme-color]').content = theme === 'dark' ? '#000000' : '#ffffff';
-  // The icon on a white or a black ground, as the look: Add to Home Screen keeps the one there is at that moment.
+  // The icon on a white or a black ground, as the look: Add to Home Screen (and an Android install, from the
+  // manifest) keeps the one there is at that moment.
   for (const link of document.querySelectorAll('link[rel=icon], link[rel=apple-touch-icon]')) {
     link.href = theme === 'dark' ? '/icon.png' : '/icon-light.png';
   }
+  $('link[rel=manifest]').href = theme === 'dark' ? '/manifest.webmanifest' : '/manifest-light.webmanifest';
   for (const el of document.querySelectorAll('[data-t]')) el.textContent = T[el.dataset.t];
   for (const el of document.querySelectorAll('[data-t-placeholder]')) el.placeholder = T[el.dataset.tPlaceholder];
   for (const el of document.querySelectorAll('[data-t-label]')) el.setAttribute('aria-label', T[el.dataset.tLabel]);
@@ -157,7 +158,7 @@ function listen() {
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
     else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
-    else if (e.type === 'playlists') { data.playlists = e.playlists; refresh(); }
+    else if (e.type === 'playlists') setPlaylists(e.playlists);
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
   };
   socket.onclose = () => setTimeout(() => load().then(listen, error => error.message === 'signed out' ? signedOut(true)
@@ -169,6 +170,7 @@ async function load() {
   try { localStorage.setItem('features', JSON.stringify(data.features)); } catch {}
   applyFeatures();
   applySettings();
+  closeGone();
   renderRecent();
   for (const e of stack) if (e.view === 'session') renderSession(e.id);  // what was said while the Mac was away
 }
@@ -742,7 +744,7 @@ function renderPlaylists() {
     </div>`).join('') || `<p class="empty">${esc(T.noPlaylists)}</p>`;
 }
 function renderPlaylist(id) {
-  if (reordering) return;
+  if ($('#group-list').classList.contains('reordering')) return;
   const pl = playlistById(id), ps = playlistPieces(pl);
   $('#group-title').textContent = pl?.name || '';
   $('#group-more').hidden = $('#group-hero').hidden = !pl;
@@ -750,13 +752,34 @@ function renderPlaylist(id) {
   $('#group-hero').innerHTML = `${cover(pl)}<b>${esc(pl.name)}</b><span>${esc([T.pieces(ps.length), totalTime(ps)].filter(Boolean).join(' · '))}</span>`
     + (ps.length ? `<div class="hero-acts"><button data-act="order">${ICON_PLAY}<span>${esc(T.play)}</span></button><button data-act="shuffle">${ICON.shuffle}<span>${esc(T.shufflePlay)}</span></button></div>` : '');
   $('#group-list').innerHTML = ps.map(p => pieceRow(p, '', T.removeFromPlaylist, true)).join('') || `<p class="empty">${esc(T.noPlaylistPieces)}</p>`;
-  $('#group-foot').innerHTML = `<button class="online" id="group-add">${ICON.add}<span>${esc(T.addMusic)}</span></button>`;
+  $('#group-foot').innerHTML = `<button class="online" id="group-add">${ICON_ADD}<span>${esc(T.addMusic)}</span></button>`;
 }
-// The Mac's answer to a change: the playlist as it is now (it may differ from what was shown at once).
+// The playlists as the Mac has them, from its events or its answers: the pages of one gone close.
+function setPlaylists(playlists) {
+  data.playlists = playlists;
+  closeGone();
+  refresh();
+}
+// What was shown at once of a change the Mac then refused (or did not get) is set right again from the Mac.
+const resyncPlaylists = () => api('/api/playlists').then(setPlaylists).catch(() => {});
+// A change, shown at once (by the caller) and then as the Mac has it; null when it failed.
 async function changePlaylist(id, change) {
   const changed = await api(`/api/playlists/${id}`, 'PATCH', change).catch(() => null);
-  if (changed) { data.playlists = data.playlists.map(pl => pl.id === changed.id ? changed : pl); refresh(); }
+  if (changed) setPlaylists(data.playlists.map(pl => pl.id === changed.id ? changed : pl));
+  else resyncPlaylists();
   return changed;
+}
+// A playlist gone (deleted here or on another phone): its page closes, wherever it is in the stack, and adding to it
+// stops; the choice of playlists, if it is up, shows those there are.
+function closeGone() {
+  const gone = e => e.view === 'group' && e.id?.kind === 'playlist' && !playlistById(e.id.id);
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (!gone(stack[i])) continue;
+    if (i === stack.length - 1) pop();
+    else { $('#view-' + stack[i].view).hidden = true; stack.splice(i, 1); }
+  }
+  if (openSheet === $('#sheet-pick') && !playlistById(pickFor)) closeOverlays();
+  if ($('#pick-playlist').classList.contains('show')) renderPickList();
 }
 // A new playlist, named first: with pieces (it stays where it was), or empty (it opens, to add to).
 function newPlaylist(ids = []) {
@@ -764,8 +787,7 @@ function newPlaylist(ids = []) {
     if (!name) return;
     const made = await api('/api/playlists', 'POST', {name, ids}).catch(() => null);
     if (!made) return;
-    data.playlists = [made, ...data.playlists.filter(pl => pl.id !== made.id)];
-    refresh();
+    setPlaylists([made, ...data.playlists.filter(pl => pl.id !== made.id)]);
     if (ids.length) hud(T.addedTo(made.name));
     else push('group', {kind: 'playlist', id: made.id});
   });
@@ -775,8 +797,7 @@ function addToPlaylist(pl, ids) {
   if (!fresh.length) return hud(T.alreadyIn(pl.name));
   pl.ids = [...pl.ids, ...fresh];
   refresh();
-  hud(T.addedTo(pl.name));
-  changePlaylist(pl.id, {add: fresh});
+  changePlaylist(pl.id, {add: fresh}).then(changed => changed && hud(T.addedTo(pl.name)));
 }
 function removeFromPlaylist(pl, id) {
   if (!pl) return;
@@ -785,15 +806,13 @@ function removeFromPlaylist(pl, id) {
   changePlaylist(pl.id, {remove: id});
 }
 function deletePlaylist(id) {
-  if (state.view === 'group' && state.session?.kind === 'playlist' && state.session.id === id) pop();
-  data.playlists = data.playlists.filter(pl => pl.id !== id);
-  refresh();
-  api(`/api/playlists/${id}`, 'DELETE').catch(() => {});
+  setPlaylists(data.playlists.filter(pl => pl.id !== id));
+  api(`/api/playlists/${id}`, 'DELETE').catch(resyncPlaylists);
 }
 const askDeletePlaylist = id => openAction(T.deletePlaylist, () => deletePlaylist(id));  // its pieces stay
 function playlistMenu(pl, row, html) {
   showCtx(row, html, [
-    [T.addMusic, ICON.add, () => openPick(pl.id)],
+    [T.addMusic, ICON_ADD, () => openPick(pl.id)],
     [T.rename, ICON.edit, () => askName(T.renamePlaylist, pl.name, name => {
       if (name && name !== pl.name) changePlaylist(pl.id, {name});
     })],
@@ -804,10 +823,13 @@ function playlistMenu(pl, row, html) {
 let picking = [];
 function pickPlaylist(ids) {
   picking = ids;
-  $('#pick-list').innerHTML = `<button data-new-playlist>${esc(T.newPlaylist)}</button>`
-    + data.playlists.map(pl => `<button data-playlist="${pl.id}">${esc(pl.name)}</button>`).join('');
+  renderPickList();
   $('#dim').classList.add('show');
   $('#pick-playlist').classList.add('show');
+}
+function renderPickList() {
+  $('#pick-list').innerHTML = `<button data-new-playlist>${esc(T.newPlaylist)}</button>`
+    + data.playlists.map(pl => `<button data-playlist="${pl.id}">${esc(pl.name)}</button>`).join('');
 }
 $('#pick-list').addEventListener('click', e => {
   const b = e.target.closest('button');
@@ -829,11 +851,11 @@ function openPick(id) {
 }
 function renderPick() {
   const pl = playlistById(pickFor);
-  if (!pl) return closeOverlays();
+  if (!pl) return;  // gone: closeGone closes the sheet
   const q = $('#pick-q').value.trim().toLowerCase();
   const ps = [...data.recordings].sort(byNewest).filter(p => !q || matches(p, q));
   $('#pick-pieces').innerHTML = ps.map(p => `<div class="prow">${pieceText(p)}
-      <button class="addbtn" data-add-piece="${p.id}" aria-label="${esc(T.addToPlaylistShort)}">${pl.ids.includes(p.id) ? CHECK : ICON.add}</button>
+      <button class="addbtn" data-add-piece="${p.id}" aria-label="${esc(T.addToPlaylistShort)}">${pl.ids.includes(p.id) ? CHECK : ICON_ADD}</button>
     </div>`).join('') || `<p class="empty">${esc(T.notFound)}</p>`;
 }
 $('#pick-q').addEventListener('input', renderPick);
@@ -1227,14 +1249,13 @@ $('#mini').addEventListener('click', openPlayer);
 $('#mini-toggle').addEventListener('click', e => { e.stopPropagation(); control('toggle', null, null, e.currentTarget); });
 
 // ---------- 播放列表 ----------
-let reordering = false;
 function openQueue() {
   renderQueue();
   showSheet($('#sheet-queue'));
   $('#queue-list').scrollTop = 0;
 }
 function renderQueue() {
-  if (reordering) return;
+  if ($('#queue-list').classList.contains('reordering')) return;
   const ids = pb().ids.filter(id => pieceById(id));
   $('#queue-sub').textContent = T.from(scopeName(pb().scope || {}), ids.length);
   $('#queue-list').innerHTML = ids.map(id => {
@@ -1256,7 +1277,7 @@ function dragToReorder(list, moved) {
     r = {id: e.pointerId, row, y0: e.clientY, i0: i, i, h: row.offsetHeight};
     list.setPointerCapture(e.pointerId);
     row.classList.add('lifted');
-    reordering = true;
+    list.classList.add('reordering');
   });
   list.addEventListener('pointermove', e => {
     if (!r || e.pointerId !== r.id) return;
@@ -1271,10 +1292,11 @@ function dragToReorder(list, moved) {
     r.row.style.transform = '';
     r.row.classList.remove('lifted');
     const id = +r.row.dataset.id, changed = r.i !== r.i0, index = r.i;
-    reordering = false;
+    list.classList.remove('reordering');
     guardUntil = performance.now() + 200;
     r = null;
     if (changed) moved(id, index);
+    refresh();  // what came while it was held, drawn now
   };
   list.addEventListener('pointerup', end);
   list.addEventListener('pointercancel', end);
@@ -1284,17 +1306,24 @@ dragToReorder($('#queue-list'), (id, index) => control('move', id, index));
 // ---------- Adding pieces ----------
 // Search YouTube for piano versions (or paste a link), watch one on YouTube, download it (the same queue she uses by
 // voice), then play it: download, the ring while it is made, play.
-let cands = [], query = '', searching = 0;
+let cands = [], query = '', searching = false, searchRun = 0;  // searchRun: the latest search, whose results show
+// No search shown: one still on its way is let go of, and shows nothing when it comes back.
+function forgetSearch() {
+  searchRun++;
+  searching = false;
+  query = '';
+}
 async function findCands(q) {
   query = q;
   cands = [];
-  const n = ++searching;  // first: searching shows the spinner, not "nothing found"
+  const run = ++searchRun;
+  searching = true;  // first: it shows the spinner, not "nothing found"
   renderCands();
   try {
     const found = await api('/api/youtube?q=' + encodeURIComponent(q));
-    if (n === searching) cands = found;
+    if (run === searchRun) cands = found;
   } catch {}
-  if (n === searching) { searching = 0; renderCands(); }
+  if (run === searchRun) { searching = false; renderCands(); }
 }
 const jobFor = c => data.jobs.find(j => j.source === c.url);
 function renderCands() {
@@ -1337,7 +1366,7 @@ function openAdd(how, q = '') {
   $('#add-input').value = q;
   uploads.tidy();
   if (search && q) searchOnline(q);
-  else { query = ''; renderCands(); }
+  else { forgetSearch(); renderCands(); }
   showSheet($('#sheet-add'));
   $('#add-scroll').scrollTop = 0;
   if (!search) $('#upload-files').click();
@@ -1354,7 +1383,7 @@ $('#add-input').addEventListener('keydown', e => {
 function searchOnline(q) {
   $('#add-scroll').scrollTop = 0;
   if (data.features.search || /^https?:/i.test(q)) return findCands(q);
-  query = '';
+  forgetSearch();
   $('#add-body').innerHTML = `<div class="empty">${esc(T.searchOff)}</div>`;
 }
 $('#lib-add').innerHTML = ICON_ADD;
@@ -1887,7 +1916,7 @@ function setOpen(open) {
 }
 let drag = null;
 app.addEventListener('pointerdown', e => {
-  if (e.button > 0 || overlayOpen() || $('#ctx').classList.contains('show') || e.target.closest('.swipe.open, .scrub, textarea, #orb')) return;
+  if (e.button > 0 || overlayOpen() || $('#ctx').classList.contains('show') || e.target.closest('.swipe.open, .scrub, textarea, #orb, .grip')) return;
   drag = {id: e.pointerId, x0: e.clientX, y0: e.clientY, p0: state.open ? 1 : 0, p: state.open ? 1 : 0, v: 0, t: performance.now(), lx: e.clientX,
           active: false, page: stack.length ? $('#view-' + stack.at(-1).view) : null, player: null, dx: 0,
           row: !!e.target.closest('#main .swipe')};  // at the library home, a left swipe on a row is the row's
@@ -1948,7 +1977,7 @@ function onHold(list, selector, open) {
   const cancel = () => { if (h) clearTimeout(h.timer); h = null; };
   list.addEventListener('pointerdown', e => {
     const row = e.target.closest(selector);
-    if (!row || e.button > 0 || state.selecting) return;
+    if (!row || e.button > 0 || state.selecting || e.target.closest('.grip')) return;
     const held = {x: e.clientX, y: e.clientY};
     held.timer = setTimeout(() => {
       // The list may have been redrawn during the press (a download moving on), so the row is the one under the finger now.
@@ -1972,7 +2001,8 @@ function onHold(list, selector, open) {
 }
 
 // Rows: swipe left to reveal 删除, long-press for the menu.
-function rowGestures(list, {tap, remove, hold}) {
+// ask(id): what to ask before remove, which cannot be undone; the row folds away once it is confirmed.
+function rowGestures(list, {tap, remove, hold, ask}) {
   if (hold) onHold(list, '.swipe:not(.open)', row => hold(row.dataset.id, row));
   let s = null;
   list.addEventListener('pointerdown', e => {
@@ -2015,7 +2045,12 @@ function rowGestures(list, {tap, remove, hold}) {
     if (!row) return;
     const stop = e.target.closest('[data-stop]');
     if (stop) { collapse([row], () => stopJob(+stop.dataset.stop)); return; }
-    if (e.target.closest('.del')) { collapse([row], () => remove(row.dataset.id)); return; }
+    if (e.target.closest('.del')) {
+      const go = () => collapse([row], () => remove(row.dataset.id));
+      if (ask) openAction(ask(row.dataset.id), go);
+      else go();
+      return;
+    }
     const open = list.querySelector('.swipe.open');
     if (open) { open.classList.remove('open'); return; }  // like iOS: a tap first closes an open row
     tap(row.dataset.id, row);
@@ -2049,7 +2084,8 @@ rowGestures($('#group-list'), {
 });
 rowGestures($('#playlist-list'), {
   tap: id => push('group', {kind: 'playlist', id: +id}),
-  remove: id => { renderPlaylists(); askDeletePlaylist(+id); },  // the row comes back unless it is deleted
+  remove: id => deletePlaylist(+id),
+  ask: () => T.deletePlaylist,  // it cannot be undone: asked first (its pieces stay)
   hold: (id, row) => {
     const pl = playlistById(id);
     if (pl) playlistMenu(pl, row, cover(pl) + playlistText(pl));
