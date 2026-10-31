@@ -55,6 +55,7 @@ core = None  # the Core; main() makes it, tests give their own
 version = {'commit': '', 'repo': ''}
 log = logging.getLogger(__spec__.name)
 _voice = asyncio.Lock()  # one phone at a time is her ears and voice
+_open: set[WebSocket] = set()  # the connections pages have open (/events, /voice), signed in when they opened
 _parts = _stt = _her = None
 _naming = threading.Lock()  # one upload at a time takes a name in the library folder
 _where: tuple[str, Path] | None = None  # the address phones open, and the certificates' folder (main)
@@ -434,14 +435,20 @@ def delete_audio(audio_id: int):
 
 
 @app.post('/api/pairing/reset')
-def reset_pairing(request: Request):
-    """A new token: every phone, and every Home Screen app, has to be paired again. Asked on this Mac only."""
+async def reset_pairing(request: Request):
+    """A new token: every phone, and every Home Screen app, has to be paired again, at once: the connections pages
+    have open are closed too, and opened again only with the new token. Asked on this Mac only."""
     global TOKEN
     if request.client is None or request.client.host not in {'127.0.0.1', '::1'}:
         return JSONResponse({'error': 'mac_only'}, status_code=403)
     TOKEN = saved_token(fresh=True)
     write_pairing()
-    log.debug('paired anew: a new token')
+    for socket in list(_open):
+        try:
+            await socket.close(code=1008, reason='paired_anew')
+        except RuntimeError:  # it was closing already
+            pass
+    log.debug('paired anew: a new token, %d connection(s) closed', len(_open))
     return {'ok': True}
 
 
@@ -564,6 +571,7 @@ async def events(socket: WebSocket):
         await socket.close(code=1008)
         return
     await socket.accept()
+    _open.add(socket)
     loop = asyncio.get_running_loop()
     waiting: asyncio.Queue = asyncio.Queue(maxsize=256)
 
@@ -589,6 +597,7 @@ async def events(socket: WebSocket):
     try:
         await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     finally:
+        _open.discard(socket)
         core.listeners.remove(listener)
         for task in tasks:
             task.cancel()
@@ -667,6 +676,7 @@ async def voice(socket: WebSocket):
         await socket.close(code=1013, reason='Another phone is connected')
         return
     async with _voice:
+        _open.add(socket)
         print('  · voice on the iPhone', flush=True)
         loop = asyncio.get_running_loop()
         outgoing: asyncio.Queue = asyncio.Queue(maxsize=64)
@@ -746,6 +756,7 @@ async def voice(socket: WebSocket):
             import traceback
             traceback.print_exc()
         finally:
+            _open.discard(socket)
             if conversation is not None:  # quiet at once; a piece paused while she listened plays on
                 conversation.hushed.set()
                 phone.disconnect()

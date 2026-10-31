@@ -149,7 +149,8 @@ function listen() {
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); }
   };
-  socket.onclose = () => setTimeout(() => load().then(listen, listen), 2000);
+  socket.onclose = () => setTimeout(() => load().then(listen, error => error.message === 'signed out' ? signedOut(true)
+                                                                                          : listen()), 2000);
 }
 async function load() {
   Object.assign(data, await api('/api/state'));
@@ -161,14 +162,24 @@ async function load() {
   for (const e of stack) if (e.view === 'session') renderSession(e.id);  // what was said while the Mac was away
 }
 async function signIn() {
-  if (!token) return;
+  if (!token) return signedOut(false);
   try {
     await api('/api/session', 'POST', {token});
     await load();
     listen();
   } catch (error) {
-    if (error.message === 'signed out') { token = ''; try { localStorage.removeItem('token'); } catch {} }
+    if (error.message === 'signed out') signedOut(true);
   }
+}
+
+// The Mac does not let this page in: it paired anew (refused: this page's token is an old one), or this page never had
+// a token. Said over the page instead of leaving it empty, until a new code is scanned.
+function signedOut(refused) {
+  token = '';
+  try { localStorage.removeItem('token'); } catch {}
+  $('#signed-out-title').textContent = refused ? T.pairedAnewTitle : T.notPairedTitle;
+  $('#signed-out-text').textContent = refused ? T.pairedAnew : T.notPaired;
+  $('#signed-out').hidden = false;
 }
 
 // ---------- Pieces ----------

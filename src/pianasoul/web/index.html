@@ -258,6 +258,13 @@
     <button id="piano-hide" data-t-label="hideNotice"></button>
   </div>
 
+  <!-- Instead of an empty page, when the Mac does not let this page in: it paired anew, or it was never paired -->
+  <div id="signed-out" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2M20 14v6h-4M14 18v2"/></svg>
+    <b id="signed-out-title"></b>
+    <p id="signed-out-text"></p>
+  </div>
+
   <!-- A conversation's name -->
   <div class="alert" id="rename" role="dialog">
     <b id="rename-title"></b>

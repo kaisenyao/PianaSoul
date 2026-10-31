@@ -298,6 +298,27 @@ class VoiceTests(unittest.TestCase):
         ears.hushed.set()
         return patch.object(server, '_her', (ears, phone, Worker()))
 
+    def test_pairing_anew_closes_the_connections_open_and_lets_none_in_with_the_old_cookie(self):
+        old = server.TOKEN
+        mac = TestClient(server.app, headers=ORIGIN, client=('127.0.0.1', 50000))
+        core = SimpleNamespace(assistant=Mock(), listeners=[])
+        with self.her(), patch.object(server, 'core', core), patch.object(server, 'TOKEN', old), \
+                patch.object(server, 'saved_token', return_value='the new token'), patch.object(server, 'write_pairing'):
+            with self.client.websocket_connect('/events', headers=ORIGIN) as events, \
+                    self.client.websocket_connect('/voice', headers=ORIGIN) as her:
+                her.receive_json(), her.receive_json()  # ready, and her state
+                self.assertEqual(signed_in(mac).post('/api/pairing/reset').json(), {'ok': True})
+                for socket in (events, her):
+                    with self.assertRaises(WebSocketDisconnect) as closed:
+                        socket.receive_json()
+                    self.assertEqual(closed.exception.code, 1008)
+            self.assertEqual(self.client.get('/api/state').status_code, 401, 'The old cookie opens nothing')
+            for path in ('/events', '/voice'):
+                with self.assertRaises(WebSocketDisconnect, msg=path), \
+                        self.client.websocket_connect(path, headers=ORIGIN) as socket:
+                    socket.receive_json()
+        self.assertEqual(server._open, set())
+
     def test_frames_and_commands_reach_her_in_order_on_one_thread(self):
         threads = []
         with self.her(threads), self.client.websocket_connect('/voice', headers=ORIGIN) as socket:

@@ -630,6 +630,17 @@ button.grow:active { background: var(--press); }
 .abtns.one button { font-weight: 600; }
 #info { top: 50%; }  /* nothing to type: in the middle of the screen */
 
+/* Signed out: over everything, in the page's own color (the status bar meets it), what to do, in the middle */
+#signed-out {
+  position: absolute; inset: 0; z-index: 60; background: var(--top); color: var(--text);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 0 40px;
+  text-align: center;
+}
+#signed-out[hidden] { display: none; }
+#signed-out svg { width: 56px; height: 56px; color: var(--text2); margin-bottom: 8px; }
+#signed-out b { font-size: 20px; font-weight: 600; }
+#signed-out p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text2); }
+
 /* The piano's bar: below the status bar, over every page, which makes room for it (--bar) */
 #piano-bar {
   position: absolute; z-index: 38; left: 0; right: 0; top: var(--safe-top); height: var(--bar);  /* above the pages, under #dim */
