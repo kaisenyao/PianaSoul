@@ -160,6 +160,30 @@ class ChoiceTests(unittest.TestCase):
         for sent, msg, when in notes:
             self.assertAlmostEqual(when - sent, 1.0, delta=0.05, msg=f'{msg}: leaves one lead early, not all at once')
 
+    def test_choosing_another_output_while_the_test_sounds_stops_the_test_first(self):
+        failed = []
+        hook, threading.excepthook = threading.excepthook, lambda args: failed.append(args.exc_value)
+        self.addCleanup(setattr, threading, 'excepthook', hook)
+        self.p.choose(SESSION)
+        self.p.test_tone()
+        thread = self.p._thread
+        time.sleep(.05)
+        self.p.choose(USB)
+        thread.join(3)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(failed, [], 'The test gave way; it did not send on the output closed')
+
+    def test_paused_on_a_network_session_a_setting_does_not_move_where_it_stopped(self):
+        # The volume and All Notes Off carry a time too, but they are not music: a piece paused at 1:00 shows 1:00
+        # while the volume is dragged, and after the output is changed.
+        self.p.choose(SESSION)
+        self.p.check_connection()
+        self.p.state, self.p._offset = 'paused', 60.0
+        self.p.set_volume(30)
+        self.assertEqual(self.p.snapshot()['position'], 60.0)
+        self.p.choose(USB)
+        self.assertEqual(self.p.snapshot()['position'], 60.0)
+
     def test_on_a_network_session_nothing_is_sent_for_at_once(self):
         # An iPad plays a note stamped for later at once when it arrives with a message stamped for now (recorded
         # M3): so the volume, All Notes Off when the output is opened again, and a volume change carry a time too.

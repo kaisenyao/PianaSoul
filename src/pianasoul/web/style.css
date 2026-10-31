@@ -405,7 +405,6 @@ svg { display: block; }
 .frow input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--text); font: inherit; font-size: 16px; text-align: right; }
 .frow .val { flex: 1; text-align: right; color: var(--text2); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ghead.fold { display: flex; align-items: center; justify-content: space-between; width: calc(100% - 32px); min-height: 32px; }
-.form[hidden] { display: none; }
 
 /* Action sheet */
 .action { position: absolute; z-index: 46; left: 8px; right: 8px; bottom: calc(var(--safe-bottom) + 8px); transform: translateY(130%); transition: transform .4s var(--ease); }
@@ -613,7 +612,6 @@ button.grow:active { background: var(--press); }
 .facts-h .chev { color: var(--p-text3); }
 .fold .chev svg { transition: transform .25s var(--ease); }
 .fold[aria-expanded=true] .chev svg { transform: rotate(90deg); }
-.facts[hidden] { display: none; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; }
 .facts div { min-width: 0; }
 .facts span { display: block; font-size: 13px; color: var(--p-text3); }
@@ -665,7 +663,6 @@ button.grow:active { background: var(--press); }
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 0 40px;
   text-align: center;
 }
-#signed-out[hidden] { display: none; }
 #app.waiting > :not(#signed-out) { visibility: hidden; }  /* until the Mac answers (signIn) */
 #signed-out svg { width: 56px; height: 56px; color: var(--text2); margin-bottom: 8px; }
 #signed-out b { font-size: 20px; font-weight: 600; }

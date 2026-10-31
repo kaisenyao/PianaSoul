@@ -176,6 +176,7 @@ async function signIn() {
     listen();
   } catch (error) {
     if (error.message === 'signed out') signedOut(true);
+    else setTimeout(signIn, 3000);  // the Mac is asleep or away: again until it answers
   } finally {
     show();
   }
@@ -184,6 +185,7 @@ async function signIn() {
 // The Mac does not let this page in: it paired anew (refused: this page's token is an old one), or this page never had
 // a token. Said over the page instead of leaving it empty, until a new code is scanned.
 function signedOut(refused) {
+  closeOverlays();  // nothing open is any use now, and a sheet would darken the page behind the notice
   token = '';
   try { localStorage.removeItem('token'); } catch {}
   applySettings();  // the look and words chosen, or the phone's when none came: before anything is loaded, it follows the phone
@@ -1144,7 +1146,7 @@ function openAdd(how, q = '') {
   $('#sheet-add .uploads').hidden = search;
   $('#add-input').value = q;
   uploads.tidy();
-  if (search && q) findCands(q);
+  if (search && q) searchOnline(q);
   else { query = ''; renderCands(); }
   showSheet($('#sheet-add'));
   $('#add-scroll').scrollTop = 0;
@@ -1156,11 +1158,15 @@ $('#add-input').addEventListener('keydown', e => {
   const q = e.target.value.trim();
   if (!q) return;
   e.target.blur();
+  searchOnline(q);
+});
+// Searching online: by name with the Mac's YouTube key, a video link always; without the key, why not.
+function searchOnline(q) {
   $('#add-scroll').scrollTop = 0;
   if (data.features.search || /^https?:/i.test(q)) return findCands(q);
   query = '';
   $('#add-body').innerHTML = `<div class="empty">${esc(T.searchOff)}</div>`;
-});
+}
 $('#lib-add').innerHTML = ICON_ADD;
 $('#lib-add').addEventListener('click', addPieces);
 

@@ -400,7 +400,7 @@ class Player:
         self._t0: float | None = None  # perf_counter() when 0:00 of the current piece sounds
         self._from = 0.0  # where the current run started, in seconds into the piece
         self._sent_to = 0.0  # seconds into the piece up to which every message has been sent
-        self._last_when = 0.0  # the latest perf_counter() time a message was stamped for
+        self._last_when = 0.0  # the latest perf_counter() time a note or the pedal was stamped for: the music's end
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._down: set[tuple[int, int]] = set()
@@ -498,8 +498,9 @@ class Player:
 
     def switch(self) -> None:
         """Another output from now on: a piece playing pauses where it is, every key and the pedal come up on the old
-        one, and the next notes go to the new one."""
+        one, and the next notes go to the new one. A test still sounding stops first."""
         self.pause()
+        self._halt()
         self._close_port()
 
     def _close_port(self) -> None:
@@ -511,7 +512,8 @@ class Player:
         when = max(self._last_when, time.perf_counter() + self.lead) if self.lead else None
         with contextlib.suppress(OSError):  # a piano that went away has nothing to lift
             for channel in range(16):
-                self._send(mido.Message("control_change", channel=channel, control=ALL_NOTES_OFF, value=0), when)
+                self._send(mido.Message("control_change", channel=channel, control=ALL_NOTES_OFF, value=0), when,
+                           setting=True)
         self.port.close()
         self.port, self.output = None, None
 
@@ -588,7 +590,8 @@ class Player:
 
         value = round(self.volume * 127 / 100)
         for channel in range(16):
-            self._send(mido.Message("control_change", channel=channel, control=VOLUME_CONTROL, value=value), when)
+            self._send(mido.Message("control_change", channel=channel, control=VOLUME_CONTROL, value=value), when,
+                       setting=True)
 
     def close(self) -> None:
         """Stop, let the notes already sent finish, and close the output, every note off. Call before the program
@@ -609,13 +612,15 @@ class Player:
         self._thread = None
         self.completed = None
 
-    def _send(self, msg, when: float | None = None) -> None:
+    def _send(self, msg, when: float | None = None, setting: bool = False) -> None:
         """With a lead, every message carries a time, one lead from now unless given, never none: an iPad on a network
-        session plays a note stamped for later at once when it arrives with a message stamped for now (M3, recorded)."""
+        session plays a note stamped for later at once when it arrives with a message stamped for now (M3, recorded).
+        A setting (the volume, All Notes Off) is not music: it does not make the music last longer."""
         if self.lead:
             when = time.perf_counter() + self.lead if when is None else when
             self.port.send(msg, when)
-            self._last_when = max(self._last_when, when)
+            if not setting:
+                self._last_when = max(self._last_when, when)
         else:
             self.port.send(msg)
 

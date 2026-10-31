@@ -84,6 +84,10 @@ class Playback(Player):
         chosen = self.chosen()
         return f'"{chosen["name"]}" is not there' if chosen else super().missing()
 
+    def test_tone(self) -> None:
+        with self._lock:  # not while a piece is being started or the output changed
+            super().test_tone()
+
     def choose(self, out: Output) -> None:
         """Play on out from now on: a piece playing pauses where it is, and goes on there when played again."""
         with self._lock:
