@@ -94,7 +94,7 @@ dark.addEventListener('change', () => { if (data.settings.appearance === 'system
 
 // ---------- What the Mac keeps ----------
 const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
-  conversations: [], current: null, busy: null, settings: {language: '', appearance: 'dark'}, devices: [],
+  conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system'}, devices: [],
   piano: {name: '', kind: 'other', connected: true},
   version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
@@ -177,6 +177,7 @@ async function signIn() {
 function signedOut(refused) {
   token = '';
   try { localStorage.removeItem('token'); } catch {}
+  applySettings();  // the look and words chosen, or the phone's when none came: before anything is loaded, it follows the phone
   $('#signed-out-title').textContent = refused ? T.pairedAnewTitle : T.notPairedTitle;
   $('#signed-out-text').textContent = refused ? T.pairedAnew : T.notPaired;
   $('#signed-out').hidden = false;
