@@ -467,13 +467,14 @@ def new_playlist(name: str = Body(), ids: list[int] = Body(default=[])):
 
 @app.patch('/api/playlists/{playlist_id}')
 def change_playlist(playlist_id: int, change: dict = Body()):
-    """One change: name (a new one); add (ids, at its end, each once); remove (an id); or move (an id) to index."""
+    """One change: name and description (as edited together); add (ids, at its end, each once); remove (an id); or
+    move (an id) to index."""
     lib = core.lib
     if lib.playlist(playlist_id) is None:
         raise HTTPException(404)
     try:
-        if set(change) == {'name'}:
-            done = lib.rename_playlist(playlist_id, str(change['name'])) is not None
+        if set(change) == {'name', 'description'} and all(isinstance(v, str) for v in change.values()):
+            done = lib.edit_playlist(playlist_id, change['name'], change['description']) is not None
         elif set(change) == {'add'} and isinstance(change['add'], list):
             done = lib.add_to_playlist(playlist_id, [int(i) for i in change['add']]) is not None
         elif set(change) == {'remove'}:

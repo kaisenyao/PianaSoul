@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS playlists (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -117,12 +118,13 @@ CREATE TABLE IF NOT EXISTS audio (
 # Columns added since the first libraries were made; an older library gets them when it is opened.
 # fingerprint: the file's sha256, to know it again when it moves; stamp: its size and time, to see it change.
 # named_at: when the chat model was asked for the piece's other names (enrich).
-ADDED_COLUMNS = {"favorited_at": "TEXT", "last_played_at": "TEXT",
-                 "video_title": "TEXT NOT NULL DEFAULT ''", "channel": "TEXT NOT NULL DEFAULT ''",
-                 "views": "INTEGER", "published": "TEXT NOT NULL DEFAULT ''",
-                 "thumbnail": "TEXT NOT NULL DEFAULT ''", "channel_avatar": "TEXT NOT NULL DEFAULT ''",
-                 "fingerprint": "TEXT NOT NULL DEFAULT ''", "stamp": "TEXT NOT NULL DEFAULT ''",
-                 "named_at": "TEXT"}
+ADDED_COLUMNS = {"recordings": {"favorited_at": "TEXT", "last_played_at": "TEXT",
+                                "video_title": "TEXT NOT NULL DEFAULT ''", "channel": "TEXT NOT NULL DEFAULT ''",
+                                "views": "INTEGER", "published": "TEXT NOT NULL DEFAULT ''",
+                                "thumbnail": "TEXT NOT NULL DEFAULT ''", "channel_avatar": "TEXT NOT NULL DEFAULT ''",
+                                "fingerprint": "TEXT NOT NULL DEFAULT ''", "stamp": "TEXT NOT NULL DEFAULT ''",
+                                "named_at": "TEXT"},
+                 "playlists": {"description": "TEXT NOT NULL DEFAULT ''"}}
 VIDEO_FIELDS = ("video_title", "channel", "views", "published", "thumbnail", "channel_avatar")
 STOPWORDS = {"the", "a", "an", "of", "in", "and", "by", "for", "piano", "solo", "version", "play", "me"}
 
@@ -147,6 +149,7 @@ def _keep_picture(path: Path, jpeg: bytes | None) -> None:
 
 
 PLAYLIST_TIME = "microseconds"  # which of two playlists changed last, even within a second (her choice by name)
+DESCRIPTION_LIMIT = 1000  # characters in a playlist's description (简介)
 
 
 def _playlist_name(name: str) -> str:
@@ -281,10 +284,11 @@ def file_result(lib: "Library", produced: Path, title: str, *, source_type: str,
 def upgrade(db: sqlite3.Connection) -> None:
     """Bring a library made by an earlier version up to this one's tables and columns."""
     db.executescript(SCHEMA)
-    have = {row[1] for row in db.execute("PRAGMA table_info(recordings)")}
-    for name, kind in ADDED_COLUMNS.items():
-        if name not in have:
-            db.execute(f"ALTER TABLE recordings ADD COLUMN {name} {kind}")
+    for table, columns in ADDED_COLUMNS.items():
+        have = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        for name, kind in columns.items():
+            if name not in have:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
     db.execute("CREATE INDEX IF NOT EXISTS recordings_fingerprint ON recordings(fingerprint)")
     db.commit()
 
@@ -530,7 +534,8 @@ class Library:
 
     # ---- playlists ------------------------------------------------------------------------------------
     def playlists(self) -> list[dict]:
-        """Every playlist, the newest first: id, name, ids (its pieces in order), created_at, updated_at."""
+        """Every playlist, the newest first: id, name, description, ids (its pieces in order), created_at, updated_at,
+        artwork (its version, or None)."""
         with self.lock:
             rows = self.db.execute("SELECT * FROM playlists ORDER BY created_at DESC, id DESC").fetchall()
             return [self._playlist(row) for row in rows]
@@ -551,11 +556,14 @@ class Library:
             self.playlist_cover(playlist_id).unlink(missing_ok=True)  # one deleted before may have had this id
         return self.playlist(playlist_id)
 
-    def rename_playlist(self, playlist_id: int, name: str) -> dict | None:
-        """ValueError for an empty name; None when there is no such playlist."""
-        name = _playlist_name(name)
+    def edit_playlist(self, playlist_id: int, name: str, description: str) -> dict | None:
+        """Its name and its description (简介), as edited together. ValueError for an empty name or a description
+        over DESCRIPTION_LIMIT; None when there is no such playlist."""
+        name, description = _playlist_name(name), str(description).strip()
+        if len(description) > DESCRIPTION_LIMIT:
+            raise ValueError("a playlist's description is too long")
         with self.lock:
-            if not self._touch(playlist_id, "name = ?", (name,)):
+            if not self._touch(playlist_id, "name = ?, description = ?", (name, description)):
                 return None
             self.db.commit()
         return self.playlist(playlist_id)
@@ -604,7 +612,7 @@ class Library:
         return True
 
     def _playlist(self, row: sqlite3.Row) -> dict:
-        return {"id": row["id"], "name": row["name"], "ids": self._playlist_ids(row["id"]),
+        return {"id": row["id"], "name": row["name"], "description": row["description"], "ids": self._playlist_ids(row["id"]),
                 "created_at": row["created_at"], "updated_at": row["updated_at"],
                 "artwork": _version(self.playlist_cover(row["id"]))}
 

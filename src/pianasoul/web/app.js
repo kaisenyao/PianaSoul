@@ -36,6 +36,7 @@ const ICON = {
   shuffle: svg('<path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>'),
   playlist: svg('<path d="M21 15V6"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M12 12H3M16 6H3M12 18H3"/>'),
   queue: svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/>'),
+  camera: svg('<path d="M4 8.6a2 2 0 0 1 2-2h2.1l1.6-2.1h4.6l1.6 2.1H18a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.6" r="3.4"/>'),
   photo: svg('<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M20.5 16l-5-5-8 8"/>'),
   addTo: svg('<path d="M4 7h11M4 12h11M4 17h7"/><path d="M18 14v6M15 17h6"/>'),
   more: svg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>'),
@@ -153,14 +154,13 @@ function listen() {
     try { e = JSON.parse(raw); } catch { return; }
     if (e.type === 'playback') { delete e.type; data.playback = e; heardAt = performance.now(); refresh(); }
     else if (e.type === 'jobs') onJobs(e.jobs);
-    else if (e.type === 'library') recordings();
+    else if (e.type === 'library') { data.pictures = e.pictures; recordings(); }  // the artists' pictures with it
     else if (e.type === 'conversations') conversations();
     else if (e.type === 'message') onMessage(e.message);
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
     else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
     else if (e.type === 'playlists') setPlaylists(e.playlists);
-    else if (e.type === 'pictures') { data.pictures = e.pictures; refresh(); }
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
   };
   socket.onclose = () => setTimeout(() => load().then(listen, error => error.message === 'signed out' ? signedOut(true)
@@ -377,7 +377,7 @@ function refresh() {
   if (openSheet === $('#sheet-add')) renderCands();
   if (openSheet === $('#sheet-pick')) renderPick();
   if (openSheet === $('#sheet-addto')) renderAddTo();
-  if (openSheet === $('#sheet-edit')) renderEditArtwork();
+  for (const ed of pictureEditors) if (openSheet === ed.sheet) ed.render();
   renderSessionCards();
   renderNow();
 }
@@ -682,8 +682,9 @@ function people(by) {
   return map;
 }
 // An artist's own picture, or else a pianist's channel's.
-const pictureOf = (by, name, pieces) => data.pictures[name] ? `/api/pictures?name=${encodeURIComponent(name)}&v=${data.pictures[name]}`
-  : by === 'performer' ? pieces.find(p => p.channel_avatar)?.channel_avatar : '';
+const ownPicture = name => data.pictures[name] ? `/api/pictures?name=${encodeURIComponent(name)}&v=${data.pictures[name]}` : '';
+const channelPicture = (by, pieces) => by === 'performer' && pieces.find(p => p.channel_avatar)?.channel_avatar || '';
+const pictureOf = (by, name, pieces) => ownPicture(name) || channelPicture(by, pieces);
 const artworkOf = p => p.artwork ? `/api/recordings/${p.id}/artwork?v=${p.artwork}` : '';
 const avatar = (name, picture, cls = '') => picture
   ? `<img class="mono${cls}" src="${esc(picture)}" alt="" referrerpolicy="no-referrer">`
@@ -733,13 +734,152 @@ async function favorite(id, on) {
   await api(`/api/recordings/${id}`, 'PATCH', {favorite: on}).catch(() => {});
 }
 
+// ---------- Pictures: artwork, and artists' own ----------
+// A picture in an edit sheet: a photo chosen (moved and scaled to its square, or circle) or the picture taken away
+// shows at once, and is kept on the Mac only with 完成; 取消 leaves the one there was. Without one, it shows what
+// shows instead (fallback: a playlist's cover of its pieces, an artist's initial).
+const pictureEditors = [];
+function pictureEditor(id, current, fallback) {
+  const el = $(id), img = el.querySelector('img'), file = el.querySelector('input'), remove = el.querySelector('.danger');
+  let chosen, shown = '';  // chosen: undefined (as it is), a JPEG, or null (taken away)
+  const ed = {
+    sheet: el.closest('.sheet'),
+    render() {
+      const src = chosen === undefined ? current() : chosen ? shown : '';
+      if (src && img.getAttribute('src') !== src) img.src = src;
+      img.hidden = remove.hidden = !src;
+      el.querySelector('.fallback').innerHTML = src ? '' : fallback();
+    },
+    choose(jpeg) {
+      URL.revokeObjectURL(shown);
+      chosen = jpeg;
+      shown = jpeg ? URL.createObjectURL(jpeg) : '';
+      ed.render();
+    },
+    reset: () => ed.choose(undefined),
+    keep(path) { if (chosen !== undefined) keepPicture(path, chosen); },  // with 完成: what changed
+  };
+  file.addEventListener('change', async () => {
+    const photo = file.files[0];
+    file.value = '';
+    const jpeg = photo && await cropPhoto(photo, el.classList.contains('round'));
+    if (jpeg) ed.choose(jpeg);
+  });
+  remove.addEventListener('click', () => ed.choose(null));
+  pictureEditors.push(ed);
+  return ed;
+}
+// A picture kept on the Mac (a JPEG), or taken away (null); the Mac then says what changed, and it shows.
+async function keepPicture(path, jpeg) {
+  const sent = await fetch(path, jpeg ? {method: 'PUT', body: jpeg, headers: {'Content-Type': 'image/jpeg'}} : {method: 'DELETE'})
+    .catch(() => null);
+  if (!sent?.ok) hud(T.photoFailed);
+}
+// 移动和缩放, as iOS has it: the photo under a square (or a circle), always covering it, moved with one finger and
+// scaled with two. 选取 gives what is in it as the Mac keeps pictures: a JPEG, at most 1000 px, on white (a PNG's
+// clear parts). null with 取消, or when the photo cannot be opened (it says so).
+let crop = null;
+async function cropPhoto(file, round) {
+  const img = $('#crop img'), url = URL.createObjectURL(file);
+  img.src = url;
+  try {
+    await img.decode();
+  } catch {
+    URL.revokeObjectURL(url);
+    hud(T.photoUnreadable);
+    return null;
+  }
+  $('#crop').classList.toggle('round', round);
+  $('#crop').hidden = false;
+  const done = new Promise(resolve => { crop = {w: img.naturalWidth, h: img.naturalHeight, fingers: new Map(), resolve}; });
+  layCrop();
+  const kept = await done;
+  $('#crop').hidden = true;
+  URL.revokeObjectURL(url);
+  if (kept === undefined) hud(T.photoUnreadable);
+  return kept ?? null;
+}
+// The frame as big as the screen allows, the photo filling it, in the middle.
+function layCrop() {
+  const stage = $('#crop .crop-stage'), W = stage.clientWidth, H = stage.clientHeight, F = Math.min(W, H);
+  const least = F / Math.min(crop.w, crop.h);
+  Object.assign(crop, {F, left: (W - F) / 2, top: (H - F) / 2, least, s: least, x: (F - crop.w * least) / 2, y: (F - crop.h * least) / 2});
+  Object.assign($('#crop .crop-frame').style, {left: crop.left + 'px', top: crop.top + 'px', width: F + 'px', height: F + 'px'});
+  placeCrop();
+}
+// The photo kept over the whole frame: it never leaves part of it empty.
+function placeCrop() {
+  const c = crop;
+  c.x = Math.min(0, Math.max(c.F - c.w * c.s, c.x));
+  c.y = Math.min(0, Math.max(c.F - c.h * c.s, c.y));
+  $('#crop img').style.transform = `translate(${c.left + c.x}px, ${c.top + c.y}px) scale(${c.s})`;
+}
+// The fingers, from where they were when the last one came or went: the point of the photo between them stays
+// between them, and two scale it by how far apart they are.
+function cropFingers() {
+  const ps = [...crop.fingers.values()].slice(0, 2), r = $('#crop .crop-stage').getBoundingClientRect();
+  return {cx: ps.reduce((a, p) => a + p.x, 0) / ps.length - r.left - crop.left, cy: ps.reduce((a, p) => a + p.y, 0) / ps.length - r.top - crop.top,
+          d: ps.length > 1 ? Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y) : 0};
+}
+function anchorCrop() { crop.from = crop.fingers.size ? {s: crop.s, x: crop.x, y: crop.y, ...cropFingers()} : null; }
+const cropStage = $('#crop .crop-stage');
+cropStage.addEventListener('pointerdown', e => {
+  if (!crop) return;
+  if (e.isPrimary) crop.fingers.clear();  // the first finger of a new touch: none from before is still down
+  cropStage.setPointerCapture(e.pointerId);
+  crop.fingers.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  anchorCrop();
+});
+cropStage.addEventListener('pointermove', e => {
+  if (!crop?.fingers.has(e.pointerId)) return;
+  crop.fingers.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  const {from} = crop, now = cropFingers();
+  crop.s = Math.min(crop.least * 5, Math.max(crop.least, from.d && now.d ? from.s * now.d / from.d : from.s));
+  crop.x = now.cx - (from.cx - from.x) * crop.s / from.s;
+  crop.y = now.cy - (from.cy - from.y) * crop.s / from.s;
+  placeCrop();
+});
+for (const type of ['pointerup', 'pointercancel']) {
+  cropStage.addEventListener(type, e => {
+    if (!crop?.fingers.delete(e.pointerId)) return;
+    anchorCrop();
+  });
+}
+// A two-finger scroll or a pinch on a trackpad, as a pinch.
+cropStage.addEventListener('wheel', e => {
+  if (!crop) return;
+  e.preventDefault();
+  const r = cropStage.getBoundingClientRect(), cx = e.clientX - r.left - crop.left, cy = e.clientY - r.top - crop.top, was = crop.s;
+  crop.s = Math.min(crop.least * 5, Math.max(crop.least, was * Math.exp(-e.deltaY / 300)));
+  crop.x = cx - (cx - crop.x) * crop.s / was;
+  crop.y = cy - (cy - crop.y) * crop.s / was;
+  placeCrop();
+}, {passive: false});
+addEventListener('resize', () => { if (crop) layCrop(); });
+function endCrop(choose) {
+  const c = crop;
+  crop = null;
+  if (!choose) return c.resolve(null);
+  const side = c.F / c.s, size = Math.round(Math.min(1000, side));
+  const canvas = Object.assign(document.createElement('canvas'), {width: size, height: size}), g = canvas.getContext('2d');
+  g.fillStyle = '#fff';
+  g.fillRect(0, 0, size, size);
+  g.drawImage($('#crop img'), -c.x / c.s, -c.y / c.s, side, side, 0, 0, size, size);
+  canvas.toBlob(jpeg => c.resolve(jpeg || undefined), 'image/jpeg', .86);  // undefined: it could not be made
+}
+$('#crop-cancel').addEventListener('click', () => crop && endCrop(false));
+$('#crop-done').addEventListener('click', () => crop && endCrop(true));
+
 // ---------- Playlists (歌单) ----------
 // The user's own lists of pieces, each once, in their order, kept on the Mac. Not the list that plays (播放列表):
 // playing one fills that list, and changing either leaves the other alone. Only pieces whose files are there show.
 const playlistById = id => data.playlists.find(pl => pl.id === +id);
 const playlistPieces = pl => (pl?.ids || []).map(pieceById).filter(Boolean);
+const coverOf = pl => pl?.artwork ? `/api/playlists/${pl.id}/artwork?v=${pl.artwork}` : '';
 function cover(pl) {
-  if (pl.artwork) return `<span class="cover"><img src="/api/playlists/${pl.id}/artwork?v=${pl.artwork}" alt=""></span>`;
+  return pl.artwork ? `<span class="cover"><img src="${coverOf(pl)}" alt=""></span>` : madeCover(pl);
+}
+function madeCover(pl) {
   const ps = playlistPieces(pl).slice(0, 4);
   return ps.length === 4 ? `<span class="cover four">${ps.map(p => `<i style="--h:${hueOf(p.id)}"></i>`).join('')}</span>`
     : `<span class="cover" style="--h:${ps.length ? hueOf(ps[0].id) : 220}">${ICON.playlist}</span>`;
@@ -758,6 +898,7 @@ function renderPlaylist(id) {
   $('#group-more').hidden = $('#group-hero').hidden = !pl;
   if (!pl) { $('#group-list').innerHTML = $('#group-foot').innerHTML = ''; return; }
   $('#group-hero').innerHTML = `${cover(pl)}<b>${esc(pl.name)}</b><span>${esc([T.pieces(ps.length), totalTime(ps)].filter(Boolean).join(' · '))}</span>`
+    + (pl.description ? `<p class="desc">${esc(pl.description)}</p>` : '')
     + (ps.length ? `<div class="hero-acts"><button data-act="order">${ICON_PLAY}<span>${esc(T.play)}</span></button><button data-act="shuffle">${ICON.shuffle}<span>${esc(T.shufflePlay)}</span></button></div>` : '');
   $('#group-list').innerHTML = ps.map(p => pieceRow(p, '', T.removeFromPlaylist, true)).join('') || `<p class="empty">${esc(T.noPlaylistPieces)}</p>`;
   $('#group-foot').innerHTML = `<button class="online" id="group-add">${ICON_ADD}<span>${esc(T.addMusic)}</span></button>`;
@@ -778,7 +919,7 @@ async function changePlaylist(id, change) {
   return changed;
 }
 // A playlist gone (deleted here or on another phone): its page closes, wherever it is in the stack, and adding to it
-// stops; the choice of playlists, if it is up, shows those there are.
+// or editing it stops.
 function closeGone() {
   const gone = e => e.view === 'group' && e.id?.kind === 'playlist' && !playlistById(e.id.id);
   for (let i = stack.length - 1; i >= 0; i--) {
@@ -786,8 +927,7 @@ function closeGone() {
     if (i === stack.length - 1) pop();
     else { $('#view-' + stack[i].view).hidden = true; stack.splice(i, 1); }
   }
-  if (openSheet === $('#sheet-pick') && !playlistById(pickFor)) closeOverlays();
-  if (choices) renderChoices();
+  if ((openSheet === $('#sheet-pick') && !playlistById(pickFor)) || (openSheet === $('#sheet-plist') && !playlistById(plistFor))) closeOverlays();
 }
 // A new playlist, named first: with pieces (it stays where it was), or empty (it opens, to add to).
 function newPlaylist(ids = []) {
@@ -820,17 +960,41 @@ function deletePlaylist(id) {
 }
 const askDeletePlaylist = id => openAction(T.deletePlaylist, () => deletePlaylist(id));  // its pieces stay
 function playlistMenu(pl, row, html) {
-  const art = `/api/playlists/${pl.id}/artwork`;
   showCtx(row, html, [
     [T.addMusic, ICON_ADD, () => openPick(pl.id)],
-    [T.changeArtwork, ICON.photo, () => pickPhoto(jpeg => keepPicture(art, jpeg))],
-    pl.artwork && [T.removeArtwork, ICON.trash, () => keepPicture(art, null), true],
-    [T.rename, ICON.edit, () => askName(T.renamePlaylist, pl.name, name => {
-      if (name && name !== pl.name) changePlaylist(pl.id, {name});
-    })],
+    [T.editPlaylist, ICON.edit, () => editPlaylist(pl.id)],
     [T.deletePlaylist, ICON.trash, () => askDeletePlaylist(pl.id), true],
   ]);
 }
+// 编辑歌单, as Apple Music edits one: its artwork, its name and its description (简介), kept with 完成.
+let plistFor = null;
+const plistArt = pictureEditor('#plist-art', () => coverOf(playlistById(plistFor)), () => madeCover(playlistById(plistFor) || {}));
+function editPlaylist(id) {
+  const pl = playlistById(id);
+  if (!pl) return;
+  plistFor = pl.id;
+  $('#plist-name').value = pl.name;
+  $('#plist-desc').value = pl.description;
+  plistArt.reset();
+  showSheet($('#sheet-plist'));
+  fitDescription();
+}
+// The description's field grows with what is written.
+function fitDescription() {
+  const field = $('#plist-desc');
+  field.style.height = '';
+  field.style.height = field.scrollHeight + 'px';
+}
+$('#plist-desc').addEventListener('input', fitDescription);
+$('#plist-name').addEventListener('keydown', e => { if (isEnter(e)) e.currentTarget.blur(); });
+$('#plist-cancel').addEventListener('click', closeOverlays);
+$('#plist-save').addEventListener('click', () => {
+  const pl = playlistById(plistFor), name = $('#plist-name').value.trim() || pl?.name, description = $('#plist-desc').value.trim();
+  closeOverlays();
+  if (!pl) return;
+  plistArt.keep(`/api/playlists/${pl.id}/artwork`);
+  if (name !== pl.name || description !== pl.description) changePlaylist(pl.id, {name, description});  // with no name, its own
+});
 // 添加到歌单, as Apple Music asks: a sheet of the playlists, New Playlist… first, a ✓ by those the pieces are all in
 // already; a tap adds them there.
 let adding = [];
@@ -850,10 +1014,10 @@ function renderAddTo() {
 $('#addto-list').addEventListener('click', e => {
   const row = e.target.closest('.arow');
   if (!row) return;
+  if ('newPlaylist' in row.dataset) return newPlaylist(adding);  // named over the sheet: 取消 goes back to it
   const ids = adding;
   closeOverlays();
-  if ('newPlaylist' in row.dataset) newPlaylist(ids);
-  else addToPlaylist(playlistById(row.dataset.playlist), ids);
+  addToPlaylist(playlistById(row.dataset.playlist), ids);
 });
 $('#addto-cancel').addEventListener('click', closeOverlays);
 // 添加曲目: the library, searchable, a + by each piece (a ✓ once it is in the playlist).
@@ -890,13 +1054,22 @@ $('#group-more').innerHTML = ICON.more;
 $('#group-more').addEventListener('click', e => {
   const g = state.session, pl = g?.kind === 'playlist' && playlistById(g.id);
   if (pl) playlistMenu(pl, e.currentTarget, null);
-  else if (g?.kind === 'artist' || g?.kind === 'performer') {
-    const art = `/api/pictures?name=${encodeURIComponent(g.name)}`;
-    showCtx(e.currentTarget, null, [
-      [T.changePicture, ICON.photo, () => pickPhoto(jpeg => keepPicture(art, jpeg))],
-      data.pictures[g.name] && [T.removePicture, ICON.trash, () => keepPicture(art, null), true],
-    ]);
-  }
+  else if (g?.kind === 'artist' || g?.kind === 'performer') showCtx(e.currentTarget, null, [[T.editPicture, ICON.photo, () => editPicture(g)]]);
+});
+// 编辑头像: an artist's (or a pianist's) own picture, kept with 完成.
+let personFor = {kind: 'artist', name: ''};
+const personArt = pictureEditor('#person-art', () => ownPicture(personFor.name),
+                                () => avatar(personFor.name, channelPicture(personFor.kind, groupPieces(personFor))));
+function editPicture(g) {
+  personFor = g;
+  $('#person-name').textContent = g.name;
+  personArt.reset();
+  showSheet($('#sheet-person'));
+}
+$('#person-cancel').addEventListener('click', closeOverlays);
+$('#person-save').addEventListener('click', () => {
+  closeOverlays();
+  personArt.keep(`/api/pictures?name=${encodeURIComponent(personFor.name)}`);
 });
 $('#group-foot').addEventListener('click', e => {
   if (e.target.closest('#group-add') && state.session?.kind === 'playlist') openPick(state.session.id);
@@ -910,60 +1083,6 @@ $('#group-hero').addEventListener('click', e => {
   play(shuffle ? ids[Math.floor(Math.random() * ids.length)] : ids[0], ids, {kind: 'playlist', id: g.id}, b,
        shuffle ? 'shuffle' : 'order');
 });
-// An action sheet of choices: [label, then, kind] (kind 'danger': red), falsy ones left out. build makes them,
-// and again whenever what they offer may have changed (closeGone). Over a sheet, only the choices close.
-let choices = null, choiceActions = [];
-function offer(build) {
-  choices = build;
-  renderChoices();
-  $('#dim').classList.add('show');
-  $('#choices').classList.add('show');
-}
-function renderChoices() {
-  const items = choices().filter(Boolean);
-  choiceActions = items.map(item => item[1]);
-  $('#choices-list').innerHTML = items.map(([label, , kind], i) =>
-    `<button data-choice="${i}"${kind ? ` class="${kind}"` : ''}>${esc(label)}</button>`).join('');
-}
-function closeChoices() {
-  choices = null;
-  $('#choices').classList.remove('show');
-  if (!openSheet) $('#dim').classList.remove('show');
-}
-$('#choices-list').addEventListener('click', e => {
-  const then = choiceActions[e.target.closest('[data-choice]')?.dataset.choice];
-  if (!then) return;
-  closeChoices();
-  then();  // still in the tap: a photo can be asked for
-});
-$('#choices-cancel').addEventListener('click', closeChoices);
-// A photo from the phone, as the Mac keeps pictures: its middle, square, at most 1000 px, a JPEG. Asked for in a tap.
-function pickPhoto(then) {
-  const input = $('#photo-file');
-  input.value = '';
-  input.onchange = () => input.files[0] && squareJpeg(input.files[0]).then(then, () => hud(T.photoFailed));
-  input.click();
-}
-async function squareJpeg(file, most = 1000) {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = new Image();
-    img.src = url;
-    await img.decode();
-    const side = Math.min(img.naturalWidth, img.naturalHeight), size = Math.min(most, side);
-    const canvas = Object.assign(document.createElement('canvas'), {width: size, height: size});
-    canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
-    return await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(Error('no picture')), 'image/jpeg', .86));
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-// A picture kept on the Mac (a JPEG), or taken away (null); the Mac then says what changed, and it shows.
-async function keepPicture(path, jpeg) {
-  const sent = await fetch(path, jpeg ? {method: 'PUT', body: jpeg, headers: {'Content-Type': 'image/jpeg'}} : {method: 'DELETE'})
-    .catch(() => null);
-  if (!sent?.ok) hud(T.photoFailed);
-}
 
 // A word that something was done, for a moment (added to a playlist).
 let hudTimer = 0;
@@ -1000,8 +1119,10 @@ const foldAway = (row, then) => {
   collapse(found ? [found] : [], then);
 };
 
-// Edit one piece: its name, whose it is, who plays it.
+// Edit one piece: its artwork, its name, whose it is, who plays it.
 let editId = null;
+const pieceArt = pictureEditor('#edit-art', () => artworkOf(pieceById(editId) || {}),
+                               () => `<span class="cover" style="--h:${hueOf(editId)}">${ICON.piano}</span>`);
 function openEdit(id) {
   const p = pieceById(id);
   if (!p) return;
@@ -1011,26 +1132,18 @@ function openEdit(id) {
   $('#f-performer').value = p.performer;
   $('#f-source').textContent = originOf(p);
   $('#f-added').textContent = addedOf(p);
-  renderEditArtwork();
+  pieceArt.reset();
   $('#f-technical').innerHTML = technicalOf(p).map(([k, v]) =>
     `<div class="frow"><label>${esc(k)}</label><span class="val">${esc(v)}</span></div>`).join('');
   showSheet($('#sheet-edit'));
 }
-function renderEditArtwork() {
-  const p = pieceById(editId);
-  if (p) $('#f-artwork').innerHTML = p.artwork ? `<img src="${artworkOf(p)}" alt="">` : esc(T.addArtwork);
-}
-$('#f-artwork').addEventListener('click', () => {
-  const art = `/api/recordings/${editId}/artwork`;
-  offer(() => [[T.choosePhoto, () => pickPhoto(jpeg => keepPicture(art, jpeg))],
-    pieceById(editId)?.artwork && [T.removeArtwork, () => keepPicture(art, null), 'danger']]);
-});
 $('#sheet-edit .fold').addEventListener('click', () => showTechnical(!technicalOpen));
 $('#edit-cancel').addEventListener('click', closeOverlays);
 $('#edit-save').addEventListener('click', async () => {
   const piece = $('#f-piece').value.trim(), id = editId;
   const change = {piece, artist: $('#f-artist').value.trim(), performer: $('#f-performer').value.trim()};
   closeOverlays();
+  pieceArt.keep(`/api/recordings/${id}/artwork`);
   if (!piece) return;
   const p = pieceById(id);
   if (p) Object.assign(p, change);
@@ -1150,8 +1263,11 @@ function playClock(t) {
   const p = nowPiece();
   if (!p) return;
   renderProgress();
-  if (!$('#view-player').hidden) drawRoll($('#roll'), p, scrubbing ?? position(), false);
-  if (!$('#mini').hidden) drawRoll($('#mini .mart'), p, position(), true);
+  const art = $('#view-player .art');  // the notes are behind the artwork until it is turned over
+  if (!$('#view-player').hidden && (!art.classList.contains('has-artwork') || art.classList.contains('flipped'))) {
+    drawRoll($('#roll'), p, scrubbing ?? position(), false);
+  }
+  if (!$('#mini').hidden && $('#mini-art').hidden) drawRoll($('#mini canvas.mart'), p, position(), true);
 }
 
 // The piece's artwork, when it has one: in the player a card, the picture in front and its notes behind, the front
@@ -1884,10 +2000,13 @@ function closeOverlays() {
   openSheet = null;
   naming = confirmed = null;
   app.classList.remove('sheeted');
-  for (const id of ['#dim', '#confirm', '#add-how', '#choices', '#rename', '#info']) $(id).classList.remove('show');
+  for (const id of ['#dim', '#confirm', '#add-how', '#rename', '#info']) $(id).classList.remove('show');
+  $('#dim').classList.remove('over');
   document.activeElement?.blur?.();
 }
-const overlayOpen = () => openSheet || ['#confirm', '#add-how', '#choices', '#rename', '#info'].some(id => $(id).classList.contains('show'));
+const overlayOpen = () => openSheet || ['#confirm', '#add-how', '#rename', '#info'].some(id => $(id).classList.contains('show'));
+// 取消, a tap beside or Escape: an alert over a sheet goes, the sheet stays; anything else, all of it.
+const dismiss = () => $('#dim').classList.contains('over') ? closeAlert() : closeOverlays();
 // Something to know, with one button, as iOS says it.
 function info(title, text) {
   $('#info-title').textContent = title;
@@ -1912,11 +2031,11 @@ function renderPiano() {
 $('#piano-how').addEventListener('click', () => info(T.howToConnect, T.connectHow[data.piano.kind] || T.connectHow.other));
 $('#piano-hide').innerHTML = ICON.close;
 $('#piano-hide').addEventListener('click', () => { pianoHidden = data.piano.name; renderPiano(); });
-$('#dim').addEventListener('click', () => { if (choices) closeChoices(); else closeOverlays(); });  // over a sheet: only the choices
+$('#dim').addEventListener('click', dismiss);
 
 // Long-press menu, for a piece and for a conversation: the row lifts and its actions show by it. With html null it is
 // a pull-down menu instead (a setting's choices), opening from the right of its row.
-// items: [label, icon, action, danger]; falsy items are left out.
+// items: [label, icon, action, danger]; falsy items are left out, and the danger ones go last.
 let ctxActions = [];
 function showCtx(row, html, items) {
   items = items.filter(Boolean);
@@ -1928,8 +2047,9 @@ function showCtx(row, html, items) {
   card.hidden = html === null;
   card.innerHTML = html || '';
   Object.assign(card.style, {top: top + 'px', height: h + 'px', left: left + 'px', width: D - left - right + 'px'});
+  // What cannot be undone comes last, in a group of its own, as iOS keeps it.
   menu.innerHTML = items.map(([label, icon, , danger], i) =>
-    `<button data-i="${i}"${danger ? ' class="danger"' : ''}>${esc(label)}${icon}</button>`).join('');
+    `<button data-i="${i}"${danger ? ` class="danger${i && !items[i - 1][3] ? ' apart' : ''}"` : ''}>${esc(label)}${icon}</button>`).join('');
   menu.style.left = (html === null ? D - right - 250 : left) + 'px';
   $('#ctx').classList.add('show');
   const mh = menu.offsetHeight, room = app.clientHeight - (top + h + 10);
@@ -1980,7 +2100,7 @@ function deleteConversation(id) {
   api(`/api/conversations/${id}`, 'DELETE').catch(() => {});
 }
 
-// A name in a text field, as iOS asks for one.
+// A name in a text field, as iOS asks for one; over a sheet (新建歌单 from 添加到歌单), the sheet stays under it.
 let naming = null;
 function askName(title, value, save) {
   naming = save;
@@ -1988,6 +2108,7 @@ function askName(title, value, save) {
   const input = $('#rename-input');
   input.value = value;
   $('#dim').classList.add('show');
+  $('#dim').classList.toggle('over', !!openSheet);
   $('#rename').classList.add('show');
   input.focus();
   input.select();
@@ -1997,7 +2118,13 @@ function saveName() {
   closeOverlays();
   save?.(value);
 }
-$('#rename-cancel').addEventListener('click', closeOverlays);
+function closeAlert() {
+  naming = null;
+  $('#rename').classList.remove('show');
+  $('#dim').classList.remove('over');
+  document.activeElement?.blur?.();
+}
+$('#rename-cancel').addEventListener('click', dismiss);
 $('#rename-save').addEventListener('click', saveName);
 $('#rename-input').addEventListener('keydown', e => { if (isEnter(e)) saveName(); });
 
@@ -2325,8 +2452,9 @@ $('#sidebar').addEventListener('click', e => {
 });
 addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if ($('#ctx').classList.contains('show')) closeCtx();
-  else if (overlayOpen()) closeOverlays();
+  if (crop) endCrop(false);
+  else if ($('#ctx').classList.contains('show')) closeCtx();
+  else if (overlayOpen()) dismiss();
   else if (stack.length) pop();
   else if (state.open) setOpen(false);
 });

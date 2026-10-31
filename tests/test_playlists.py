@@ -1,6 +1,7 @@
 """Playlists (歌单): kept in the library, changed from the phone, played from the phone and by her. A playlist is
 not the list that plays (播放列表): playing one fills that list, and changing either leaves the other alone."""
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -37,15 +38,31 @@ class LibraryPlaylistTests(Base):
         first = self.lib.new_playlist('早晨')
         second = self.lib.new_playlist('早晨')  # a name may be used twice
         self.assertEqual([p['id'] for p in self.lib.playlists()], [second['id'], first['id']])
-        self.assertEqual(self.lib.rename_playlist(first['id'], ' 晚上 ')['name'], '晚上')
+        self.assertEqual(first['description'], '')
+        edited = self.lib.edit_playlist(first['id'], ' 晚上 ', ' 睡前听的。\n慢一点的曲子 ')
+        self.assertEqual((edited['name'], edited['description']), ('晚上', '睡前听的。\n慢一点的曲子'))
         for bad in ('', '   '):
             with self.assertRaises(ValueError):
                 self.lib.new_playlist(bad)
             with self.assertRaises(ValueError):
-                self.lib.rename_playlist(first['id'], bad)
+                self.lib.edit_playlist(first['id'], bad, '')
+        with self.assertRaises(ValueError):
+            self.lib.edit_playlist(first['id'], '晚上', 'x' * 1001)
         again = Library(self.root / 'library.db', self.root / 'Music')
         self.addCleanup(again.close)
-        self.assertEqual([p['name'] for p in again.playlists()], ['早晨', '晚上'], 'Kept in the library')
+        self.assertEqual([(p['name'], p['description']) for p in again.playlists()],
+                         [('早晨', ''), ('晚上', '睡前听的。\n慢一点的曲子')], 'Kept in the library')
+
+    def test_playlists_made_before_descriptions_get_an_empty_one(self):
+        old = self.root / 'old.db'
+        with sqlite3.connect(old) as db:
+            db.execute('CREATE TABLE playlists (id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL, '
+                       'updated_at TEXT NOT NULL)')
+            db.execute("INSERT INTO playlists VALUES (1, '旧的', '2026-01-01', '2026-01-01')")
+        db.close()
+        lib = Library(old, self.root / 'Music')
+        self.addCleanup(lib.close)
+        self.assertEqual([(p['name'], p['description']) for p in lib.playlists()], [('旧的', '')])
 
     def test_a_deleted_piece_leaves_every_playlist_and_a_deleted_playlist_leaves_the_pieces(self):
         a, b, c = self.ids
@@ -59,7 +76,7 @@ class LibraryPlaylistTests(Base):
         self.assertFalse(self.lib.delete_playlist(one['id']))
 
     def test_a_playlist_that_is_not_there_changes_nothing(self):
-        self.assertIsNone(self.lib.rename_playlist(42, 'x'))
+        self.assertIsNone(self.lib.edit_playlist(42, 'x', ''))
         self.assertIsNone(self.lib.add_to_playlist(42, self.ids))
         self.assertFalse(self.lib.remove_from_playlist(42, self.ids[0]))
         self.assertFalse(self.lib.move_in_playlist(42, self.ids[0], 0))
@@ -92,18 +109,21 @@ class PlaylistApiTests(Base):
             self.events.clear()
             self.assertEqual(self.client.patch(f'/api/playlists/{pid}', json=change).json()['ids'], ids, change)
             self.assertEqual(self.events, [{'type': 'playlists', 'playlists': self.lib.playlists()}])
-        self.assertEqual(self.client.patch(f'/api/playlists/{pid}', json={'name': '晚安'}).json()['name'], '晚安')
+        edited = self.client.patch(f'/api/playlists/{pid}', json={'name': '晚安', 'description': '睡前'}).json()
+        self.assertEqual((edited['name'], edited['description']), ('晚安', '睡前'))
         self.assertEqual(self.client.delete(f'/api/playlists/{pid}').json(), {'ok': True})
         self.assertEqual(self.client.get('/api/playlists').json(), [])
 
     def test_what_cannot_be_done_is_refused(self):
         pid = self.client.post('/api/playlists', json={'name': 'x'}).json()['id']
         self.assertEqual(self.client.post('/api/playlists', json={'name': '  '}).status_code, 400)
-        self.assertEqual(self.client.patch(f'/api/playlists/{pid}', json={'name': ''}).status_code, 400)
+        for bad in ({'name': '', 'description': ''}, {'name': 'y'}, {'name': 'y', 'description': None},
+                    {'name': 'y', 'description': 'x' * 1001}):
+            self.assertEqual(self.client.patch(f'/api/playlists/{pid}', json=bad).status_code, 400, bad)
         self.assertEqual(self.client.patch(f'/api/playlists/{pid}', json={'move': self.ids[0], 'index': 0}).status_code, 404,
                          'Not in it')
         self.assertEqual(self.client.patch(f'/api/playlists/{pid}', json={'shuffle': True}).status_code, 400)
-        for request in (lambda: self.client.patch('/api/playlists/999', json={'name': 'y'}),
+        for request in (lambda: self.client.patch('/api/playlists/999', json={'name': 'y', 'description': ''}),
                         lambda: self.client.delete('/api/playlists/999')):
             self.assertEqual(request().status_code, 404)
 

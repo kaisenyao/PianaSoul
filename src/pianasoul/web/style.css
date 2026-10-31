@@ -14,7 +14,7 @@
   --line: #2a2a2c; --sep: #1d1d1f; --press: #262628; --press-row: #0e0e10; --held: #161618;
   --card: #1c1c1e; --card2: #2c2c2e; --card-press: #232325; --chip: #3a3a3c; --sep-card: #2c2c2e; --sep-form: #3a3a3c;
   --bubble: #26262a; --header: rgba(0, 0, 0, .82); --scrim: #232326; --scrim-on: .78;
-  --menu: rgba(44, 44, 46, .96); --menu-line: #3a3a3c; --menu-press: #3a3a3c; --sheet-dim: .55;
+  --menu: rgba(44, 44, 46, .96); --menu-line: #3a3a3c; --menu-press: #3a3a3c; --menu-gap: rgba(0, 0, 0, .16); --sheet-dim: .55;
   --mini: rgba(40, 40, 44, .92); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .55); --selbar: rgba(22, 22, 24, .9);
   --page-shadow: -14px 0 36px rgba(0, 0, 0, .55);
   --grabber: #48484a; --ring-track: rgba(255, 255, 255, .16); --input-line: #3a3a3c; --check-line: #636366;
@@ -27,7 +27,7 @@
   --line: #d8d8dc; --sep: #e5e5ea; --press: #e5e5ea; --press-row: #f2f2f7; --held: #f2f2f7;
   --card: #f2f2f7; --card2: #e5e5ea; --card-press: #e8e8ed; --chip: #e5e5ea; --sep-card: #dcdce0; --sep-form: #d1d1d6;
   --bubble: #e9e9eb; --header: rgba(255, 255, 255, .85); --scrim: #000; --scrim-on: .22;
-  --menu: rgba(249, 249, 249, .96); --menu-line: #dcdce0; --menu-press: #e5e5ea; --sheet-dim: .3;
+  --menu: rgba(249, 249, 249, .96); --menu-line: #dcdce0; --menu-press: #e5e5ea; --menu-gap: rgba(0, 0, 0, .05); --sheet-dim: .3;
   --mini: rgba(247, 247, 249, .94); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .14); --selbar: rgba(249, 249, 249, .92);
   --page-shadow: -14px 0 36px rgba(0, 0, 0, .12);
   --grabber: #c7c7cc; --ring-track: rgba(0, 0, 0, .12); --input-line: #c7c7cc; --check-line: #c7c7cc;
@@ -36,6 +36,7 @@
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+img { -webkit-user-drag: none; }  /* a picture is not dragged away: a swipe that starts on it is a swipe */
 html, body { margin: 0; height: 100%; }
 html { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 body {
@@ -360,6 +361,7 @@ svg { display: block; }
 /* ---------- Overlays: dimmer, page sheets, action sheet, long-press menu ---------- */
 #dim { position: absolute; inset: 0; z-index: 40; background: #000; opacity: 0; pointer-events: none; transition: opacity .35s; }
 #dim.show { opacity: var(--sheet-dim); pointer-events: auto; }
+#dim.over { z-index: 46; }  /* an alert over a sheet: the sheet dims under it too */
 .sheet {
   position: absolute; z-index: 45; left: 0; right: 0; bottom: 0; top: calc(var(--card-top) + 18px);
   display: flex; flex-direction: column; background: var(--sheet); color: var(--text); border-radius: 14px 14px 0 0;
@@ -413,6 +415,46 @@ svg { display: block; }
 .frow .val { flex: 1; text-align: right; color: var(--text2); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ghead.fold { display: flex; align-items: center; justify-content: space-between; width: calc(100% - 32px); min-height: 32px; }
 
+/* A picture being edited, at the top of its sheet, as Contacts and Apple Music edit one: the picture (round for an
+   artist), or what shows without one, with a camera on it; tapped for a photo as 选取照片 is, and 移除 beside that
+   while there is one. Below it, the fields in groups under their headings, as Edit Info has them. */
+.art-edit { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px 16px 2px; }
+.art-edit .pick { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.art-edit .tile { position: relative; width: 168px; height: 168px; border-radius: 14px; background: var(--card2); cursor: pointer; }
+:root[data-theme=light] .art-edit .tile { background: var(--card); }
+.art-edit.round .tile { border-radius: 50%; }
+.art-edit .tile:active { opacity: .8; }
+.art-edit .fallback, .art-edit .tile img { position: absolute; inset: 0; display: grid; border-radius: inherit; overflow: hidden; }
+.art-edit .tile img { width: 100%; height: 100%; object-fit: cover; }
+.art-edit .fallback > * { width: 100%; height: 100%; margin: 0; border-radius: 0; }
+.art-edit .fallback .mono { font-size: 68px; }
+.art-edit .badge {
+  position: absolute; right: -7px; bottom: -7px; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: #fff; box-shadow: 0 0 0 3px var(--sheet);
+}
+.art-edit.round .badge { right: 5px; bottom: 5px; }
+.art-edit .badge svg { width: 20px; height: 20px; }
+.art-links { display: flex; gap: 32px; }
+.art-edit .link { padding: 4px 0; font-size: 16px; color: var(--accent); cursor: pointer; }
+.art-edit .link.danger { color: var(--red); }
+.art-title { margin: 8px 16px 0; text-align: center; font-size: 22px; font-weight: 600; overflow-wrap: anywhere; }
+.form .fline {
+  display: block; width: 100%; min-height: 48px; padding: 13px 16px; border: 0; border-radius: 0; outline: 0; background: none;
+  color: var(--text); font: inherit; font-size: 16px; line-height: 1.4;
+}
+.form textarea.fline { min-height: 112px; resize: none; overflow: hidden; }
+
+/* 移动和缩放: on black, as iOS shows it; outside the frame the photo is dimmed */
+#crop { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; background: #000; color: #fff; }
+#crop h3 { margin: 0; padding: calc(var(--safe-top) + 14px) 16px 14px; text-align: center; font-size: 17px; font-weight: 600; }
+.crop-stage { position: relative; flex: 1; overflow: hidden; touch-action: none; }
+.crop-stage img { position: absolute; left: 0; top: 0; width: auto; height: auto; max-width: none; transform-origin: 0 0; pointer-events: none; -webkit-user-drag: none; }
+.crop-frame { position: absolute; pointer-events: none; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55); outline: 1px solid rgba(255, 255, 255, .45); }
+#crop.round .crop-frame { border-radius: 50%; }
+.crop-bar { display: flex; justify-content: space-between; padding: 10px 20px calc(var(--safe-bottom) + 10px); }
+.crop-bar button { height: 44px; color: #fff; font-size: 17px; }
+#crop-done { font-weight: 600; }
+
 /* Action sheet */
 /* Hidden, wholly below the screen whatever its height and the room under it (the home indicator), and not there */
 .action {
@@ -430,7 +472,7 @@ svg { display: block; }
 
 /* Alert with a text field, as iOS asks for a new name */
 .alert {
-  position: absolute; z-index: 46; left: 50%; top: 36%; width: 270px; margin-left: -135px; overflow: hidden;
+  position: absolute; z-index: 47; left: 50%; top: 36%; width: 270px; margin-left: -135px; overflow: hidden;
   border-radius: 14px; background: var(--menu); text-align: center;
   opacity: 0; pointer-events: none; transform: translateY(-50%) scale(1.12); transition: opacity .2s, transform .25s var(--ease);
 }
@@ -458,6 +500,7 @@ svg { display: block; }
 #ctx .menu button:active { background: var(--menu-press); }
 #ctx .menu svg { width: 20px; height: 20px; }
 #ctx .menu .danger { color: var(--red); }
+#ctx .menu .apart { height: 52px; border-top: 6px solid var(--menu-gap); }  /* what cannot be undone: a group of its own */
 @keyframes fade { from { opacity: 0; } }
 @keyframes lift { from { transform: scale(.97); } to { transform: scale(1.02); } }
 @keyframes pop { from { transform: scale(.6); opacity: 0; } }
@@ -527,6 +570,7 @@ button.grow:active { background: var(--press); }
 .side.when { font-size: 13px; }
 .hero b { font-size: 22px; font-weight: 600; }
 .hero b + span { font-size: 13px; color: var(--text2); }
+.hero .desc { max-width: 520px; margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: var(--text2); text-align: center; white-space: pre-line; overflow-wrap: anywhere; }  /* a playlist's 简介, as written */
 
 /* 歌单: a cover of its first four pieces' colors (or of the first, with fewer), as Apple Music makes one */
 .cover { flex: none; display: grid; place-items: center; overflow: hidden; border-radius: 6px; color: rgba(255, 255, 255, .9); }
@@ -543,7 +587,6 @@ button.grow:active { background: var(--press); }
 }
 .hero-acts svg { width: 18px; height: 18px; }
 #group-foot .online svg { width: 22px; height: 22px; flex: none; }
-#choices-list { max-height: 55vh; overflow-y: auto; }
 #addto-list .arow { height: 66px; }
 #addto-list .arow::after { left: 80px; }
 #addto-list .cover { width: 48px; height: 48px; }
@@ -552,8 +595,6 @@ button.grow:active { background: var(--press); }
 #addto-list .in { flex: none; margin-left: auto; color: var(--accent); }
 #addto-list .in svg { width: 22px; height: 22px; }
 .cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
-#f-artwork { flex: none; display: grid; place-items: center; color: var(--accent); }
-#f-artwork img { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; }
 .prow { position: relative; display: flex; align-items: center; gap: 12px; min-height: 62px; padding: 0 16px 0 20px; }
 .prow::after { content: ""; position: absolute; left: 20px; right: 0; bottom: 0; border-bottom: 1px solid var(--sep); }
 .prow .text { flex: 1; min-width: 0; }
@@ -687,7 +728,7 @@ button.grow:active { background: var(--press); }
 #app:has(#pages.has-mini) #main > #view-library { padding-bottom: calc(var(--safe-bottom) + 76px); }
 
 /* ---------- The library: + to add pieces, recordings to transcribe ---------- */
-/* A header's own button: + (曲库, 歌单) or … (a playlist) */
+/* A header's own button: + (曲库, 歌单) or … (a playlist, an artist) */
 #lib-add, #new-playlist, #group-more { width: 44px; height: 46px; display: grid; place-items: center; color: var(--accent); }
 #lib-add svg, #new-playlist svg, #group-more svg { width: 24px; height: 24px; }
 .selecting #lib-add { display: none; }
