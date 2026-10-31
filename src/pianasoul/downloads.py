@@ -249,8 +249,9 @@ class Downloads:
         return rec
 
     def _name(self, job: Job, details: dict) -> None:
-        """Name the piece from what was asked and what the video says; the names already given stay."""
-        video = {**details, **job.video}
+        """Name the piece from what was asked and what the video says, or for a recording of yours its file's name;
+        the names already given stay."""
+        video = {**details, **job.video, **({"file_name": Path(job.source).stem} if job.local else {})}
         named = None
         if self.name_piece:
             with contextlib.suppress(Exception):

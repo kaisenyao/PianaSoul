@@ -497,6 +497,25 @@ class DownloadTests(Base):
         again = d.add('https://www.youtube.com/watch?v=abcdefghijk')
         self.assertEqual(again.status, 'done', 'Not made twice')
 
+    def test_a_recording_of_yours_is_named_from_its_file(self):
+        audio = self.root / '想见你想见你想见你 钢琴.mp3'
+        audio.write_bytes(b'x')
+        seen = []
+        convert = lambda engine, audio, out, options, output_name: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
+        with patch('pianasoul.pipeline.convert_file', side_effect=convert):
+            d = self.downloads(name_piece=lambda query, video: seen.append(video) or {'piece': '想见你', 'artist': '八三夭'})
+            rec = d.run(str(audio))
+        self.assertEqual(seen[0]['file_name'], '想见你想见你想见你 钢琴', 'The model has its name to go on')
+        self.assertEqual(rec['title'], '八三夭 - 想见你')
+
+    def test_the_model_is_asked_with_what_there_is(self):
+        from pianasoul import core
+        with patch('pianasoul.llm.complete_json', return_value={'piece': 'Nocturne'}) as asked:
+            core.name_piece('', {'file_name': 'Classicals.de - Chopin - Nocturne Op. 9, No. 2'})
+        prompt = asked.call_args.args[0]
+        self.assertIn('"file_name": "Classicals.de - Chopin - Nocturne Op. 9, No. 2"', prompt)
+        self.assertNotIn('video_title', prompt, 'Nothing empty')
+
     def test_names_given_stay_and_the_rest_are_found(self):
         audio = self.root / 'a.m4a'
         audio.write_bytes(b'x')

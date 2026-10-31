@@ -267,16 +267,19 @@ def installed(*modules: str) -> bool:
 
 
 def name_piece(query: str, video: dict) -> dict | None:
-    """The names of a new piece from a video (library.NAMES, and its aliases), asked of the chat model. query is
-    what was searched for or asked; the user's language is its language."""
+    """The names of a new piece (library.NAMES, and its aliases), asked of the chat model, from what its video says
+    or, for a recording of yours, its file's name. query is what was searched for or asked, if anything; the user's
+    language is its language."""
     from .llm import complete_json
 
     meanings = "; ".join(f"{name} is {meaning}" for name, meaning in {**NAMES, "aliases": ALIASES}.items())
     data = complete_json(
-        "A piano recording was chosen from a video, to be kept in a music library. Name it. Return only a JSON "
+        "A piano recording, from a video or a file, is to be kept in a music library. Name it. Return only a JSON "
         f'object {{"piece": str, "artist": str, "performer": str, "aliases": str}}: {meanings}. Use empty strings '
-        "when unsure.\n\n" + json.dumps({"asked": query, "video_title": video.get("video_title", ""),
-                                          "channel": video.get("channel", "")}, ensure_ascii=False))
+        "when unsure.\n\n" + json.dumps({k: v for k, v in {"asked": query, "video_title": video.get("video_title"),
+                                                             "channel": video.get("channel"),
+                                                             "file_name": video.get("file_name")}.items() if v},
+                                          ensure_ascii=False))
     names = {k: str(data.get(k) or "").strip() for k in ("piece", "artist", "performer", "aliases")}
     return names if names["piece"] else None
 
