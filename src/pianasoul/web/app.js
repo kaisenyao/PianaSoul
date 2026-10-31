@@ -37,6 +37,7 @@ const ICON = {
   playlist: svg('<path d="M21 15V6"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M12 12H3M16 6H3M12 18H3"/>'),
   queue: svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/>'),
   add: svg('<path d="M12 5v14M5 12h14"/>', ' stroke-width="2.2"'),
+  addTo: svg('<path d="M4 7h11M4 12h11M4 17h7"/><path d="M18 14v6M15 17h6"/>'),
   more: svg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>'),
   grip: svg('<path d="M5 8h14M5 12h14M5 16h14"/>'),
   mic: svg('<rect x="9" y="3" width="6" height="11.5" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/>'),
@@ -738,7 +739,7 @@ function renderPlaylists() {
   $('#playlist-list').innerHTML = data.playlists.map(pl => `<div class="swipe" data-id="${pl.id}">
       <button class="del" tabindex="-1">${esc(T.delete)}</button>
       <div class="content">${cover(pl)}${playlistText(pl)}${CHEV}</div>
-    </div>`).join('');
+    </div>`).join('') || `<p class="empty">${esc(T.noPlaylists)}</p>`;
 }
 function renderPlaylist(id) {
   if (reordering) return;
@@ -845,6 +846,7 @@ $('#pick-pieces').addEventListener('click', e => {
   }
 });
 $('#pick-done').addEventListener('click', closeOverlays);
+$('#new-playlist').innerHTML = ICON_ADD;
 $('#new-playlist').addEventListener('click', () => newPlaylist());
 $('#group-more').innerHTML = ICON.more;
 $('#group-more').addEventListener('click', e => {
@@ -1195,6 +1197,8 @@ $('#p-info').addEventListener('click', e => {
 })();
 $('#p-toggle').addEventListener('click', e => control('toggle', null, null, e.currentTarget));
 $('#p-fav').addEventListener('click', () => { const p = nowPiece(); if (p) favorite(p.id, !p.favorited_at); });
+$('#p-add').innerHTML = ICON.addTo;
+$('#p-add').addEventListener('click', () => { const p = nowPiece(); if (p) pickPlaylist([p.id]); });
 $('#p-prev').addEventListener('click', e => control('prev', null, null, e.currentTarget));
 $('#p-next').addEventListener('click', e => control('next', null, null, e.currentTarget));
 $('#p-mode').addEventListener('click', () => control('mode', MODES[(MODES.indexOf(pb().mode) + 1) % MODES.length]));

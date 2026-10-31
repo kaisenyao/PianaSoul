@@ -87,8 +87,7 @@
       <div id="artist-list"></div>
     </div>
     <div class="view" id="view-playlists" hidden>
-      <header><h2 data-t="playlists"></h2></header>
-      <button class="online" id="new-playlist"><i data-icon="add"></i><span data-t="newPlaylist"></span></button>
+      <header><h2 data-t="playlists"></h2><button class="hbtn right" id="new-playlist" data-t-label="newPlaylistTitle"></button></header>
       <div class="list" id="playlist-list"></div>
     </div>
     <div class="view" id="view-group" hidden>
@@ -150,6 +149,7 @@
           <div class="art"><canvas id="roll" aria-hidden="true"></canvas></div>
           <div class="ptitle">
             <div class="ptext"><div class="t1" id="p-title"></div><div class="t2" id="p-sub"></div></div>
+            <button id="p-add" data-t-label="addToPlaylistShort"></button>
             <button id="p-fav"></button>
           </div>
           <div class="scrub" id="scrub" role="slider" data-t-label="position"><div class="track"><div class="fill" id="p-fill"></div></div></div>
