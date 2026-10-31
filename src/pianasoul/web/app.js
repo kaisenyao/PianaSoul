@@ -34,7 +34,10 @@ const ICON = {
   order: svg('<path d="M4 6h12M4 11h12M4 16h7"/><path d="M17.5 13v7m0 0-2.6-2.6m2.6 2.6 2.6-2.6"/>'),
   one: svg('<path d="M17 3l3 3-3 3"/><path d="M4 11V9a3 3 0 0 1 3-3h13"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v2a3 3 0 0 1-3 3H4"/><path d="M11 10.5l1.5-1V15"/>'),
   shuffle: svg('<path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>'),
-  list: svg('<path d="M21 15V6"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M12 12H3M16 6H3M12 18H3"/>'),
+  playlist: svg('<path d="M21 15V6"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M12 12H3M16 6H3M12 18H3"/>'),
+  queue: svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/>'),
+  add: svg('<path d="M12 5v14M5 12h14"/>', ' stroke-width="2.2"'),
+  more: svg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>'),
   grip: svg('<path d="M5 8h14M5 12h14M5 16h14"/>'),
   mic: svg('<rect x="9" y="3" width="6" height="11.5" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/>'),
   up: svg('<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>', ' stroke-width="2.6"'),
@@ -101,7 +104,7 @@ dark.addEventListener('change', () => { if (data.settings.appearance === 'system
 const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
   conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system'}, devices: [],
   piano: {name: '', kind: 'other', connected: true},
-  version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}};
+  version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}, playlists: []};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
 // What the Mac can do and the look chosen: kept on this phone too, so that the page opens on the right home (her orb,
 // or the library) and in the right colors before the Mac has said.
@@ -153,6 +156,7 @@ function listen() {
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
     else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
+    else if (e.type === 'playlists') { data.playlists = e.playlists; refresh(); }
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
   };
   socket.onclose = () => setTimeout(() => load().then(listen, error => error.message === 'signed out' ? signedOut(true)
@@ -247,9 +251,9 @@ async function control(action, value, index, from) {
 }
 // Tapping a piece plays it (unless it is already the current one) and opens the player over the list.
 // ids and scope: the list it was tapped in, which becomes the list that plays.
-async function play(id, ids, scope, from) {
+async function play(id, ids, scope, from, mode) {
   try {
-    data.playback = await api('/api/play', 'POST', {id, ids, scope});
+    data.playback = await api('/api/play', 'POST', {id, ids, scope, mode});
     heardAt = performance.now();
     refresh();
     openPlayer();
@@ -262,6 +266,7 @@ function scopeName(scope) {
     return scope.id === data.current || !c ? T.currentChat : T.quoted(conversationTitle(c));
   }
   if (scope.kind === 'artist' || scope.kind === 'performer') return scope.name;
+  if (scope.kind === 'playlist') return T.quoted(playlistById(scope.id)?.name || T.playlists);
   return T[scope.kind] || T.library;
 }
 
@@ -269,7 +274,7 @@ function scopeName(scope) {
 const state = {view: 'orb', session: null, open: false, selecting: false};
 const selected = new Set();
 // The pages over home, bottom first: {view, id}. id is a conversation id (or 'now', the empty current one) for
-// 'session', {kind: 'favorites' | 'recent' | 'artist' | 'performer', name} for 'group'. Empty means home: the orb,
+// 'session', {kind: 'favorites' | 'recent' | 'artist' | 'performer', name} or {kind: 'playlist', id} for 'group'. Empty means home: the orb,
 // or the sidebar beside it. The player is a page too, always the top one.
 const stack = [];
 function show(view, id = null) {
@@ -342,6 +347,7 @@ function settle() {
 function renderEntry({view, id}) {
   if (view === 'library') renderLibrary();
   if (view === 'artists') renderArtists();
+  if (view === 'playlists') renderPlaylists();
   if (view === 'group') renderGroup(id);
   if (view === 'history') renderHistory();
   if (view === 'session') renderSession(id);
@@ -357,6 +363,7 @@ function refresh() {
   for (const e of stack) if (e.view !== 'session') renderEntry(e);
   if (openSheet === $('#sheet-queue')) renderQueue();
   if (openSheet === $('#sheet-add')) renderCands();
+  if (openSheet === $('#sheet-pick')) renderPick();
   renderSessionCards();
   renderNow();
 }
@@ -526,9 +533,10 @@ function pieceSide(p, label) {
 }
 // remove: what a left swipe does here. It moves the piece to the Mac's Trash in 曲库 and on an artist's page; in 收藏
 // and 最近播放 it only takes the piece out of that list.
-const pieceRow = (p, label, remove = T.trash) => `<div class="swipe${p.job ? ' busy' : ''}${selected.has(p.id) ? ' selected' : ''}" data-id="${p.job ? p.key : p.id}">
+// grip: a handle to drag it by (in a playlist).
+const pieceRow = (p, label, remove = T.trash, grip = false) => `<div class="swipe${p.job ? ' busy' : ''}${selected.has(p.id) ? ' selected' : ''}" data-id="${p.job ? p.key : p.id}">
     <button class="del" tabindex="-1">${esc(remove)}</button>
-    <div class="content"><span class="check">${CHECK}</span>${pieceText(p)}${pieceSide(p, label)}</div>
+    <div class="content"><span class="check">${CHECK}</span>${pieceText(p)}${pieceSide(p, label)}${grip ? `<span class="grip" aria-label="${esc(T.drag)}">${ICON.grip}</span>` : ''}</div>
   </div>`;
 const listIds = list => [...list.querySelectorAll('.swipe:not(.busy):not(.audio)')].map(r => +r.dataset.id);
 
@@ -609,7 +617,7 @@ function renderSelectionBar() {
   $('#library-title').textContent = state.selecting ? (n ? T.selected(n) : T.choose) : T.library;
   const shown = listIds($('#library-list'));
   $('#sel-all').textContent = n && shown.every(id => selected.has(id)) ? T.none : T.all;
-  $('#sel-delete').disabled = !n;
+  $('#sel-delete').disabled = $('#sel-playlist').disabled = !n;
   $('#sel-delete').textContent = n ? T.deleteN(n) : T.delete;
 }
 function toggleSelect(id) {
@@ -618,6 +626,11 @@ function toggleSelect(id) {
   renderSelectionBar();
 }
 $('#sel-cancel').addEventListener('click', () => setSelecting(false));
+$('#sel-playlist').addEventListener('click', () => {
+  const ids = [...selected];
+  setSelecting(false);
+  pickPlaylist(ids);
+});
 $('#sel-all').addEventListener('click', () => {  // the pieces shown: with words in the search, only those
   const shown = listIds($('#library-list')), all = shown.length && shown.every(id => selected.has(id));
   selected.clear();
@@ -683,6 +696,9 @@ function groupPieces(g) {
   return people(g.kind).get(g.name)?.sort(byNewest) || [];
 }
 function renderGroup(g) {
+  if (g.kind === 'playlist') return renderPlaylist(g.id);
+  $('#group-more').hidden = true;
+  $('#group-foot').innerHTML = '';
   const ps = groupPieces(g);
   const name = g.kind === 'favorites' ? T.favorites : g.kind === 'recent' ? T.recent : g.name;
   $('#group-title').textContent = name;
@@ -700,6 +716,155 @@ async function favorite(id, on) {
   await api(`/api/recordings/${id}`, 'PATCH', {favorite: on}).catch(() => {});
 }
 
+// ---------- Playlists (歌单) ----------
+// The user's own lists of pieces, each once, in their order, kept on the Mac. Not the list that plays (播放列表):
+// playing one fills that list, and changing either leaves the other alone. Only pieces whose files are there show.
+const playlistById = id => data.playlists.find(pl => pl.id === +id);
+const playlistPieces = pl => (pl?.ids || []).map(pieceById).filter(Boolean);
+function cover(pl) {
+  const ps = playlistPieces(pl).slice(0, 4);
+  return ps.length === 4 ? `<span class="cover four">${ps.map(p => `<i style="--h:${hueOf(p.id)}"></i>`).join('')}</span>`
+    : `<span class="cover" style="--h:${ps.length ? hueOf(ps[0].id) : 220}">${ICON.playlist}</span>`;
+}
+const playlistText = pl => `<div class="text"><div class="t1">${esc(pl.name)}</div><div class="t2">${esc(T.pieces(playlistPieces(pl).length))}</div></div>`;
+function renderPlaylists() {
+  $('#playlist-list').innerHTML = data.playlists.map(pl => `<div class="swipe" data-id="${pl.id}">
+      <button class="del" tabindex="-1">${esc(T.delete)}</button>
+      <div class="content">${cover(pl)}${playlistText(pl)}${CHEV}</div>
+    </div>`).join('');
+}
+function renderPlaylist(id) {
+  if (reordering) return;
+  const pl = playlistById(id), ps = playlistPieces(pl);
+  $('#group-title').textContent = pl?.name || '';
+  $('#group-more').hidden = $('#group-hero').hidden = !pl;
+  if (!pl) { $('#group-list').innerHTML = $('#group-foot').innerHTML = ''; return; }
+  $('#group-hero').innerHTML = `${cover(pl)}<b>${esc(pl.name)}</b><span>${esc([T.pieces(ps.length), totalTime(ps)].filter(Boolean).join(' · '))}</span>`
+    + (ps.length ? `<div class="hero-acts"><button data-act="order">${ICON_PLAY}<span>${esc(T.play)}</span></button><button data-act="shuffle">${ICON.shuffle}<span>${esc(T.shufflePlay)}</span></button></div>` : '');
+  $('#group-list').innerHTML = ps.map(p => pieceRow(p, '', T.removeFromPlaylist, true)).join('') || `<p class="empty">${esc(T.noPlaylistPieces)}</p>`;
+  $('#group-foot').innerHTML = `<button class="online" id="group-add">${ICON.add}<span>${esc(T.addMusic)}</span></button>`;
+}
+// The Mac's answer to a change: the playlist as it is now (it may differ from what was shown at once).
+async function changePlaylist(id, change) {
+  const changed = await api(`/api/playlists/${id}`, 'PATCH', change).catch(() => null);
+  if (changed) { data.playlists = data.playlists.map(pl => pl.id === changed.id ? changed : pl); refresh(); }
+  return changed;
+}
+// A new playlist, named first: with pieces (it stays where it was), or empty (it opens, to add to).
+function newPlaylist(ids = []) {
+  askName(T.newPlaylistTitle, '', async name => {
+    if (!name) return;
+    const made = await api('/api/playlists', 'POST', {name, ids}).catch(() => null);
+    if (!made) return;
+    data.playlists = [made, ...data.playlists.filter(pl => pl.id !== made.id)];
+    refresh();
+    if (ids.length) hud(T.addedTo(made.name));
+    else push('group', {kind: 'playlist', id: made.id});
+  });
+}
+function addToPlaylist(pl, ids) {
+  const fresh = ids.filter(id => !pl.ids.includes(id));  // each piece once in a playlist
+  if (!fresh.length) return hud(T.alreadyIn(pl.name));
+  pl.ids = [...pl.ids, ...fresh];
+  refresh();
+  hud(T.addedTo(pl.name));
+  changePlaylist(pl.id, {add: fresh});
+}
+function removeFromPlaylist(pl, id) {
+  if (!pl) return;
+  pl.ids = pl.ids.filter(i => i !== id);
+  refresh();
+  changePlaylist(pl.id, {remove: id});
+}
+function deletePlaylist(id) {
+  if (state.view === 'group' && state.session?.kind === 'playlist' && state.session.id === id) pop();
+  data.playlists = data.playlists.filter(pl => pl.id !== id);
+  refresh();
+  api(`/api/playlists/${id}`, 'DELETE').catch(() => {});
+}
+const askDeletePlaylist = id => openAction(T.deletePlaylist, () => deletePlaylist(id));  // its pieces stay
+function playlistMenu(pl, row, html) {
+  showCtx(row, html, [
+    [T.addMusic, ICON.add, () => openPick(pl.id)],
+    [T.rename, ICON.edit, () => askName(T.renamePlaylist, pl.name, name => {
+      if (name && name !== pl.name) changePlaylist(pl.id, {name});
+    })],
+    [T.deletePlaylist, ICON.trash, () => askDeletePlaylist(pl.id), true],
+  ]);
+}
+// Which playlist pieces go into, as an action sheet: a new one first, then each.
+let picking = [];
+function pickPlaylist(ids) {
+  picking = ids;
+  $('#pick-list').innerHTML = `<button data-new-playlist>${esc(T.newPlaylist)}</button>`
+    + data.playlists.map(pl => `<button data-playlist="${pl.id}">${esc(pl.name)}</button>`).join('');
+  $('#dim').classList.add('show');
+  $('#pick-playlist').classList.add('show');
+}
+$('#pick-list').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const ids = picking;
+  closeOverlays();
+  if ('newPlaylist' in b.dataset) newPlaylist(ids);
+  else if (playlistById(b.dataset.playlist)) addToPlaylist(playlistById(b.dataset.playlist), ids);
+});
+$('#pick-cancel').addEventListener('click', closeOverlays);
+// 添加曲目: the library, searchable, a + by each piece (a ✓ once it is in the playlist).
+let pickFor = null;
+function openPick(id) {
+  pickFor = +id;
+  $('#pick-q').value = '';
+  renderPick();
+  showSheet($('#sheet-pick'));
+  $('#pick-pieces').scrollTop = 0;
+}
+function renderPick() {
+  const pl = playlistById(pickFor);
+  if (!pl) return closeOverlays();
+  const q = $('#pick-q').value.trim().toLowerCase();
+  const ps = [...data.recordings].sort(byNewest).filter(p => !q || matches(p, q));
+  $('#pick-pieces').innerHTML = ps.map(p => `<div class="prow">${pieceText(p)}
+      <button class="addbtn" data-add-piece="${p.id}" aria-label="${esc(T.addToPlaylistShort)}">${pl.ids.includes(p.id) ? CHECK : ICON.add}</button>
+    </div>`).join('') || `<p class="empty">${esc(T.notFound)}</p>`;
+}
+$('#pick-q').addEventListener('input', renderPick);
+$('#pick-pieces').addEventListener('click', e => {
+  const b = e.target.closest('[data-add-piece]'), pl = playlistById(pickFor);
+  if (b && pl && !pl.ids.includes(+b.dataset.addPiece)) {
+    pl.ids = [...pl.ids, +b.dataset.addPiece];
+    refresh();
+    changePlaylist(pl.id, {add: [+b.dataset.addPiece]});
+  }
+});
+$('#pick-done').addEventListener('click', closeOverlays);
+$('#new-playlist').addEventListener('click', () => newPlaylist());
+$('#group-more').innerHTML = ICON.more;
+$('#group-more').addEventListener('click', e => {
+  const pl = state.session?.kind === 'playlist' && playlistById(state.session.id);
+  if (pl) playlistMenu(pl, e.currentTarget, null);
+});
+$('#group-foot').addEventListener('click', e => {
+  if (e.target.closest('#group-add') && state.session?.kind === 'playlist') openPick(state.session.id);
+});
+// 播放 plays it in its order (shuffle off); 随机播放, shuffled from a piece picked at random.
+$('#group-hero').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'), g = state.session;
+  const ids = g?.kind === 'playlist' ? playlistPieces(playlistById(g.id)).map(p => p.id) : [];
+  if (!b || !ids.length) return;
+  const shuffle = b.dataset.act === 'shuffle';
+  play(shuffle ? ids[Math.floor(Math.random() * ids.length)] : ids[0], ids, {kind: 'playlist', id: g.id}, b,
+       shuffle ? 'shuffle' : 'order');
+});
+// A word that something was done, for a moment (added to a playlist).
+let hudTimer = 0;
+function hud(text) {
+  $('#hud').textContent = text;
+  $('#hud').classList.add('show');
+  clearTimeout(hudTimer);
+  hudTimer = setTimeout(() => $('#hud').classList.remove('show'), 1600);
+}
+
 // Long-press menus for a piece: what it can do here.
 function pieceMenu(key, row) {
   const job = data.jobs.find(j => jobKey(j) === key);
@@ -714,6 +879,7 @@ function pieceMenu(key, row) {
   // In 收藏 and 最近播放 a swipe only takes a piece out of the list; the menu says plainly where the file goes.
   showCtx(row, pieceText(p) + pieceSide(p), [
     [p.favorited_at ? T.unfavorite : T.favorite, ICON.heart, () => favorite(id, !p.favorited_at)],
+    [T.addToPlaylist, ICON.playlist, () => pickPlaylist([id])],
     [T.edit, ICON.edit, () => openEdit(id)],
     state.view === 'library' && [T.selectSeveral, ICON.select, () => setSelecting(true, id)],
     [T.moveToTrash, ICON.trash, () => foldAway(row, () => deletePieces([id])), true],
@@ -1025,7 +1191,7 @@ $('#p-prev').addEventListener('click', e => control('prev', null, null, e.curren
 $('#p-next').addEventListener('click', e => control('next', null, null, e.currentTarget));
 $('#p-mode').addEventListener('click', () => control('mode', MODES[(MODES.indexOf(pb().mode) + 1) % MODES.length]));
 $('#p-queue').addEventListener('click', openQueue);
-$('#p-queue').innerHTML = ICON.list;
+$('#p-queue').innerHTML = ICON.queue;
 $('#p-share').innerHTML = ICON.share;
 $('#p-close').innerHTML = ICON.close;
 // ✕, once confirmed: the piece stops for good (played again, it starts over) and the player closes onto the page it
@@ -1067,9 +1233,8 @@ function renderQueue() {
       </div>`;
   }).join('');
 }
-// Hold a piece by its handle and drag it up or down; the pieces it passes make room.
-(function reorder() {
-  const list = $('#queue-list');
+// Hold a piece by its handle and drag it up or down; the pieces it passes make room. moved(id, index), let go.
+function dragToReorder(list, moved) {
   let r = null;
   list.addEventListener('pointerdown', e => {
     const grip = e.target.closest('.grip');
@@ -1093,15 +1258,16 @@ function renderQueue() {
     if (!r || e.pointerId !== r.id) return;
     r.row.style.transform = '';
     r.row.classList.remove('lifted');
-    const id = +r.row.dataset.id, moved = r.i !== r.i0, index = r.i;
+    const id = +r.row.dataset.id, changed = r.i !== r.i0, index = r.i;
     reordering = false;
     guardUntil = performance.now() + 200;
     r = null;
-    if (moved) control('move', id, index);
+    if (changed) moved(id, index);
   };
   list.addEventListener('pointerup', end);
   list.addEventListener('pointercancel', end);
-})();
+}
+dragToReorder($('#queue-list'), (id, index) => control('move', id, index));
 
 // ---------- Adding pieces ----------
 // Search YouTube for piano versions (or paste a link), watch one on YouTube, download it (the same queue she uses by
@@ -1573,10 +1739,10 @@ function closeOverlays() {
   openSheet = null;
   naming = confirmed = null;
   app.classList.remove('sheeted');
-  for (const id of ['#dim', '#confirm', '#add-how', '#rename', '#info']) $(id).classList.remove('show');
+  for (const id of ['#dim', '#confirm', '#add-how', '#pick-playlist', '#rename', '#info']) $(id).classList.remove('show');
   document.activeElement?.blur?.();
 }
-const overlayOpen = () => openSheet || ['#confirm', '#add-how', '#rename', '#info'].some(id => $(id).classList.contains('show'));
+const overlayOpen = () => openSheet || ['#confirm', '#add-how', '#pick-playlist', '#rename', '#info'].some(id => $(id).classList.contains('show'));
 // Something to know, with one button, as iOS says it.
 function info(title, text) {
   $('#info-title').textContent = title;
@@ -1854,6 +2020,7 @@ rowGestures($('#group-list'), {
   remove: id => {
     const kind = state.session.kind;
     if (kind === 'favorites') favorite(+id, false);
+    else if (kind === 'playlist') removeFromPlaylist(playlistById(state.session.id), +id);
     else if (kind === 'recent') {
       const p = pieceById(+id);
       if (p) p.last_played_at = null;
@@ -1862,6 +2029,23 @@ rowGestures($('#group-list'), {
     } else deletePieces([+id]);
   },
   hold: (id, row) => pieceMenu(id, row),
+});
+rowGestures($('#playlist-list'), {
+  tap: id => push('group', {kind: 'playlist', id: +id}),
+  remove: id => { renderPlaylists(); askDeletePlaylist(+id); },  // the row comes back unless it is deleted
+  hold: (id, row) => {
+    const pl = playlistById(id);
+    if (pl) playlistMenu(pl, row, cover(pl) + playlistText(pl));
+  },
+});
+// In a playlist only its pieces whose files are there show: one dropped before the next one shown goes there.
+dragToReorder($('#group-list'), (id, index) => {
+  const pl = state.session?.kind === 'playlist' && playlistById(state.session.id);
+  if (!pl) return;
+  const next = listIds($('#group-list'))[index + 1], rest = pl.ids.filter(i => i !== id);
+  const at = next === undefined ? rest.length : rest.indexOf(next);
+  pl.ids = [...rest.slice(0, at), id, ...rest.slice(at)];
+  changePlaylist(pl.id, {move: id, index: at});
 });
 rowGestures($('#queue-list'), {
   tap: (id, row) => { if (pb().id !== +id) play(+id, pb().ids, pb().scope, row); },
@@ -1978,7 +2162,7 @@ $('#sidebar').addEventListener('click', e => {
   const row = e.target.closest('[data-target]');
   if (!row) return;
   const t = row.dataset.target;
-  if (['library', 'artists', 'history'].includes(t)) show(t);
+  if (['library', 'playlists', 'artists', 'history'].includes(t)) show(t);
   else if (t === 'favorites' || t === 'recent') show('group', {kind: t});
   else show('session', t === 'now' ? 'now' : +t);
 });

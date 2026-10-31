@@ -254,8 +254,10 @@ svg { display: block; }
   border-top: 1px solid var(--line); place-items: center;
 }
 .selecting #selbar { display: grid; }
+#selbar { grid-template-columns: 1fr 1fr; }
 #sel-delete { font-size: 17px; color: var(--red); padding: 10px 30px; }
-#sel-delete:disabled { color: var(--disabled); }
+#sel-playlist { font-size: 17px; color: var(--accent); padding: 10px 20px; }
+#sel-delete:disabled, #sel-playlist:disabled { color: var(--disabled); }
 
 .eq { display: inline-flex; align-items: flex-end; gap: 2px; width: 17px; height: 15px; flex: none; }
 .eq i { width: 3px; height: 100%; border-radius: 1px; background: var(--accent); transform-origin: bottom; animation: eq .9s ease-in-out infinite alternate; }
@@ -515,6 +517,40 @@ button.grow:active { background: var(--press); }
 .side.when { font-size: 13px; }
 .hero b { font-size: 22px; font-weight: 600; }
 .hero b + span { font-size: 13px; color: var(--text2); }
+
+/* 歌单: a cover of its first four pieces' colors (or of the first, with fewer), as Apple Music makes one */
+.cover {
+  flex: none; display: grid; place-items: center; overflow: hidden; border-radius: 6px; color: rgba(255, 255, 255, .9);
+  background: linear-gradient(135deg, hsl(var(--h) 45% 46%), hsl(calc(var(--h) + 35) 45% 26%));
+}
+.cover.four { grid-template-columns: 1fr 1fr; place-items: stretch; }
+.cover.four i { background: linear-gradient(135deg, hsl(var(--h) 45% 46%), hsl(calc(var(--h) + 35) 45% 26%)); }
+.cover svg { width: 46%; height: 46%; }
+#playlist-list .cover { width: 52px; height: 52px; margin: 6px 0; }
+#playlist-list .content { gap: 14px; }
+.hero .cover { width: 168px; height: 168px; border-radius: 14px; margin-bottom: 10px; }
+.hero-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 360px; margin-top: 14px; }
+.hero-acts button {
+  display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; border-radius: 12px;
+  background: var(--card); color: var(--accent); font-size: 16px; font-weight: 600;
+}
+.hero-acts svg { width: 18px; height: 18px; }
+#group-more { width: 44px; height: 46px; display: grid; place-items: center; color: var(--accent); }
+#group-more svg { width: 24px; height: 24px; }
+#group-foot .online svg, #new-playlist svg { width: 22px; height: 22px; flex: none; }
+#pick-list { max-height: 55vh; overflow-y: auto; }
+#pick-list [data-new-playlist] { color: var(--accent); }
+.prow { position: relative; display: flex; align-items: center; gap: 12px; min-height: 62px; padding: 0 16px 0 20px; }
+.prow::after { content: ""; position: absolute; left: 20px; right: 0; bottom: 0; border-bottom: 1px solid var(--sep); }
+.prow .text { flex: 1; min-width: 0; }
+.prow .addbtn svg { width: 24px; height: 24px; }
+#hud {
+  position: absolute; z-index: 70; left: 50%; bottom: calc(var(--safe-bottom) + 96px); max-width: calc(100% - 48px);
+  padding: 10px 18px; border-radius: 20px; background: var(--menu); color: var(--text); font-size: 15px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .25); transform: translate(-50%, 8px); opacity: 0; pointer-events: none;
+  transition: opacity .2s, transform .2s var(--ease); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#hud.show { opacity: 1; transform: translate(-50%, 0); }
 
 /* The player is a page like the others: sideways is going around (in from the orb with a left swipe, or from the
    mini player; away with a right swipe), up and down is the piece itself: the player, then 详细信息, each snapping.

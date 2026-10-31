@@ -28,6 +28,7 @@
     </div>
     <div class="sb-scroll">
       <button class="sb-row" data-target="library"><i data-icon="piano"></i><span class="label" data-t="library"></span></button>
+      <button class="sb-row" data-target="playlists"><i data-icon="playlist"></i><span class="label" data-t="playlists"></span></button>
       <button class="sb-row" data-target="favorites"><i data-icon="heart"></i><span class="label" data-t="favorites"></span></button>
       <button class="sb-row" data-target="recent">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
@@ -85,10 +86,16 @@
       <div class="seg" id="role-seg" role="tablist"><button data-role="artist" class="on" data-t="artist"></button><button data-role="performer" data-t="performer"></button></div>
       <div id="artist-list"></div>
     </div>
+    <div class="view" id="view-playlists" hidden>
+      <header><h2 data-t="playlists"></h2></header>
+      <button class="online" id="new-playlist"><i data-icon="add"></i><span data-t="newPlaylist"></span></button>
+      <div class="list" id="playlist-list"></div>
+    </div>
     <div class="view" id="view-group" hidden>
-      <header><h2 id="group-title"></h2></header>
+      <header><h2 id="group-title"></h2><button class="hbtn right" id="group-more" data-t-label="more" hidden></button></header>
       <div class="hero" id="group-hero"></div>
       <div class="list" id="group-list"></div>
+      <div id="group-foot"></div>
     </div>
     <div class="view" id="view-settings" hidden>
       <header><h2 data-t="settings"></h2></header>
@@ -174,7 +181,7 @@
       </span>
       <span class="pt" data-t="toVoice"></span>
     </div>
-    <div id="selbar"><button id="sel-delete" disabled></button></div>
+    <div id="selbar"><button id="sel-playlist" data-t="addToPlaylistShort" disabled></button><button id="sel-delete" disabled></button></div>
     <div id="mini" hidden role="button" data-t-label="openPlayer">
       <canvas class="mart" aria-hidden="true"></canvas>
       <div class="text"><div class="t1" id="mini-title"></div><div class="t2" id="mini-sub"></div></div>
@@ -241,6 +248,28 @@
   </section>
 
   <!-- Confirm what cannot be undone: deleting pieces, stopping the piece -->
+  <!-- Which playlist the pieces go into, a new one first -->
+  <div class="action" id="pick-playlist">
+    <div class="agroup" id="pick-list"></div>
+    <div class="agroup"><button class="cancel2" id="pick-cancel" data-t="cancel"></button></div>
+  </div>
+
+  <!-- Adding pieces to a playlist, from the library -->
+  <section class="sheet" id="sheet-pick">
+    <div class="grabber"></div>
+    <div class="sheet-head"><span class="l"></span><h3 data-t="addMusic"></h3><button class="r" id="pick-done" data-t="done"></button></div>
+    <div class="lsearch">
+      <label class="field">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+        <input id="pick-q" type="search" data-t-placeholder="libraryHint" autocomplete="off" enterkeyhint="search">
+      </label>
+    </div>
+    <div class="sheet-body" id="pick-pieces"></div>
+  </section>
+
+  <!-- A word that something was done, for a moment -->
+  <div id="hud" role="status" aria-live="polite"></div>
+
   <div class="action" id="confirm">
     <div class="agroup"><button class="danger" id="confirm-yes"></button></div>
     <div class="agroup"><button class="cancel2" id="confirm-no" data-t="cancel"></button></div>
