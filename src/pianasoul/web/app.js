@@ -816,10 +816,11 @@ function drawRoll(canvas, p, pos, small) {
   const dpr = Math.min(devicePixelRatio || 1, 2);
   if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
   const ctx = canvas.getContext('2d'), hue = hueOf(p.id), roll = notesFor(p);
-  // In the piece's color: notes glowing on its deepest shade, or, in the light look, deeper notes on its palest.
+  // In the piece's color: on its deepest shade, the notes sounding light up white; on its palest (the light look), the
+  // notes waiting are a pale tint and those sounding light up in its full color, as a lit key does on a light screen.
   const light = document.documentElement.dataset.theme === 'light';
-  const ink = light ? {ground: `hsl(${hue} 60% 96%)`, line: 'rgba(0, 0, 0, .05)', on: `hsl(${hue} 75% 42%)`,
-                       glow: `hsl(${hue} 80% 60%)`, past: `hsl(${hue} 55% 55% / .25)`, note: v => `hsl(${hue} 65% 55% / ${.45 + v / 127 * .5})`,
+  const ink = light ? {ground: `hsl(${hue} 60% 96%)`, line: 'rgba(0, 0, 0, .05)', on: `hsl(${hue} 95% 60%)`,
+                       glow: `hsl(${hue} 100% 62% / .75)`, past: `hsl(${hue} 50% 70% / .3)`, note: v => `hsl(${hue} 70% 74% / ${.55 + v / 127 * .4})`,
                        head: 'rgba(0, 0, 0, .3)'}
                     : {ground: `hsl(${hue} 35% 8%)`, line: 'rgba(255, 255, 255, .05)', on: '#fff', glow: `hsl(${hue} 90% 75%)`,
                        past: `hsl(${hue} 70% 70% / .3)`, note: v => `hsl(${hue} 85% 68% / ${.5 + v / 127 * .45})`,
