@@ -1488,11 +1488,14 @@ function renderSettings() {
   $('#commit-link').textContent = (commit || '').slice(0, 7);
 }
 // What plays the notes, as the Mac sees it: read when the settings open, and again whenever the piano changes while
-// they are open.
+// they are open. One not connected is a row to tap, for how to connect it (as the bar at the top says).
 const loadDevices = () => api('/api/devices').then(found => { data.devices = found; renderDevices(); }).catch(() => {});
 function renderDevices() {
-  $('#devices').innerHTML = data.devices.map(d =>
-    `<div class="grow">${d.kind === 'network' ? ICON.tablet : ICON.piano}<span class="gl">${esc(d.name)}</span><span class="gv${d.connected ? ' ok' : ''}">${esc(d.connected ? T.connected : T.disconnected)}</span></div>`).join('');
+  $('#devices').innerHTML = data.devices.map((d, i) => {
+    const row = `${d.kind === 'network' ? ICON.tablet : ICON.piano}<span class="gl">${esc(d.name)}</span>`;
+    return d.connected ? `<div class="grow">${row}<span class="gv ok">${esc(T.connected)}</span></div>`
+                       : `<button class="grow" data-device="${i}">${row}<span class="gv">${esc(T.disconnected)}</span>${CHEV}</button>`;
+  }).join('');
 }
 document.querySelectorAll('[data-icon]').forEach(el => { el.outerHTML = ICON[el.dataset.icon]; });
 $('#view-settings').addEventListener('click', e => {
@@ -1505,6 +1508,8 @@ $('#view-settings').addEventListener('click', e => {
       api('/api/settings', 'PATCH', {[key]: c}).catch(() => {});
     }]));
   }
+  const device = data.devices[e.target.closest('[data-device]')?.dataset.device];
+  if (device) info(T.howToConnect, T.connectHow[device.kind] || T.connectHow.other);
   if (e.target.closest('#open-help')) push('help');
 });
 const topics = () => herOn() ? T.helpTopics : T.basicTopics;

@@ -42,11 +42,11 @@ const zh = {
   pairedAnewTitle: '需要重新配对', pairedAnew: '这台 Mac 重置了配对，请扫 Mac 上的新二维码。',
   notPairedTitle: '还没有配对', notPaired: '请用手机相机扫 Mac 上 PianaSoul 的二维码打开。',
   connectHow: {
-    usb: '确认琴开着，USB 线两头都插好。连上以后，这条提示会自己消失。',
-    bluetooth: '确认琴开着、蓝牙 MIDI 打开，再在 Mac 上连接：PianaSoul 设置 › 钢琴 › 连接蓝牙 MIDI…，或者“音频 MIDI 设置” › 窗口 › 显示 MIDI 工作室 › 蓝牙。连上以后，这条提示会自己消失。',
-    network: '在 iPad 上打开发声的 App，再在 Mac 上重新连接：“音频 MIDI 设置” › 窗口 › 显示 MIDI 网络设置，在“目录”里选中 iPad，点“连接”。iPad 断开以后，Mac 有时要将近一分钟才发现。',
-    virtual: '在 Mac 上打开发声的 App。打开以后，这条提示会自己消失。',
-    other: '确认琴开着、和 Mac 连好；也可以在 Mac 的 PianaSoul 设置 › 钢琴 里换一台琴。',
+    usb: '确认琴开着，USB 线两头都插好。连上以后会自己恢复，不用刷新。',
+    bluetooth: '确认琴开着、蓝牙 MIDI 打开，再在 Mac 上连接：用 PianaSoul App 的话，点菜单栏的 PianaSoul › 连接琴…；也可以打开“音频 MIDI 设置” › 窗口 › 显示 MIDI 工作室，点蓝牙图标，再点琴旁边的“连接”。连上以后会自己恢复。',
+    network: '在 iPad 上打开发声的 App，再在 Mac 上连接：“音频 MIDI 设置” › 窗口 › 显示 MIDI 网络设置，在“目录”里选中 iPad，点“连接”（用 PianaSoul App 的话，菜单栏的 PianaSoul › 连接琴… 会直接打开“音频 MIDI 设置”）。iPad 断开以后，Mac 有时要将近一分钟才发现。',
+    virtual: '在 Mac 上打开发声的 App。打开以后会自己恢复。',
+    other: '确认琴开着、和 Mac 连好；也可以在 Mac 上 PianaSoul 的设置 › 钢琴里换一台琴。',
   },
   piece: '曲名', source: '来源',
   origins: {video: site => `由 ${site} 视频转谱`, recording: '由你的录音转谱', uploaded: '从手机上传', yours: '你放进曲库的文件'},
@@ -84,7 +84,8 @@ const zh = {
     ]},
     {id: 'library', icon: 'piano', title: '曲库和添加曲子', items: [
       ['找曲子', '在曲库里搜；结果下面可以上传文件，或者在线搜索钢琴版。'],
-      ['上传', '点曲库右上角的 ＋，再点“上传文件”，MIDI 和录音可以一次选好几个。在 Mac 上直接拖进“音乐 › PianaSoul”文件夹也一样。'],
+      ['上传', '点曲库右上角的 ＋，再点“上传文件”，MIDI 和录音可以一次选好几个，放进曲库的“Uploaded”文件夹。在 Mac 上直接拖进“音乐 › PianaSoul”文件夹也一样。'],
+      ['来源', '每首曲子怎么来的，写在详细信息的“来源”里：由视频或录音转谱、从手机上传，或者你放进曲库的文件。'],
       ['只有钢琴版', '只列出能转成 MIDI 的钢琴版：教程、瀑布流、简单版、合集这些都不列。'],
       ['看视频', '点封面或标题，在 YouTube 里看。'],
       ['下载', '点下载，圆圈跑满一圈就转好了，点中间的方块停止；转好后点 ▶ 就开始弹。'],
@@ -101,9 +102,10 @@ const zh = {
       ['管理', '长按对话可以置顶、重命名、删除。'],
     ]},
     {id: 'faq', icon: 'question', title: '常见问题', items: [
-      ['她说在弹，琴却没声音', '在设置的设备里看是否已连接，再看琴有没有开。'],
+      ['她说在弹，琴却没声音', '在设置的设备里看是否已连接，没连上就点它，看怎么连；再看琴有没有开。'],
       ['球没有反应', '看麦克风权限，以及 Mac 是否开着。'],
       ['拖音量条，声音没变', '发声的一端要认 MIDI 音量（CC7）。比如 Pianoteq：长按 Volume 滑块（Mac 上按住 Command 点它），再拖一下音量条；然后在 Options ▸ MIDI 里 Save as，再 Set as default。'],
+      ['用 iPad 发声时，反应慢一点', '发到 iPad 的音经 Wi‑Fi 提前一秒发出、按时弹，节奏才稳，所以暂停、停止和调音量大约一秒后才生效。'],
     ]},
   ],
   // Without her: the library, the player and adding pieces.
@@ -127,8 +129,8 @@ const zh = {
     ]},
     {id: 'library', icon: 'piano', title: '曲库和添加曲子', items: [
       ['曲库', '就是 Mac 上的“音乐 › PianaSoul”文件夹：往里放、改名、挪位置，手机上马上跟着变。'],
-      ['上传', '点曲库右上角的 ＋，再点“上传文件”，MIDI 和录音可以一次选好几个。'],
-      ['转谱', '带“转谱”标签的，是 PianaSoul 从录音转出来的 MIDI。'],
+      ['上传', '点曲库右上角的 ＋，再点“上传文件”，MIDI 和录音可以一次选好几个，放进曲库的“Uploaded”文件夹。'],
+      ['来源', '每首曲子怎么来的，写在详细信息的“来源”里：由录音转谱、从手机上传，或者你放进曲库的文件。'],
       ['录音', 'MP3 这类录音显示为“需要转谱”：在 Mac 的 PianaSoul 设置里开启高级功能（Beta）后，会自动转成 MIDI。'],
       ['找曲子', '在曲库顶上搜曲名、原作者、演奏者。'],
       ['改信息', '长按曲目，改曲名、原作者、演奏者。只改曲库里的名字，不改 Mac 上的文件名。'],
@@ -136,8 +138,9 @@ const zh = {
       ['艺术家', '可以按原作者看，也可以按演奏者看。'],
     ]},
     {id: 'faq', icon: 'question', title: '常见问题', items: [
-      ['点了曲子，琴没声音', '在设置的设备里看是否已连接，再看琴有没有开。'],
+      ['点了曲子，琴没声音', '在设置的设备里看是否已连接，没连上就点它，看怎么连；再看琴有没有开。'],
       ['拖音量条，声音没变', '发声的一端要认 MIDI 音量（CC7）。比如 Pianoteq：长按 Volume 滑块（Mac 上按住 Command 点它），再拖一下音量条；然后在 Options ▸ MIDI 里 Save as，再 Set as default。'],
+      ['用 iPad 发声时，反应慢一点', '发到 iPad 的音经 Wi‑Fi 提前一秒发出、按时弹，节奏才稳，所以暂停、停止和调音量大约一秒后才生效。'],
     ]},
   ],
 };
@@ -190,11 +193,11 @@ const en = {
   pairedAnewTitle: 'Pair Again', pairedAnew: 'This Mac has reset its pairing. Scan the new code on the Mac.',
   notPairedTitle: 'Not Paired Yet', notPaired: 'Scan the code in PianaSoul on the Mac with the phone’s camera to open it.',
   connectHow: {
-    usb: 'Check that the piano is on and the USB cable is plugged in at both ends. Once it is connected, this goes away.',
-    bluetooth: 'Check that the piano is on with Bluetooth MIDI turned on, then connect it on the Mac: PianaSoul Settings › Piano › Connect Bluetooth MIDI…, or Audio MIDI Setup › Window › Show MIDI Studio › Bluetooth. Once it is connected, this goes away.',
-    network: 'Open the app that makes the sound on the iPad, then connect it again on the Mac: Audio MIDI Setup › Window › Show MIDI Network Setup, select the iPad under Directory, and click Connect. After the iPad leaves, the Mac can take almost a minute to notice.',
-    virtual: 'Open the app that makes the sound on the Mac. Once it is open, this goes away.',
-    other: 'Check that the piano is on and connected to the Mac, or choose another in PianaSoul Settings › Piano on the Mac.',
+    usb: 'Check that the piano is on and the USB cable is plugged in at both ends. Once it is connected, this updates by itself.',
+    bluetooth: 'Check that the piano is on with Bluetooth MIDI turned on, then connect it on the Mac: with the PianaSoul app, PianaSoul in the menu bar › Connect Piano…; or Audio MIDI Setup › Window › Show MIDI Studio, click the Bluetooth icon, then Connect next to the piano. Once it is connected, this updates by itself.',
+    network: 'Open the app that makes the sound on the iPad, then connect it on the Mac: Audio MIDI Setup › Window › Show MIDI Network Setup, select the iPad under Directory, and click Connect (with the PianaSoul app, PianaSoul in the menu bar › Connect Piano… opens Audio MIDI Setup). After the iPad leaves, the Mac can take almost a minute to notice.',
+    virtual: 'Open the app that makes the sound on the Mac. Once it is open, this updates by itself.',
+    other: 'Check that the piano is on and connected to the Mac, or choose another in PianaSoul’s settings › Piano on the Mac.',
   },
   piece: 'Piece', source: 'Source',
   origins: {video: site => `Transcribed from a ${site} video`, recording: 'Transcribed from your recording', uploaded: 'Uploaded from a phone', yours: 'A file you put in the library'},
@@ -234,7 +237,8 @@ const en = {
     ]},
     {id: 'library', icon: 'piano', title: 'Library and New Pieces', items: [
       ['Finding', 'Search the library; below the results, upload files or search online for piano versions.'],
-      ['Upload', 'Tap + at the top right of the library, then Upload Files: MIDI files and recordings, several at once. Dragging them into Music › PianaSoul on the Mac does the same.'],
+      ['Upload', 'Tap + at the top right of the library, then Upload Files: MIDI files and recordings, several at once, into the library’s Uploaded folder. Dragging them into Music › PianaSoul on the Mac does the same.'],
+      ['Source', 'How each piece came is under Source in its details: transcribed from a video or a recording, uploaded from a phone, or a file you put in the library.'],
       ['Piano versions only', 'Only piano versions that make good MIDI are listed: no tutorials, falling notes, easy versions or compilations.'],
       ['Watch', 'Tap a cover or a title to watch the video on YouTube.'],
       ['Download', 'Tap download; when the circle closes it is ready, and ▶ plays it. The square in the middle stops it.'],
@@ -251,9 +255,10 @@ const en = {
       ['Manage', 'Touch and hold a conversation to pin, rename or delete it.'],
     ]},
     {id: 'faq', icon: 'question', title: 'Questions', items: [
-      ['She says she is playing, but the piano is silent', 'Check Devices in Settings, then that the piano is on.'],
+      ['She says she is playing, but the piano is silent', 'Check Devices in Settings: tap one not connected to see how to connect it. Then check that the piano is on.'],
       ['The orb does nothing', 'Check the microphone permission, and that the Mac is on.'],
       ['The volume bar changes nothing', 'What makes the sound has to follow MIDI volume (CC7). In Pianoteq, for one: touch and hold its Volume slider (on a Mac, Command-click it), then move the volume bar; then, in Options ▸ MIDI, Save as and Set as default.'],
+      ['With an iPad making the sound, things take a second', 'Notes go to the iPad over Wi‑Fi a second early, with the time each should sound, so that they sound evenly; so pausing, stopping and a change of volume take about a second.'],
     ]},
   ],
   // Without her: the library, the player and adding pieces.
@@ -278,8 +283,8 @@ const en = {
     ]},
     {id: 'library', icon: 'piano', title: 'Library and New Pieces', items: [
       ['The library', 'It is the folder Music › PianaSoul on the Mac: put files in, rename or move them, and the phone follows at once.'],
-      ['Upload', 'Tap + at the top right of the library, then Upload Files: MIDI files and recordings, several at once.'],
-      ['Transcribed', 'A piece tagged Transcribed is MIDI that PianaSoul made from a recording.'],
+      ['Upload', 'Tap + at the top right of the library, then Upload Files: MIDI files and recordings, several at once, into the library’s Uploaded folder.'],
+      ['Source', 'How each piece came is under Source in its details: transcribed from a recording, uploaded from a phone, or a file you put in the library.'],
       ['Recordings', 'An MP3 or another recording shows as Needs transcription: turn on Advanced Features (Beta) in PianaSoul’s settings on the Mac, and it is made into MIDI on its own.'],
       ['Finding', 'Search the library by piece, artist or pianist at the top.'],
       ['Edit', 'Touch and hold a piece to change its name, artist and pianist. Only its name in the library changes, not the file on the Mac.'],
@@ -287,8 +292,9 @@ const en = {
       ['Artists', 'Browse by artist or by pianist.'],
     ]},
     {id: 'faq', icon: 'question', title: 'Questions', items: [
-      ['A piece is playing, but the piano is silent', 'Check Devices in Settings, then that the piano is on.'],
+      ['A piece is playing, but the piano is silent', 'Check Devices in Settings: tap one not connected to see how to connect it. Then check that the piano is on.'],
       ['The volume bar changes nothing', 'What makes the sound has to follow MIDI volume (CC7). In Pianoteq, for one: touch and hold its Volume slider (on a Mac, Command-click it), then move the volume bar; then, in Options ▸ MIDI, Save as and Set as default.'],
+      ['With an iPad making the sound, things take a second', 'Notes go to the iPad over Wi‑Fi a second early, with the time each should sound, so that they sound evenly; so pausing, stopping and a change of volume take about a second.'],
     ]},
   ],
 };
