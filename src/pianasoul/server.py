@@ -218,7 +218,7 @@ def state():
             'playback': core.playback.snapshot(), 'conversations': core.conversations.all() if her else [],
             'current': her.conversation_id if her else None, 'busy': core.busy, 'settings': core.settings(),
             'devices': core.devices(), 'piano': core.piano, 'version': version, 'features': core.features(),
-            'audio': core.audio(), 'playlists': core.lib.playlists()}
+            'audio': core.audio(), 'playlists': core.lib.playlists(), 'pictures': core.pictures()}
 
 
 @app.get('/api/recordings')
@@ -376,6 +376,73 @@ def edit(rec_id: int, change: dict = Body()):
         core.lib.edit(rec_id, str(change['piece']), str(change.get('artist', '')), str(change.get('performer', '')))
     core.emit({'type': 'library'})
     return next(r for r in core.recordings() if r['id'] == rec_id)
+
+
+# ---- pictures: a piece's artwork, a playlist's, an artist's (library.py says where they are kept) --------------
+PICTURE_LIMIT = 4 * 1024 * 1024  # what a phone makes, a square JPEG of about 1000 px, is far smaller
+
+
+async def _picture(request: Request) -> bytes | None:
+    """The JPEG of a PUT, as the phone makes it; None for a DELETE (taken away). 413 too large, 400 not a JPEG."""
+    if request.method == 'DELETE':
+        return None
+    if int(request.headers.get('content-length') or 0) > PICTURE_LIMIT:
+        raise HTTPException(413)
+    body = await request.body()
+    if len(body) > PICTURE_LIMIT:
+        raise HTTPException(413)
+    if not body.startswith(b'\xff\xd8\xff'):
+        raise HTTPException(400)
+    return body
+
+
+def _picture_file(path: Path) -> FileResponse:
+    if not path.is_file():
+        raise HTTPException(404)
+    return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'no-cache'})
+
+
+@app.get('/api/recordings/{rec_id}/artwork')
+def piece_artwork(rec_id: int):
+    return _picture_file(core.lib.piece_artwork(_recording(rec_id)))
+
+
+@app.api_route('/api/recordings/{rec_id}/artwork', methods=['PUT', 'DELETE'])
+async def keep_piece_artwork(rec_id: int, request: Request):
+    """A piece's artwork from the phone (PUT), or taken away (DELETE)."""
+    _recording(rec_id)
+    core.lib.set_piece_artwork(rec_id, await _picture(request))
+    core.emit({'type': 'library'})
+    return {'ok': True}
+
+
+@app.get('/api/playlists/{playlist_id}/artwork')
+def playlist_artwork(playlist_id: int):
+    return _picture_file(core.lib.playlist_cover(playlist_id))
+
+
+@app.api_route('/api/playlists/{playlist_id}/artwork', methods=['PUT', 'DELETE'])
+async def keep_playlist_artwork(playlist_id: int, request: Request):
+    """A playlist's artwork (PUT), or its cover of its pieces again (DELETE)."""
+    if not core.lib.set_playlist_cover(playlist_id, await _picture(request)):
+        raise HTTPException(404)
+    core.playlists_changed()
+    return {'ok': True}
+
+
+@app.get('/api/pictures')
+def artist_picture(name: str):
+    return _picture_file(core.lib.artist_picture(name))
+
+
+@app.api_route('/api/pictures', methods=['PUT', 'DELETE'])
+async def keep_artist_picture(name: str, request: Request):
+    """An artist's picture, by name (PUT), or taken away (DELETE)."""
+    if not name.strip():
+        raise HTTPException(400)
+    core.lib.set_artist_picture(name, await _picture(request))
+    core.emit({'type': 'pictures', 'pictures': core.pictures()})
+    return {'ok': True}
 
 
 @app.get('/api/playlists')

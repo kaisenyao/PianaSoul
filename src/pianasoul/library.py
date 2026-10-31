@@ -37,6 +37,10 @@ def _place(variable: str, default: Path) -> Path:
 MUSIC_DIR = _place("PIANASOUL_MUSIC", Path.home() / "Music" / "PianaSoul")  # the library: your music, and
 TRANSCRIBED = "Transcribed"  # the subfolder only PianaSoul writes to, with the pieces it made
 UPLOADED = "Uploaded"  # where files sent from the phone go: yours, as if put there by hand, and left as they are
+# The user's own pictures, kept with the music so that they go wherever it goes: a piece's artwork by its file's
+# content (Pieces/<fingerprint>.jpg: renamed, moved, or on another Mac with a new library, it is still its), an
+# artist's picture by name (Artists/<name>.jpg). A playlist lives in the library database, its artwork beside it.
+ARTWORK = "Artwork"
 DATA_DIR = _place("PIANASOUL_DATA", Path.home() / "Library" / "Application Support" / "PianaSoul")  # what lasts
 CACHE_DIR = _place("PIANASOUL_CACHE", Path.home() / "Library" / "Caches" / "PianaSoul")  # what may go
 DB_PATH = DATA_DIR / "library.db"
@@ -121,6 +125,30 @@ ADDED_COLUMNS = {"favorited_at": "TEXT", "last_played_at": "TEXT",
                  "named_at": "TEXT"}
 VIDEO_FIELDS = ("video_title", "channel", "views", "published", "thumbnail", "channel_avatar")
 STOPWORDS = {"the", "a", "an", "of", "in", "and", "by", "for", "piano", "solo", "version", "play", "me"}
+
+
+def _version(path: Path) -> int | None:
+    """When a picture was last kept (the page asks for it again once this changes), or None when there is none."""
+    try:
+        return path.stat().st_mtime_ns
+    except FileNotFoundError:
+        return None
+
+
+def _keep_picture(path: Path, jpeg: bytes | None) -> None:
+    """Keep a picture, whole or not at all (written aside, then put in place), or take it away (None)."""
+    if jpeg is None:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_name(f".{path.name}.part")
+    part.write_bytes(jpeg)
+    part.replace(path)
+
+
+def _file_name(name: str) -> str:
+    """A name as a file's: no folder separators or control characters, and not hidden."""
+    return re.sub(r"[/:\x00-\x1f]", "_", name).strip().lstrip(".") or "_"
 
 
 PLAYLIST_TIME = "microseconds"  # which of two playlists changed last, even within a second (her choice by name)
@@ -287,6 +315,8 @@ class Library:
         self.music_dir = Path(music_dir).resolve()
         self.transcribed = self.music_dir / TRANSCRIBED  # where the pieces PianaSoul makes are filed, by title
         self.uploaded = self.music_dir / UPLOADED  # where the phone's files go
+        self.artwork = self.music_dir / ARTWORK
+        self.playlist_artwork = Path(db_path).parent / "playlist-artwork"
         self.lock = threading.RLock()  # one statement and its commit at a time
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
@@ -345,14 +375,17 @@ class Library:
         return self._public(self.execute("SELECT * FROM recordings WHERE midi_path = ?", (str(midi_path),))[0])
 
     def refresh(self, rec_id: int) -> None:
-        """A file changed where it is: what the library knows of its content follows."""
+        """A file changed where it is: what the library knows of its content follows, its artwork too."""
         rec = self.get(rec_id)
         path = Path(rec["midi_path"])
-        stats = midi_stats(path)
+        stats, content = midi_stats(path), fingerprint(path)
+        artwork = self.piece_artwork(rec)
+        if rec["fingerprint"] and content != rec["fingerprint"] and artwork.exists():
+            artwork.replace(self.piece_artwork({"fingerprint": content}))
         self.execute("UPDATE recordings SET notes = ?, velocity_min = ?, velocity_max = ?, pedal_presses = ?, "
                      "duration_s = ?, fingerprint = ?, stamp = ? WHERE id = ?",
                      (*(stats[k] for k in ("notes", "velocity_min", "velocity_max", "pedal_presses", "duration_s")),
-                      fingerprint(path), stamp(path), rec_id))
+                      content, stamp(path), rec_id))
 
     def moved(self, fingerprint: str) -> dict | None:
         """The piece whose file, now gone, had this content: the file it is moved or renamed to is it."""
@@ -473,6 +506,9 @@ class Library:
             return False
         if rec["file_exists"]:
             send2trash(rec["midi_path"])
+        artwork = self.piece_artwork(rec)
+        if artwork.exists() and len(self.execute("SELECT id FROM recordings WHERE fingerprint = ?", (rec["fingerprint"],))) == 1:
+            send2trash(str(artwork))  # with its file: put back together, they belong together again
         with self.lock:
             self.db.execute("DELETE FROM recordings WHERE id = ?", (rec_id,))
             self.db.execute("UPDATE audio SET recording_id = NULL WHERE recording_id = ?", (rec_id,))
@@ -513,11 +549,12 @@ class Library:
         return self.playlist(playlist_id)
 
     def delete_playlist(self, playlist_id: int) -> bool:
-        """The playlist goes; its pieces stay in the library."""
+        """The playlist goes, with its artwork; its pieces stay in the library."""
         with self.lock:
             self.db.execute("DELETE FROM playlist_items WHERE playlist_id = ?", (playlist_id,))
             deleted = self.db.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,)).rowcount > 0
             self.db.commit()
+        self.playlist_cover(playlist_id).unlink(missing_ok=True)
         return deleted
 
     def add_to_playlist(self, playlist_id: int, ids) -> list[int] | None:
@@ -556,7 +593,41 @@ class Library:
 
     def _playlist(self, row: sqlite3.Row) -> dict:
         return {"id": row["id"], "name": row["name"], "ids": self._playlist_ids(row["id"]),
-                "created_at": row["created_at"], "updated_at": row["updated_at"]}
+                "created_at": row["created_at"], "updated_at": row["updated_at"],
+                "artwork": _version(self.playlist_cover(row["id"]))}
+
+    # ---- artwork and pictures -------------------------------------------------------------------------
+    def piece_artwork(self, rec: dict) -> Path:
+        return self.artwork / "Pieces" / f"{rec['fingerprint']}.jpg"
+
+    def artist_picture(self, name: str) -> Path:
+        return self.artwork / "Artists" / f"{_file_name(name)}.jpg"
+
+    def playlist_cover(self, playlist_id: int) -> Path:
+        return self.playlist_artwork / f"{int(playlist_id)}.jpg"
+
+    def set_piece_artwork(self, rec_id: int, jpeg: bytes | None) -> bool:
+        """A piece's artwork (None takes it away). False when there is no such piece, or its file is not there."""
+        rec = self.get(rec_id)
+        if not rec or not rec["file_exists"] or not rec["fingerprint"]:
+            return False
+        _keep_picture(self.piece_artwork(rec), jpeg)
+        return True
+
+    def set_artist_picture(self, name: str, jpeg: bytes | None) -> None:
+        _keep_picture(self.artist_picture(name), jpeg)
+
+    def set_playlist_cover(self, playlist_id: int, jpeg: bytes | None) -> bool:
+        with self.lock:
+            if not self._touch(playlist_id):
+                return False
+            self.db.commit()
+        _keep_picture(self.playlist_cover(playlist_id), jpeg)
+        return True
+
+    def pictures(self, names) -> dict[str, int]:
+        """Of these artists, those with a picture, and its version."""
+        return {name: version for name in set(names) if (version := _version(self.artist_picture(name)))}
 
     def _playlist_ids(self, playlist_id: int) -> list[int]:
         return [r[0] for r in self.db.execute(
@@ -667,6 +738,7 @@ class Library:
         d = dict(row)
         d["file_exists"] = self.here(Path(d["midi_path"]))
         d["origin"] = self.origin(Path(d["midi_path"]))
+        d["artwork"] = _version(self.piece_artwork(d)) if d["fingerprint"] else None
         return d
 
 

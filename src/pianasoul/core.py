@@ -208,6 +208,10 @@ class Core:
     def recordings(self) -> list[dict]:
         return [recording(r) for r in self.lib.all() if r["file_exists"]]
 
+    def pictures(self) -> dict[str, int]:
+        """The artists' own pictures (原作者 and 演奏者 alike), by name: their versions."""
+        return self.lib.pictures(n for r in self.recordings() for n in (r["artist"], r["performer"]) if n)
+
     def audio(self) -> list[dict]:
         """The recordings in the library folder that are not pieces (yet, or any more): waiting for this Mac to
         transcribe, queued, being transcribed, failed, or done once and their piece since deleted."""
@@ -323,7 +327,7 @@ def recording(rec: dict) -> dict:
     """A library record for the app: its title in parts, and nothing about files."""
     keep = ("id", "title", "composer", "performer", "duration_s", "notes", "velocity_min", "velocity_max",
             "pedal_presses", "added_at", "favorited_at", "last_played_at", "source_url", "video_title", "channel",
-            "views", "published", "thumbnail", "channel_avatar", "origin")
+            "views", "published", "thumbnail", "channel_avatar", "origin", "artwork")
     parts = title_parts(rec["title"], rec["composer"], rec["performer"])
     return {**{k: rec.get(k) for k in keep}, "piece": parts["piece"], "artist": parts["artist"],
             "performer": parts["performer"]}
