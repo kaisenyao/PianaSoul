@@ -147,7 +147,7 @@ function listen() {
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
     else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
-    else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); }
+    else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
   };
   socket.onclose = () => setTimeout(() => load().then(listen, error => error.message === 'signed out' ? signedOut(true)
                                                                                           : listen()), 2000);
@@ -289,7 +289,7 @@ function ready(view, id = null) {
   renderEntry({view, id});
   if (view === 'player') showScreen(0);
   else if (view !== 'session') el.scrollTop = 0;
-  if (view === 'settings') api('/api/devices').then(found => { data.devices = found; renderDevices(); }).catch(() => {});
+  if (view === 'settings') loadDevices();
   return el;
 }
 function push(view, id = null, el = ready(view, id)) {
@@ -492,10 +492,9 @@ function renderTyping() {
 // ---------- The library ----------
 const favMark = p => p.favorited_at ? `<span class="fav" aria-label="${esc(T.favorite)}">${HEART_FILL}</span>` : '';
 const JOB_TEXT = () => ({queued: T.queued, downloading: T.downloadingNow, converting: T.converting});
-const tagMark = p => p.origin === 'transcribed' ? `<span class="tag">${esc(T.transcribedTag)}</span>` : '';
 const pieceText = p => p.job
   ? `<div class="text"><div class="t1">${esc(p.piece)}</div><div class="t2">${esc(JOB_TEXT()[p.job.status] || '')}</div></div>`
-  : `<div class="text"><div class="t1">${esc(p.piece)}${favMark(p)}${tagMark(p)}</div><div class="t2">${esc(subtitle(p))}</div></div>`;
+  : `<div class="text"><div class="t1">${esc(p.piece)}${favMark(p)}</div><div class="t2">${esc(subtitle(p))}</div></div>`;
 const RING = 72.26;  // 2πr for r = 11.5
 // Download ring, as on Apple Music: one lap for the whole job, the square in the middle stops it.
 const ringButton = j => `<button class="addbtn" data-stop="${j.id}" aria-label="${esc(T.stopDownload)}">
@@ -561,7 +560,9 @@ function renderLibrary() {
   $('#library-list').classList.toggle('selecting', state.selecting);
   $('#library-list').innerHTML = (q ? [] : jobPieces()).map(p => pieceRow(p)).join('')
     + recordings.filter(a => !q || a.name.toLowerCase().includes(q)).map(audioRow).join('') + shown.map(p => pieceRow(p)).join('');
-  $('#lib-online').innerHTML = q && data.features.search ? `<button class="online">${ICON_FIND}<span>${esc(T.searchOn('YouTube', libQ.trim()))}</span></button>` : '';
+  // Below what the library has: the same two ways as its +, the search with these words.
+  $('#lib-online').innerHTML = !q ? '' : `<button class="online" data-how="upload">${ICON_UPLOAD}<span>${esc(T.upload)}</span></button>`
+    + (data.features.transcribe ? `<button class="online" data-how="search">${ICON_FIND}<span>${esc(T.searchOnlineFor(libQ.trim()))}</span></button>` : '');
   $('#library-count').textContent = q ? (shown.length ? T.found(shown.length) : T.notFound)
     : [T.pieces(ready.length), totalTime(ready), data.jobs.length ? T.preparing(data.jobs.length) : '',
        recordings.length ? T.toTranscribe(recordings.length) : ''].filter(Boolean).join(' · ');
@@ -569,9 +570,10 @@ function renderLibrary() {
 }
 $('#lib-q').addEventListener('input', e => { libQ = e.target.value; renderLibrary(); });
 $('#lib-online').addEventListener('click', e => {
-  if (!e.target.closest('.online')) return;
+  const how = e.target.closest('[data-how]')?.dataset.how;
+  if (!how) return;
   $('#lib-q').blur();
-  openAdd(libQ.trim());
+  openAdd(how, libQ.trim());
 });
 
 // Choosing several pieces, in 曲库: a check circle slides in on the left of each.
@@ -802,12 +804,20 @@ function drawRoll(canvas, p, pos, small) {
   const dpr = Math.min(devicePixelRatio || 1, 2);
   if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
   const ctx = canvas.getContext('2d'), hue = hueOf(p.id), roll = notesFor(p);
+  // In the piece's color: notes glowing on its deepest shade, or, in the light look, deeper notes on its palest.
+  const light = document.documentElement.dataset.theme === 'light';
+  const ink = light ? {ground: `hsl(${hue} 60% 96%)`, line: 'rgba(0, 0, 0, .05)', on: `hsl(${hue} 75% 42%)`,
+                       glow: `hsl(${hue} 80% 60%)`, past: `hsl(${hue} 55% 55% / .25)`, note: v => `hsl(${hue} 65% 55% / ${.45 + v / 127 * .5})`,
+                       head: 'rgba(0, 0, 0, .3)'}
+                    : {ground: `hsl(${hue} 35% 8%)`, line: 'rgba(255, 255, 255, .05)', on: '#fff', glow: `hsl(${hue} 90% 75%)`,
+                       past: `hsl(${hue} 70% 70% / .3)`, note: v => `hsl(${hue} 85% 68% / ${.5 + v / 127 * .45})`,
+                       head: 'rgba(255, 255, 255, .45)'};
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = `hsl(${hue} 35% 8%)`;
+  ctx.fillStyle = ink.ground;
   ctx.fillRect(0, 0, w, h);
   if (!roll) return;
   const span = small ? 5 : 8, px = w / span, head = w * .32, {lo, hi} = roll, row = h / (hi - lo);
-  ctx.fillStyle = 'rgba(255, 255, 255, .05)';
+  ctx.fillStyle = ink.line;
   for (let m = Math.ceil(lo / 12) * 12; m <= hi; m += 12) ctx.fillRect(0, h - (m - lo) * row, w, 1);  // one line per C
   for (const [t, d, m, v] of roll.notes) {
     const x = head + (t - pos) * px, nw = Math.max(2, d * px - 1.5);
@@ -815,14 +825,14 @@ function drawRoll(canvas, p, pos, small) {
     if (x + nw < 0) continue;
     const on = t <= pos && pos < t + d;
     ctx.shadowBlur = on ? 14 : 0;
-    ctx.shadowColor = `hsl(${hue} 90% 75%)`;
-    ctx.fillStyle = on ? '#fff' : t + d < pos ? `hsl(${hue} 70% 70% / .3)` : `hsl(${hue} 85% 68% / ${.5 + v / 127 * .45})`;
+    ctx.shadowColor = ink.glow;
+    ctx.fillStyle = on ? ink.on : t + d < pos ? ink.past : ink.note(v);
     ctx.beginPath();
     ctx.roundRect(x, h - (m - lo + 1) * row, nw, Math.max(2, row - 1), 2);
     ctx.fill();
   }
   ctx.shadowBlur = 0;
-  if (!small) { ctx.fillStyle = 'rgba(255, 255, 255, .45)'; ctx.fillRect(head, 0, 1, h); }
+  if (!small) { ctx.fillStyle = ink.head; ctx.fillRect(head, 0, 1, h); }
 }
 // The clock between the Mac's own reports: the bar, the times and the notes move with it.
 let lastDraw = 0;
@@ -882,10 +892,15 @@ function showScreen(n) {
 // 详细信息: only what is really there. The video as YouTube shows it (when the piece came from one), then the
 // library's own facts about the piece.
 let infoId = null;
+// How a piece came: made by PianaSoul from a video or from a recording of yours, sent from a phone, or a file of yours
+// in the library folder (where its file is: Transcribed/, Uploaded/ or anywhere else).
+const originOf = p => p.origin === 'transcribed'
+  ? (/^https?:/.test(p.source_url || '') ? T.origins.video(siteOf(p.source_url)) : T.origins.recording)
+  : T.origins[p.origin] || T.origins.yours;
 const dateOf = stamp => { const d = new Date(stamp); return T.date(d.getFullYear(), d.getMonth() + 1, d.getDate()); };
 function renderInfo(p) {
   const facts = [
-    [T.artist, p.artist || '—'], [T.performer, p.performer || '—'],
+    [T.artist, p.artist || '—'], [T.performer, p.performer || '—'], [T.source, originOf(p)],
     [T.notes, p.notes != null ? T.noteCount(p.notes) : '—'], [T.pedal, p.pedal_presses != null ? T.times(p.pedal_presses) : '—'],
     [T.velocity, p.velocity_min != null ? `${p.velocity_min}–${p.velocity_max}` : '—'], [T.length, mmss(p.duration_s)],
     [T.added, p.added_at ? dateOf(p.added_at) : '—'], [T.lastPlayed, p.last_played_at ? `${dayName(p.last_played_at)} ${clockTime(p.last_played_at)}` : '—'],
@@ -1081,16 +1096,30 @@ function renderCands() {
       </div>`;
   }).join('');
 }
-// Opened from the library's + (to upload, or with transcription to find a piece) or from its search row, with
-// those words already searched.
-function openAdd(q = '') {
-  $('#add-field').hidden = !data.features.transcribe;
+// The library's +: upload files or search online, chosen first; without transcription only uploading is there, so
+// straight to it.
+function addPieces() {
+  if (!data.features.transcribe) return openAdd('upload');
+  $('#dim').classList.add('show');
+  $('#add-how').classList.add('show');
+}
+$('#add-upload').addEventListener('click', () => { closeOverlays(); openAdd('upload'); });
+$('#add-search').addEventListener('click', () => { closeOverlays(); openAdd('search'); });
+$('#add-cancel').addEventListener('click', closeOverlays);
+// One way of adding at a time: uploading (the files are chosen at once, in the same tap) or searching online, from
+// the + or from the library's rows below a search, with its words already searched.
+function openAdd(how, q = '') {
+  const search = how === 'search';
+  $('#add-title').textContent = search ? T.searchOnline : T.upload;
+  $('#add-field').hidden = $('#add-body').hidden = !search;
+  $('#sheet-add .uploads').hidden = search;
   $('#add-input').value = q;
   uploads.tidy();
-  if (q) findCands(q);
+  if (search && q) findCands(q);
   else { query = ''; renderCands(); }
   showSheet($('#sheet-add'));
   $('#add-scroll').scrollTop = 0;
+  if (!search) $('#upload-files').click();
 }
 $('#add-done').addEventListener('click', closeOverlays);
 $('#add-input').addEventListener('keydown', e => {
@@ -1104,7 +1133,7 @@ $('#add-input').addEventListener('keydown', e => {
   $('#add-body').innerHTML = `<div class="empty">${esc(T.searchOff)}</div>`;
 });
 $('#lib-add').innerHTML = ICON_ADD;
-$('#lib-add').addEventListener('click', () => openAdd());
+$('#lib-add').addEventListener('click', addPieces);
 
 // Files from the phone go into the library folder on the Mac, one at a time, each with how far it has got; the Mac
 // then tells the library (an event), and the piece is there.
@@ -1429,6 +1458,9 @@ function renderSettings() {
   $('#commit-link').href = repo && commit ? `${repo}/commit/${commit}` : '#';
   $('#commit-link').textContent = (commit || '').slice(0, 7);
 }
+// What plays the notes, as the Mac sees it: read when the settings open, and again whenever the piano changes while
+// they are open.
+const loadDevices = () => api('/api/devices').then(found => { data.devices = found; renderDevices(); }).catch(() => {});
 function renderDevices() {
   $('#devices').innerHTML = data.devices.map(d =>
     `<div class="grow">${d.kind === 'network' ? ICON.tablet : ICON.piano}<span class="gl">${esc(d.name)}</span><span class="gv${d.connected ? ' ok' : ''}">${esc(d.connected ? T.connected : T.disconnected)}</span></div>`).join('');
@@ -1489,10 +1521,10 @@ function closeOverlays() {
   openSheet = null;
   naming = confirmed = null;
   app.classList.remove('sheeted');
-  for (const id of ['#dim', '#confirm', '#rename', '#info']) $(id).classList.remove('show');
+  for (const id of ['#dim', '#confirm', '#add-how', '#rename', '#info']) $(id).classList.remove('show');
   document.activeElement?.blur?.();
 }
-const overlayOpen = () => openSheet || ['#confirm', '#rename', '#info'].some(id => $(id).classList.contains('show'));
+const overlayOpen = () => openSheet || ['#confirm', '#add-how', '#rename', '#info'].some(id => $(id).classList.contains('show'));
 // Something to know, with one button, as iOS says it.
 function info(title, text) {
   $('#info-title').textContent = title;

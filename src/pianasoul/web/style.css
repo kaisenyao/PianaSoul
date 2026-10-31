@@ -1,5 +1,5 @@
 /* An app screen, not a document: no zooming, page scrolling, selecting or long-press menus. Colors are tokens, set
-   for dark and for light; the player stays dark in both, since it is the piece itself. */
+   for dark and for light; the player has tokens of its own (below). */
 :root {
   --ease: cubic-bezier(.32, .72, 0, 1);
   --kb-ease: cubic-bezier(.38, .7, .125, 1);  /* the iOS keyboard's curve */
@@ -8,7 +8,7 @@
   --pink: #ff375f;
   --green: #30d158;
 }
-:root[data-theme=dark], #sheet-queue {  /* 播放列表 belongs to the player, so it is dark too */
+:root[data-theme=dark] {
   color-scheme: dark;
   --bg: #000; --text: #ececec; --text2: #8e8e93; --text3: #636366;
   --line: #2a2a2c; --sep: #1d1d1f; --press: #262628; --press-row: #0e0e10; --held: #161618;
@@ -48,12 +48,13 @@ button:disabled { cursor: default; }
 input, textarea { -webkit-user-select: text; user-select: text; }
 svg { display: block; }
 
-/* The color at the top of the screen: the page's; black over the player (whose top is black, so that the status bar
-   meets it however far it is swiped) and under a page sheet, as on iOS; darker with the screen while a sheet or a
+/* The color at the top of the screen: the page's; the player's top over the player (black, or white in the light
+   look, so that the status bar meets it however far it is swiped), and black under a page sheet, as on iOS; darker with the screen while a sheet or a
    question dims it. It is the page's background, which a Home Screen app's status bar takes on (iOS 26), since the
    whole screen (#app) lies behind it in iOS's eyes. */
 :root { --top: var(--bg); }
 :root:has(#view-player:not([hidden]):not(.off)), :root:has(#app.sheeted) { --top: #000; }
+:root[data-theme=light]:has(#view-player:not([hidden]):not(.off)):not(:has(#app.sheeted)) { --top: #fff; }
 :root:has(#dim.show) body { background: color-mix(in srgb, var(--top) calc(100% - var(--sheet-dim) * 100%), #000); }
 
 /* The whole screen. The layers that only clip use overflow: clip, so focusing something can never scroll them. For iOS,
@@ -412,6 +413,8 @@ svg { display: block; }
 .agroup button { display: block; width: 100%; text-align: center; height: 56px; font-size: 19px; }
 .agroup .danger { color: var(--red); }
 .agroup .cancel2 { color: var(--accent); font-weight: 600; }
+.agroup button + button { border-top: 1px solid var(--menu-line); }
+#add-how .agroup button:not(.cancel2) { color: var(--accent); }
 
 /* Alert with a text field, as iOS asks for a new name */
 .alert {
@@ -515,8 +518,27 @@ button.grow:active { background: var(--press); }
 
 /* The player is a page like the others: sideways is going around (in from the orb with a left swipe, or from the
    mini player; away with a right swipe), up and down is the piece itself: the player, then 详细信息, each snapping.
-   It stays dark in both looks: it is the piece. */
-#pages > #view-player { overflow: clip; touch-action: none; color: #fff; color-scheme: dark; background: linear-gradient(#000, hsl(var(--h, 220) 45% 22%) 24%, hsl(var(--h, 220) 30% 7%) 64%); }
+   Its colors: in the dark look the piece's color, deep, behind white; in the light look white, as iOS 7's Music,
+   with the piece's color on what plays it (the big button, the bar, skipping) and gray on the rest. */
+#pages > #view-player {
+  overflow: clip; touch-action: none; color: var(--p-text); color-scheme: dark;
+  background: linear-gradient(#000, hsl(var(--h, 220) 45% 22%) 24%, hsl(var(--h, 220) 30% 7%) 64%);
+  --p-text: #fff; --p-text2: rgba(255, 255, 255, .6); --p-text3: rgba(255, 255, 255, .55); --p-icon: rgba(255, 255, 255, .85);
+  --p-aux: rgba(255, 255, 255, .72); --p-press: rgba(255, 255, 255, .1); --p-track: rgba(255, 255, 255, .22);
+  --p-fill: rgba(255, 255, 255, .85); --p-vol: rgba(255, 255, 255, .85); --p-ctrl: #fff; --p-big: transparent;
+  --p-big-glyph: #fff; --p-line: rgba(255, 255, 255, .1); --p-art-shadow: 0 22px 50px rgba(0, 0, 0, .5);
+  --p-thumb-shadow: 0 14px 34px rgba(0, 0, 0, .4);
+}
+:root[data-theme=light] #pages > #view-player {
+  color-scheme: light;
+  background: linear-gradient(#fff, hsl(var(--h, 220) 70% 97%) 42%, #fff 88%);
+  --p-accent: hsl(var(--h, 220) 62% 52%); --p-accent2: hsl(calc(var(--h, 220) + 38) 70% 60%);
+  --p-text: #000; --p-text2: #8a8a8e; --p-text3: #8e8e93; --p-icon: #8e8e93; --p-aux: #8e8e93;
+  --p-press: rgba(0, 0, 0, .06); --p-track: rgba(0, 0, 0, .1); --p-vol: #b0b0b5;
+  --p-fill: linear-gradient(90deg, var(--p-accent), var(--p-accent2)); --p-ctrl: var(--p-accent);
+  --p-big: linear-gradient(135deg, var(--p-accent), var(--p-accent2)); --p-big-glyph: #fff; --p-line: rgba(0, 0, 0, .08);
+  --p-art-shadow: 0 18px 40px rgba(0, 0, 0, .16); --p-thumb-shadow: 0 10px 26px rgba(0, 0, 0, .14);
+}
 #view-player.no-piece .pmain > :not(.art), #view-player.no-piece .pinfo { visibility: hidden; }
 .screens { height: 100%; transform: translateY(calc(var(--screen, 0) * -100% + var(--dy, 0px))); transition: transform .45s var(--ease); }
 .screens.dragging { transition: none; }
@@ -527,47 +549,51 @@ button.grow:active { background: var(--press); }
   padding: calc(var(--safe-top) + var(--bar) + 52px) 28px calc(var(--safe-bottom) + 6px);
 }
 /* ✕ stops the piece and closes the player; share sends its MIDI */
-.pcorner { position: absolute; top: calc(var(--safe-top) + var(--bar) + 2px); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: rgba(255, 255, 255, .85); }
-.pcorner:active { background: rgba(255, 255, 255, .1); }
+.pcorner { position: absolute; top: calc(var(--safe-top) + var(--bar) + 2px); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--p-icon); }
+.pcorner:active { background: var(--p-press); }
 .pcorner svg { width: 22px; height: 22px; }
 #p-close { left: 14px; }
 #p-share { right: 14px; }
 .pinfo { height: 100%; overflow-y: auto; padding: calc(var(--safe-top) + var(--bar) + 8px) 20px calc(var(--safe-bottom) + 24px); }
-.art { width: min(100%, 100cqh - 352px); align-self: center; aspect-ratio: 1; margin-top: auto; flex: none; border-radius: 14px; overflow: hidden; box-shadow: 0 22px 50px rgba(0, 0, 0, .5); transition: transform .5s var(--ease); }
+.art { width: min(100%, 100cqh - 352px); align-self: center; aspect-ratio: 1; margin-top: auto; flex: none; border-radius: 14px; overflow: hidden; box-shadow: var(--p-art-shadow); transition: transform .5s var(--ease); }
 .paused-art .art { transform: scale(.84); }
 .art canvas { display: block; width: 100%; height: 100%; }
 .ptitle { display: flex; align-items: center; gap: 12px; margin-top: 42px; min-width: 0; }
 .ptext { flex: 1; min-width: 0; }
-#p-fav { width: 42px; height: 42px; display: grid; place-items: center; flex: none; border-radius: 50%; color: rgba(255, 255, 255, .85); }
-#p-fav:active { background: rgba(255, 255, 255, .1); }
+#p-fav { width: 42px; height: 42px; display: grid; place-items: center; flex: none; border-radius: 50%; color: var(--p-icon); }
+#p-fav:active { background: var(--p-press); }
 #p-fav svg { width: 26px; height: 26px; }
 #p-fav.on { color: var(--pink); }
 .ptitle .t1 { font-size: 20px; font-weight: 600; }
-.ptitle .t2 { font-size: 16px; margin-top: 3px; color: rgba(255, 255, 255, .6); }
+.ptitle .t2 { font-size: 16px; margin-top: 3px; color: var(--p-text2); }
 .scrub { position: relative; height: 28px; margin-top: 16px; cursor: pointer; flex: none; }
-.scrub .track { position: absolute; left: 0; right: 0; top: 11px; height: 6px; border-radius: 3px; overflow: hidden; background: rgba(255, 255, 255, .22); transition: top .2s, height .2s; }
+.scrub .track { position: absolute; left: 0; right: 0; top: 11px; height: 6px; border-radius: 3px; overflow: hidden; background: var(--p-track); transition: top .2s, height .2s; }
 .scrub.active .track { top: 8px; height: 12px; border-radius: 6px; }
-.scrub .fill { height: 100%; width: 0; background: rgba(255, 255, 255, .85); }
-.times { display: flex; justify-content: space-between; font-size: 12px; color: rgba(255, 255, 255, .55); font-variant-numeric: tabular-nums; }
+.scrub .fill { height: 100%; width: 0; background: var(--p-fill); }
+.times { display: flex; justify-content: space-between; font-size: 12px; color: var(--p-text3); font-variant-numeric: tabular-nums; }
 .pctrl { display: flex; align-items: center; justify-content: space-between; margin: 18px -8px 0; flex: none; }
-.pctrl button { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; color: #fff; }
-.pctrl button:active { background: rgba(255, 255, 255, .1); }
-.pctrl .big { width: 76px; height: 76px; }
+.pctrl button { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; color: var(--p-ctrl); }
+.pctrl button:active { background: var(--p-press); }
+.pctrl .big { width: 76px; height: 76px; color: var(--p-big-glyph); background: var(--p-big); }
+.pctrl .big:active { background: var(--p-big); opacity: .8; }
 .pctrl .big svg { width: 50px; height: 50px; }
+:root[data-theme=light] .pctrl .big { box-shadow: 0 8px 20px hsl(var(--h, 220) 60% 50% / .3); }
+:root[data-theme=light] .pctrl .big svg { width: 34px; height: 34px; }
 .pctrl .skip svg { width: 38px; height: 38px; }
 /* Beside them: how the list plays (顺序 / 单曲循环 / 随机), and the list itself */
-.pctrl .aux { width: 46px; height: 46px; color: rgba(255, 255, 255, .72); }
+.pctrl .aux { width: 46px; height: 46px; color: var(--p-aux); }
 .pctrl .aux svg { width: 23px; height: 23px; }
 /* The piano's volume, under the controls as in Apple Music */
-.pvol { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex: none; color: rgba(255, 255, 255, .55); }
+.pvol { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex: none; color: var(--p-text3); }
+.pvol .fill { background: var(--p-vol); }
 .pvol svg { width: 17px; height: 17px; flex: none; }
 .pvol .scrub { flex: 1; margin-top: 0; }
-.peek { margin-top: auto; align-self: center; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 16px; font-size: 13px; color: rgba(255, 255, 255, .5); }
+.peek { margin-top: auto; align-self: center; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 16px; font-size: 13px; color: var(--p-text3); }
 .peek svg { width: 14px; height: 14px; }
 .pinfo h3 { margin: 0 0 16px; font-size: 28px; font-weight: 700; }
 /* The original video, as YouTube shows it; a tap opens it there */
 .video { display: block; color: inherit; text-decoration: none; }
-.video .thumb { display: block; width: 100%; border-radius: 14px; box-shadow: 0 14px 34px rgba(0, 0, 0, .4); }
+.video .thumb { display: block; width: 100%; border-radius: 14px; box-shadow: var(--p-thumb-shadow); }
 .video:active .thumb { filter: brightness(.85); }
 .video .dur { right: 8px; bottom: 8px; padding: 2px 6px; font-size: 12px; }
 .vplay {
@@ -577,13 +603,13 @@ button.grow:active { background: var(--press); }
 }
 .vplay svg { width: 22px; height: 22px; margin-left: 3px; }
 .vt { display: -webkit-box; margin-top: 12px; font-size: 16px; font-weight: 600; line-height: 1.35; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.vs { display: block; margin-top: 4px; font-size: 13px; color: rgba(255, 255, 255, .55); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs { display: block; margin-top: 4px; font-size: 13px; color: var(--p-text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 曲目信息 as Apple TV lays out its details: a small label over each value, in two columns */
-.facts-h { margin: 24px 0 16px; padding-top: 22px; border-top: 1px solid rgba(255, 255, 255, .1); font-size: 20px; font-weight: 700; }
+.facts-h { margin: 24px 0 16px; padding-top: 22px; border-top: 1px solid var(--p-line); font-size: 20px; font-weight: 700; }
 .facts-h.first { margin-top: 0; padding-top: 0; border-top: 0; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 18px; }
 .facts div { min-width: 0; }
-.facts span { display: block; font-size: 13px; color: rgba(255, 255, 255, .5); }
+.facts span { display: block; font-size: 13px; color: var(--p-text3); }
 .facts b { display: block; margin-top: 4px; font-size: 18px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -596,14 +622,10 @@ button.grow:active { background: var(--press); }
 .basic .sb-foot { justify-content: flex-end; }
 #app:has(#pages.has-mini) #main > #view-library { padding-bottom: calc(var(--safe-bottom) + 76px); }
 
-/* ---------- The library: + to add pieces, the Transcribed tag, recordings to transcribe ---------- */
+/* ---------- The library: + to add pieces, recordings to transcribe ---------- */
 #lib-add { width: 44px; height: 46px; display: grid; place-items: center; color: var(--accent); }
 #lib-add svg { width: 24px; height: 24px; }
 .selecting #lib-add { display: none; }
-.t1 .tag {
-  display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 4px; vertical-align: 2px;
-  font-size: 10.5px; font-weight: 600; line-height: 1.35; color: var(--text2); background: var(--chip);
-}
 .audio .check { visibility: hidden; }  /* not chosen with the pieces; kept, so the names line up */
 .audio.off .t1, .audio.off .t2 { color: var(--text3); }
 .hbutton { flex: none; padding: 5px 12px; border-radius: 14px; font-size: 14px; font-weight: 600; color: var(--accent); background: var(--chip); }
