@@ -1975,12 +1975,12 @@ document.addEventListener('gesturestart', event => event.preventDefault());  // 
 
 // ---------- The orbs ----------
 // The orb at home is her ears and voice; the others are the same picture on the same clock.
-// It sits in the middle of the screen, not of the page: a Home Screen app's page starts below the status bar, so the
-// orb goes up by half of what the page does not have (nothing when the page has the whole screen).
+// It sits in the middle of the screen, not of the page: an iPhone Home Screen app's page starts below the status bar
+// and reaches the bottom, so the orb goes up by half of what the page does not have (nothing when the page has the
+// whole screen). Elsewhere (a browser's bars, Android's navigation bar below) it stays in the middle of the page.
 function centerOrb() {
-  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
   const portrait = innerHeight > innerWidth, tall = Math.max(screen.width, screen.height);
-  const missing = standalone && portrait ? Math.max(0, tall - innerHeight) : 0;
+  const missing = navigator.standalone === true && portrait ? Math.max(0, tall - innerHeight) : 0;
   $('#app').style.setProperty('--lift', `${missing / 2}px`);
 }
 addEventListener('resize', centerOrb);
