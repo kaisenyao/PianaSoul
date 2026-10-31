@@ -1102,8 +1102,8 @@ let cands = [], query = '', searching = 0;
 async function findCands(q) {
   query = q;
   cands = [];
+  const n = ++searching;  // first: searching shows the spinner, not "nothing found"
   renderCands();
-  const n = ++searching;
   try {
     const found = await api('/api/youtube?q=' + encodeURIComponent(q));
     if (n === searching) cands = found;
