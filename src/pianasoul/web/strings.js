@@ -8,6 +8,8 @@ const zh = {
   playlists: '歌单', newPlaylist: '新建歌单…', newPlaylistTitle: '新建歌单', renamePlaylist: '重命名歌单',
   deletePlaylist: '删除歌单', addToPlaylist: '添加到歌单…', addToPlaylistShort: '添加到歌单', addMusic: '添加曲目',
   addedTo: name => `已添加到“${name}”`, alreadyIn: name => `已在“${name}”中`, removeFromPlaylist: '移出歌单',
+  artwork: '封面', addArtwork: '添加', choosePhoto: '选取照片', changeArtwork: '更换封面', removeArtwork: '移除封面',
+  changePicture: '更换头像', removePicture: '移除头像', photoFailed: '图片没能存到 Mac 上，再试一次？',
   shufflePlay: '随机播放', noPlaylistPieces: '这个歌单还没有曲目', noPlaylists: '还没有歌单', more: '更多',
   newChat: '新对话', settings: '设置', current: '当前', pinnedMark: '已置顶',
   libraryHint: '曲名、原作者、演奏者', searchOnlineFor: q => `在线搜索“${q}”`, searchOnline: '在线搜索',
@@ -96,6 +98,7 @@ const zh = {
       ['改信息', '长按曲目，改曲名、原作者、演奏者。'],
       ['艺术家', '可以按原作者看，也可以按演奏者看。'],
       ['歌单', '侧栏里的“歌单”：点右上角的 ＋ 建一个；长按任何曲子选“添加到歌单…”（播放器里点爱心左边的按钮），或者在曲库里多选一起加。歌单里拖右边的把手排序，往左划移出；“播放”按顺序放，“随机播放”打乱放。也可以跟她说“放我的睡前歌单”。歌单和播放器里的播放列表是两回事，改一个不影响另一个。'],
+      ['封面和头像', '曲子在“编辑信息”里点“封面”，歌单在右上角“…”里，艺术家在他的页面右上角“…”里，都可以从手机选照片。播放器里点封面，它会翻过去，背面是正在弹的音符。封面和头像存在 Mac 曲库文件夹的 Artwork 里，跟着曲库走。'],
       ['删除', '删掉的曲子进 Mac 的废纸篓，在那里还能放回来。'],
     ]},
     {id: 'chats', icon: 'bubble', title: '对话', items: [
@@ -141,6 +144,7 @@ const zh = {
       ['改信息', '长按曲目，改曲名、原作者、演奏者。只改曲库里的名字，不改 Mac 上的文件名。'],
       ['删除', '删掉的曲子进 Mac 的废纸篓，在那里还能放回来。'],
       ['艺术家', '可以按原作者看，也可以按演奏者看。'],
+      ['封面和头像', '曲子在“编辑信息”里点“封面”，歌单在右上角“…”里，艺术家在他的页面右上角“…”里，都可以从手机选照片。播放器里点封面，它会翻过去，背面是正在弹的音符。封面和头像存在 Mac 曲库文件夹的 Artwork 里，跟着曲库走。'],
       ['歌单', '侧栏里的“歌单”：点右上角的 ＋ 建一个；长按任何曲子选“添加到歌单…”（播放器里点爱心左边的按钮），或者在曲库里多选一起加。歌单里拖右边的把手排序，往左划移出；“播放”按顺序放，“随机播放”打乱放。歌单和播放器里的播放列表是两回事，改一个不影响另一个。'],
     ]},
     {id: 'faq', icon: 'question', title: '常见问题', items: [
@@ -160,6 +164,9 @@ const en = {
   playlists: 'Playlists', newPlaylist: 'New Playlist…', newPlaylistTitle: 'New Playlist', renamePlaylist: 'Rename Playlist',
   deletePlaylist: 'Delete Playlist', addToPlaylist: 'Add to Playlist…', addToPlaylistShort: 'Add to Playlist',
   addMusic: 'Add Music', addedTo: name => `Added to “${name}”`, alreadyIn: name => `Already in “${name}”`,
+  artwork: 'Artwork', addArtwork: 'Add', choosePhoto: 'Choose Photo', changeArtwork: 'Change Artwork',
+  removeArtwork: 'Remove Artwork', changePicture: 'Change Picture', removePicture: 'Remove Picture',
+  photoFailed: 'The picture did not reach the Mac. Try again?',
   removeFromPlaylist: 'Remove', shufflePlay: 'Shuffle', noPlaylistPieces: 'No pieces in this playlist yet',
   noPlaylists: 'No playlists yet',
   more: 'More',
@@ -257,6 +264,7 @@ const en = {
       ['Edit', 'Touch and hold a piece to change its name, artist and pianist.'],
       ['Artists', 'Browse by artist or by pianist.'],
       ['Playlists', 'Playlists in the sidebar: tap + at the top right to make one; touch and hold any piece and choose Add to Playlist… (in the player, tap the button by the heart), or select several in the library. In a playlist, drag a piece by its handle to reorder it, swipe left to remove it; Play plays it in order, Shuffle shuffled. You can also ask her: “play my bedtime playlist”. A playlist is not the list that plays in the player: changing one leaves the other alone.'],
+      ['Artwork and pictures', 'Choose a photo from the phone: for a piece under Artwork in Edit Info, for a playlist in its … menu, for an artist in the … menu on their page. In the player, tap the artwork to turn it over to the notes playing. They are kept in the Artwork folder of the library on the Mac, and go wherever it goes.'],
       ['Delete', 'A piece deleted goes to the Mac’s Trash, where it can be put back.'],
     ]},
     {id: 'chats', icon: 'bubble', title: 'Conversations', items: [
@@ -303,6 +311,7 @@ const en = {
       ['Edit', 'Touch and hold a piece to change its name, artist and pianist. Only its name in the library changes, not the file on the Mac.'],
       ['Delete', 'A piece deleted goes to the Mac’s Trash, where it can be put back.'],
       ['Artists', 'Browse by artist or by pianist.'],
+      ['Artwork and pictures', 'Choose a photo from the phone: for a piece under Artwork in Edit Info, for a playlist in its … menu, for an artist in the … menu on their page. In the player, tap the artwork to turn it over to the notes playing. They are kept in the Artwork folder of the library on the Mac, and go wherever it goes.'],
       ['Playlists', 'Playlists in the sidebar: tap + at the top right to make one; touch and hold any piece and choose Add to Playlist… (in the player, tap the button by the heart), or select several in the library. In a playlist, drag a piece by its handle to reorder it, swipe left to remove it; Play plays it in order, Shuffle shuffled. A playlist is not the list that plays in the player: changing one leaves the other alone.'],
     ]},
     {id: 'faq', icon: 'question', title: 'Questions', items: [

@@ -146,7 +146,7 @@
         <div class="pmain">
           <button class="pcorner" id="p-close" data-t-label="stop"></button>
           <button class="pcorner" id="p-share" data-t-label="share"></button>
-          <div class="art"><canvas id="roll" aria-hidden="true"></canvas></div>
+          <div class="art"><div class="flip"><img class="face picture" id="p-artwork" alt=""><canvas class="face" id="roll" aria-hidden="true"></canvas></div></div>
           <div class="ptitle">
             <div class="ptext"><div class="t1" id="p-title"></div><div class="t2" id="p-sub"></div></div>
             <button id="p-add" data-t-label="addToPlaylistShort"></button>
@@ -184,6 +184,7 @@
     <div id="selbar"><button id="sel-playlist" data-t="addToPlaylistShort" disabled></button><button id="sel-delete" disabled></button></div>
     <div id="mini" hidden role="button" data-t-label="openPlayer">
       <canvas class="mart" aria-hidden="true"></canvas>
+      <img class="mart" id="mini-art" alt="" hidden>
       <div class="text"><div class="t1" id="mini-title"></div><div class="t2" id="mini-sub"></div></div>
       <button id="mini-toggle"></button>
       <div id="mini-line"></div>
@@ -239,6 +240,7 @@
         <div class="frow"><label for="f-piece" data-t="piece"></label><input id="f-piece" autocomplete="off"></div>
         <div class="frow"><label for="f-artist" data-t="artist"></label><input id="f-artist" autocomplete="off"></div>
         <div class="frow"><label for="f-performer" data-t="performer"></label><input id="f-performer" autocomplete="off"></div>
+        <div class="frow"><label data-t="artwork"></label><button class="val" id="f-artwork"></button></div>
         <div class="frow"><label data-t="source"></label><span class="val" id="f-source"></span></div>
         <div class="frow"><label data-t="added"></label><span class="val" id="f-added"></span></div>
       </div>
@@ -253,10 +255,10 @@
     <div class="agroup"><button class="cancel2" id="confirm-no" data-t="cancel"></button></div>
   </div>
 
-  <!-- Which playlist the pieces go into, a new one first -->
-  <div class="action" id="pick-playlist">
-    <div class="agroup" id="pick-list"></div>
-    <div class="agroup"><button class="cancel2" id="pick-cancel" data-t="cancel"></button></div>
+  <!-- A choice of what to do, as an action sheet: which playlist, a photo for the artwork, … -->
+  <div class="action" id="choices">
+    <div class="agroup" id="choices-list"></div>
+    <div class="agroup"><button class="cancel2" id="choices-cancel" data-t="cancel"></button></div>
   </div>
 
   <!-- Adding pieces to a playlist, from the library -->
@@ -274,6 +276,8 @@
 
   <!-- A word that something was done, for a moment -->
   <div id="hud" role="status" aria-live="polite"></div>
+  <!-- A photo from the phone, for an artwork or a picture -->
+  <input type="file" id="photo-file" accept="image/*" hidden>
 
   <!-- Long-press menu -->
   <div id="ctx">

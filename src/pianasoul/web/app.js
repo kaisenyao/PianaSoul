@@ -36,6 +36,7 @@ const ICON = {
   shuffle: svg('<path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>'),
   playlist: svg('<path d="M21 15V6"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M12 12H3M16 6H3M12 18H3"/>'),
   queue: svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/>'),
+  photo: svg('<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M20.5 16l-5-5-8 8"/>'),
   addTo: svg('<path d="M4 7h11M4 12h11M4 17h7"/><path d="M18 14v6M15 17h6"/>'),
   more: svg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>'),
   grip: svg('<path d="M5 8h14M5 12h14M5 16h14"/>'),
@@ -106,7 +107,7 @@ dark.addEventListener('change', () => { if (data.settings.appearance === 'system
 const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
   conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system'}, devices: [],
   piano: {name: '', kind: 'other', connected: true},
-  version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}, playlists: []};
+  version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}, playlists: [], pictures: {}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
 // What the Mac can do and the look chosen: kept on this phone too, so that the page opens on the right home (her orb,
 // or the library) and in the right colors before the Mac has said.
@@ -159,6 +160,7 @@ function listen() {
     else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
     else if (e.type === 'playlists') setPlaylists(e.playlists);
+    else if (e.type === 'pictures') { data.pictures = e.pictures; refresh(); }
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
   };
   socket.onclose = () => setTimeout(() => load().then(listen, error => error.message === 'signed out' ? signedOut(true)
@@ -374,6 +376,7 @@ function refresh() {
   if (openSheet === $('#sheet-queue')) renderQueue();
   if (openSheet === $('#sheet-add')) renderCands();
   if (openSheet === $('#sheet-pick')) renderPick();
+  if (openSheet === $('#sheet-edit')) renderEditArtwork();
   renderSessionCards();
   renderNow();
 }
@@ -677,7 +680,10 @@ function people(by) {
   }
   return map;
 }
-const pictureOf = (by, pieces) => by === 'performer' ? pieces.find(p => p.channel_avatar)?.channel_avatar : '';
+// An artist's own picture, or else a pianist's channel's.
+const pictureOf = (by, name, pieces) => data.pictures[name] ? `/api/pictures?name=${encodeURIComponent(name)}&v=${data.pictures[name]}`
+  : by === 'performer' ? pieces.find(p => p.channel_avatar)?.channel_avatar : '';
+const artworkOf = p => p.artwork ? `/api/recordings/${p.id}/artwork?v=${p.artwork}` : '';
 const avatar = (name, picture, cls = '') => picture
   ? `<img class="mono${cls}" src="${esc(picture)}" alt="" referrerpolicy="no-referrer">`
   : `<span class="mono${cls}" style="--h:${hueOfName(name)}">${esc(initial(name))}</span>`;
@@ -685,7 +691,7 @@ function renderArtists() {
   for (const b of document.querySelectorAll('#role-seg button')) b.classList.toggle('on', b.dataset.role === role);
   const list = [...people(role)].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], 'zh'));
   $('#artist-list').innerHTML = list.map(([name, ps]) => `<button class="arow" data-group="${esc(name)}">
-      ${avatar(name, pictureOf(role, ps))}
+      ${avatar(name, pictureOf(role, name, ps))}
       <div class="text"><div class="t1">${esc(name)}</div><div class="t2">${esc(T.pieces(ps.length))}</div></div>${CHEV}
     </button>`).join('');
 }
@@ -707,13 +713,13 @@ function groupPieces(g) {
 }
 function renderGroup(g) {
   if (g.kind === 'playlist') return renderPlaylist(g.id);
-  $('#group-more').hidden = true;
+  $('#group-more').hidden = g.kind !== 'artist' && g.kind !== 'performer';  // their picture
   $('#group-foot').innerHTML = '';
   const ps = groupPieces(g);
   const name = g.kind === 'favorites' ? T.favorites : g.kind === 'recent' ? T.recent : g.name;
   $('#group-title').textContent = name;
   $('#group-hero').hidden = g.kind === 'recent';
-  $('#group-hero').innerHTML = (g.kind === 'favorites' ? `<span class="mono square" style="--h:340">${HEART_FILL}</span>` : avatar(name, pictureOf(g.kind, ps)))
+  $('#group-hero').innerHTML = (g.kind === 'favorites' ? `<span class="mono square" style="--h:340">${HEART_FILL}</span>` : avatar(name, pictureOf(g.kind, name, ps)))
     + `<b>${esc(name)}</b><span>${esc([g.kind === 'artist' || g.kind === 'performer' ? T[g.kind] : '', T.pieces(ps.length), totalTime(ps)].filter(Boolean).join(' · '))}</span>`;
   const remove = {favorites: T.unfavorite, recent: T.forgetPlay}[g.kind];
   $('#group-list').innerHTML = ps.map(p => pieceRow(p, g.kind === 'recent' ? agoLabel(p.last_played_at) : '', remove)).join('')
@@ -732,6 +738,7 @@ async function favorite(id, on) {
 const playlistById = id => data.playlists.find(pl => pl.id === +id);
 const playlistPieces = pl => (pl?.ids || []).map(pieceById).filter(Boolean);
 function cover(pl) {
+  if (pl.artwork) return `<span class="cover"><img src="/api/playlists/${pl.id}/artwork?v=${pl.artwork}" alt=""></span>`;
   const ps = playlistPieces(pl).slice(0, 4);
   return ps.length === 4 ? `<span class="cover four">${ps.map(p => `<i style="--h:${hueOf(p.id)}"></i>`).join('')}</span>`
     : `<span class="cover" style="--h:${ps.length ? hueOf(ps[0].id) : 220}">${ICON.playlist}</span>`;
@@ -779,7 +786,7 @@ function closeGone() {
     else { $('#view-' + stack[i].view).hidden = true; stack.splice(i, 1); }
   }
   if (openSheet === $('#sheet-pick') && !playlistById(pickFor)) closeOverlays();
-  if ($('#pick-playlist').classList.contains('show')) renderPickList();
+  if (choices) renderChoices();
 }
 // A new playlist, named first: with pieces (it stays where it was), or empty (it opens, to add to).
 function newPlaylist(ids = []) {
@@ -793,6 +800,7 @@ function newPlaylist(ids = []) {
   });
 }
 function addToPlaylist(pl, ids) {
+  if (!pl) return;
   const fresh = ids.filter(id => !pl.ids.includes(id));  // each piece once in a playlist
   if (!fresh.length) return hud(T.alreadyIn(pl.name));
   pl.ids = [...pl.ids, ...fresh];
@@ -811,35 +819,20 @@ function deletePlaylist(id) {
 }
 const askDeletePlaylist = id => openAction(T.deletePlaylist, () => deletePlaylist(id));  // its pieces stay
 function playlistMenu(pl, row, html) {
+  const art = `/api/playlists/${pl.id}/artwork`;
   showCtx(row, html, [
     [T.addMusic, ICON_ADD, () => openPick(pl.id)],
+    [T.changeArtwork, ICON.photo, () => pickPhoto(jpeg => keepPicture(art, jpeg))],
+    pl.artwork && [T.removeArtwork, ICON.trash, () => keepPicture(art, null), true],
     [T.rename, ICON.edit, () => askName(T.renamePlaylist, pl.name, name => {
       if (name && name !== pl.name) changePlaylist(pl.id, {name});
     })],
     [T.deletePlaylist, ICON.trash, () => askDeletePlaylist(pl.id), true],
   ]);
 }
-// Which playlist pieces go into, as an action sheet: a new one first, then each.
-let picking = [];
-function pickPlaylist(ids) {
-  picking = ids;
-  renderPickList();
-  $('#dim').classList.add('show');
-  $('#pick-playlist').classList.add('show');
-}
-function renderPickList() {
-  $('#pick-list').innerHTML = `<button data-new-playlist>${esc(T.newPlaylist)}</button>`
-    + data.playlists.map(pl => `<button data-playlist="${pl.id}">${esc(pl.name)}</button>`).join('');
-}
-$('#pick-list').addEventListener('click', e => {
-  const b = e.target.closest('button');
-  if (!b) return;
-  const ids = picking;
-  closeOverlays();
-  if ('newPlaylist' in b.dataset) newPlaylist(ids);
-  else if (playlistById(b.dataset.playlist)) addToPlaylist(playlistById(b.dataset.playlist), ids);
-});
-$('#pick-cancel').addEventListener('click', closeOverlays);
+// Which playlist pieces go into: a new one first, then each there is.
+const pickPlaylist = ids => offer(() => [[T.newPlaylist, () => newPlaylist(ids), 'accent'],
+  ...data.playlists.map(pl => [pl.name, () => addToPlaylist(playlistById(pl.id), ids)])]);
 // 添加曲目: the library, searchable, a + by each piece (a ✓ once it is in the playlist).
 let pickFor = null;
 function openPick(id) {
@@ -872,8 +865,15 @@ $('#new-playlist').innerHTML = ICON_ADD;
 $('#new-playlist').addEventListener('click', () => newPlaylist());
 $('#group-more').innerHTML = ICON.more;
 $('#group-more').addEventListener('click', e => {
-  const pl = state.session?.kind === 'playlist' && playlistById(state.session.id);
+  const g = state.session, pl = g?.kind === 'playlist' && playlistById(g.id);
   if (pl) playlistMenu(pl, e.currentTarget, null);
+  else if (g?.kind === 'artist' || g?.kind === 'performer') {
+    const art = `/api/pictures?name=${encodeURIComponent(g.name)}`;
+    showCtx(e.currentTarget, null, [
+      [T.changePicture, ICON.photo, () => pickPhoto(jpeg => keepPicture(art, jpeg))],
+      data.pictures[g.name] && [T.removePicture, ICON.trash, () => keepPicture(art, null), true],
+    ]);
+  }
 });
 $('#group-foot').addEventListener('click', e => {
   if (e.target.closest('#group-add') && state.session?.kind === 'playlist') openPick(state.session.id);
@@ -887,6 +887,61 @@ $('#group-hero').addEventListener('click', e => {
   play(shuffle ? ids[Math.floor(Math.random() * ids.length)] : ids[0], ids, {kind: 'playlist', id: g.id}, b,
        shuffle ? 'shuffle' : 'order');
 });
+// An action sheet of choices: [label, then, kind] (kind: 'accent' or 'danger'), falsy ones left out. build makes them,
+// and again whenever what they offer may have changed (closeGone). Over a sheet, only the choices close.
+let choices = null, choiceActions = [];
+function offer(build) {
+  choices = build;
+  renderChoices();
+  $('#dim').classList.add('show');
+  $('#choices').classList.add('show');
+}
+function renderChoices() {
+  const items = choices().filter(Boolean);
+  choiceActions = items.map(item => item[1]);
+  $('#choices-list').innerHTML = items.map(([label, , kind], i) =>
+    `<button data-choice="${i}"${kind ? ` class="${kind}"` : ''}>${esc(label)}</button>`).join('');
+}
+function closeChoices() {
+  choices = null;
+  $('#choices').classList.remove('show');
+  if (!openSheet) $('#dim').classList.remove('show');
+}
+$('#choices-list').addEventListener('click', e => {
+  const then = choiceActions[e.target.closest('[data-choice]')?.dataset.choice];
+  if (!then) return;
+  closeChoices();
+  then();  // still in the tap: a photo can be asked for
+});
+$('#choices-cancel').addEventListener('click', closeChoices);
+// A photo from the phone, as the Mac keeps pictures: its middle, square, at most 1000 px, a JPEG. Asked for in a tap.
+function pickPhoto(then) {
+  const input = $('#photo-file');
+  input.value = '';
+  input.onchange = () => input.files[0] && squareJpeg(input.files[0]).then(then, () => hud(T.photoFailed));
+  input.click();
+}
+async function squareJpeg(file, most = 1000) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const side = Math.min(img.naturalWidth, img.naturalHeight), size = Math.min(most, side);
+    const canvas = Object.assign(document.createElement('canvas'), {width: size, height: size});
+    canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+    return await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(Error('no picture')), 'image/jpeg', .86));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+// A picture kept on the Mac (a JPEG), or taken away (null); the Mac then says what changed, and it shows.
+async function keepPicture(path, jpeg) {
+  const sent = await fetch(path, jpeg ? {method: 'PUT', body: jpeg, headers: {'Content-Type': 'image/jpeg'}} : {method: 'DELETE'})
+    .catch(() => null);
+  if (!sent?.ok) hud(T.photoFailed);
+}
+
 // A word that something was done, for a moment (added to a playlist).
 let hudTimer = 0;
 function hud(text) {
@@ -933,10 +988,20 @@ function openEdit(id) {
   $('#f-performer').value = p.performer;
   $('#f-source').textContent = originOf(p);
   $('#f-added').textContent = addedOf(p);
+  renderEditArtwork();
   $('#f-technical').innerHTML = technicalOf(p).map(([k, v]) =>
     `<div class="frow"><label>${esc(k)}</label><span class="val">${esc(v)}</span></div>`).join('');
   showSheet($('#sheet-edit'));
 }
+function renderEditArtwork() {
+  const p = pieceById(editId);
+  if (p) $('#f-artwork').innerHTML = p.artwork ? `<img src="${artworkOf(p)}" alt="">` : esc(T.addArtwork);
+}
+$('#f-artwork').addEventListener('click', () => {
+  const art = `/api/recordings/${editId}/artwork`;
+  offer(() => [[T.choosePhoto, () => pickPhoto(jpeg => keepPicture(art, jpeg))],
+    pieceById(editId)?.artwork && [T.removeArtwork, () => keepPicture(art, null), 'danger']]);
+});
 $('#sheet-edit .fold').addEventListener('click', () => showTechnical(!technicalOpen));
 $('#edit-cancel').addEventListener('click', closeOverlays);
 $('#edit-save').addEventListener('click', async () => {
@@ -973,7 +1038,7 @@ function renderNow() {
   $('#mini-title').textContent = $('#p-title').textContent = p.piece;
   $('#mini-sub').textContent = $('#p-sub').textContent = subtitle(p);
   const infoKey = JSON.stringify(p);
-  if (infoId !== infoKey) { infoId = infoKey; renderInfo(p); }
+  if (infoId !== infoKey) { infoId = infoKey; renderInfo(p); renderArtwork(p); }
   const paused = pb().state !== 'playing';
   for (const b of [$('#mini-toggle'), $('#p-toggle')]) {
     b.innerHTML = paused ? ICON_PLAY : ICON_PAUSE;
@@ -1065,6 +1130,22 @@ function playClock(t) {
   if (!$('#view-player').hidden) drawRoll($('#roll'), p, scrubbing ?? position(), false);
   if (!$('#mini').hidden) drawRoll($('#mini .mart'), p, position(), true);
 }
+
+// The piece's artwork, when it has one: in the player a card, the picture in front and its notes behind, the front
+// again for each piece; in the mini player the picture instead of the notes.
+let artFor = null;
+function renderArtwork(p) {
+  const art = $('#view-player .art'), src = artworkOf(p);
+  art.classList.toggle('has-artwork', !!src);
+  if (artFor !== p.id) { artFor = p.id; art.classList.remove('flipped'); }
+  if (src && $('#p-artwork').getAttribute('src') !== src) $('#p-artwork').src = src;
+  $('#mini-art').hidden = !src;
+  $('#mini .mart:not(img)').hidden = !!src;
+  if (src && $('#mini-art').getAttribute('src') !== src) $('#mini-art').src = src;
+}
+$('#view-player .art').addEventListener('click', e => {
+  if (e.currentTarget.classList.contains('has-artwork')) e.currentTarget.classList.toggle('flipped');
+});
 
 // The player and 详细信息 are two screens, one above the other. A swipe up or down anywhere, buttons included,
 // moves between them: the screens follow the finger and snap into place. Sideways is left to going back.
@@ -1780,10 +1861,10 @@ function closeOverlays() {
   openSheet = null;
   naming = confirmed = null;
   app.classList.remove('sheeted');
-  for (const id of ['#dim', '#confirm', '#add-how', '#pick-playlist', '#rename', '#info']) $(id).classList.remove('show');
+  for (const id of ['#dim', '#confirm', '#add-how', '#choices', '#rename', '#info']) $(id).classList.remove('show');
   document.activeElement?.blur?.();
 }
-const overlayOpen = () => openSheet || ['#confirm', '#add-how', '#pick-playlist', '#rename', '#info'].some(id => $(id).classList.contains('show'));
+const overlayOpen = () => openSheet || ['#confirm', '#add-how', '#choices', '#rename', '#info'].some(id => $(id).classList.contains('show'));
 // Something to know, with one button, as iOS says it.
 function info(title, text) {
   $('#info-title').textContent = title;
@@ -1808,7 +1889,7 @@ function renderPiano() {
 $('#piano-how').addEventListener('click', () => info(T.howToConnect, T.connectHow[data.piano.kind] || T.connectHow.other));
 $('#piano-hide').innerHTML = ICON.close;
 $('#piano-hide').addEventListener('click', () => { pianoHidden = data.piano.name; renderPiano(); });
-$('#dim').addEventListener('click', closeOverlays);
+$('#dim').addEventListener('click', () => { if (choices) closeChoices(); else closeOverlays(); });  // over a sheet: only the choices
 
 // Long-press menu, for a piece and for a conversation: the row lifts and its actions show by it. With html null it is
 // a pull-down menu instead (a setting's choices), opening from the right of its row.
