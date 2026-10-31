@@ -241,16 +241,23 @@ def upgrade(db: sqlite3.Connection) -> None:
     db.commit()
 
 
+def move_old_library() -> None:
+    """A checkout's library from before (output/), moved over to the new places once: before anything else is
+    written there, so the first time PianaSoul starts it is the first thing it does. Not when the data folder is
+    chosen (PIANASOUL_DATA, as in development and tests)."""
+    if not DB_PATH.exists() and not os.environ.get("PIANASOUL_DATA") and (OLD_OUTPUT / "library.db").is_file():
+        from .migrate import migrate
+
+        print(migrate(OLD_OUTPUT, MUSIC_DIR, DATA_DIR).summary(), flush=True)
+
+
 class Library:
     """The recordings, and the app's other small tables, in one SQLite file. Safe to use from several threads:
     the app's server, its downloads and the piano all use the same library."""
 
     def __init__(self, db_path: Path = DB_PATH, music_dir: Path = MUSIC_DIR):
-        if db_path == DB_PATH and not db_path.exists() and not os.environ.get("PIANASOUL_DATA") \
-                and (OLD_OUTPUT / "library.db").is_file():  # a checkout's library from before: moved over, once
-            from .migrate import migrate
-
-            print(migrate(OLD_OUTPUT, music_dir, db_path.parent).summary(), flush=True)
+        if db_path == DB_PATH:
+            move_old_library()
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.music_dir = Path(music_dir).resolve()
         self.transcribed = self.music_dir / TRANSCRIBED  # where the pieces PianaSoul makes are filed, by title

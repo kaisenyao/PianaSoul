@@ -145,10 +145,19 @@ class MigrateTests(unittest.TestCase):
         self.assertEqual(self.snapshot(self.old), before)
         self.assertEqual(self.run_migration().pieces, 3)
 
+    def real_places(self):
+        """The places as they are when no folder is chosen: the old library is moved over on its own."""
+        db = self.data / 'library.db'
+        stack = contextlib.ExitStack()
+        for name, value in (('OLD_OUTPUT', self.old), ('DB_PATH', db), ('DATA_DIR', self.data),
+                            ('MUSIC_DIR', self.music)):
+            stack.enter_context(patch.object(library, name, value))
+        stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        return stack
+
     def test_done_once_on_its_own_only_from_the_real_places(self):
         db = self.data / 'library.db'
-        quiet = contextlib.redirect_stdout(io.StringIO())
-        with patch.object(library, 'OLD_OUTPUT', self.old), patch.object(library, 'DB_PATH', db), quiet:
+        with self.real_places():
             Library(db, self.music).close()  # PIANASOUL_DATA is set, as in every test and development run
             self.assertFalse(db.exists() and len(sqlite3.connect(db).execute('SELECT * FROM recordings').fetchall()))
             db.unlink(missing_ok=True)
@@ -157,6 +166,19 @@ class MigrateTests(unittest.TestCase):
                 Library(db, self.music).close()
         self.assertEqual(len(sqlite3.connect(db).execute('SELECT * FROM recordings').fetchall()), 4, 'Gone Piece too')
         self.assertTrue((self.music / 'Transcribed' / 'Clair de Lune.mid').is_file())
+
+    def test_the_app_moves_the_old_library_before_it_writes_the_phones_token(self):
+        from pianasoul import server
+        (self.old / '.cache').mkdir(exist_ok=True)
+        (self.old / '.cache' / 'phone-token').write_text('the token the phone has')
+        env = {k: v for k, v in os.environ.items() if k != 'PIANASOUL_DATA'}
+        with self.real_places(), patch.dict(os.environ, env, clear=True), patch.object(server, 'listen'), \
+                patch('pianasoul.core.installed', side_effect=SystemExit):  # stopped once the token is there
+            with self.assertRaises(SystemExit):
+                server.main([])
+        self.assertEqual((self.data / 'phone-token').read_text(), 'the token the phone has',
+                         'The phone stays paired')
+        self.assertTrue((self.data / 'library.db').is_file())
 
 
 if __name__ == '__main__':

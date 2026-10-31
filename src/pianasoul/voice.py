@@ -829,12 +829,14 @@ def main(argv: list[str] | None = None) -> int:
 
     from . import show_details
     from .core import Core
+    from .library import move_old_library
 
     parser = argparse.ArgumentParser(prog="pianasoul voice", description="Say her name, then ask for a piece.")
     parser.add_argument("--lines", action="store_true", help="just listen to her ready-made lines")
     parser.add_argument("--debug", action="store_true", help="also show what happens in detail, with times")
     args = parser.parse_args(argv)
     show_details(args.debug)
+    move_old_library()  # before her lines are kept in the data folder
     if args.lines:
         preview_lines(Speaker())
         return 0

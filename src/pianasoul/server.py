@@ -763,9 +763,10 @@ def main(argv=None):
     import uvicorn
     from .chat import startup
     from .core import Core, installed, version as running
-    from .library import DATA_DIR
+    from .library import DATA_DIR, move_old_library
     from .web_tls import CA_FILE, local_name, prepare_https
     sockets = listen(PORT), listen(CERT_PORT)  # first: nothing starts while another PianaSoul runs
+    move_old_library()  # then the library from before, ahead of the phone's token and her voice's files
     TOKEN = saved_token()
     her, why = True, ''
     if not installed('transkun', 'yt_dlp'):
