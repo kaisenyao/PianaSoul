@@ -431,7 +431,7 @@ class AssistantTests(Base):
     def test_the_phone_is_not_kept_waiting_while_she_speaks(self):
         waited = []
 
-        def speak(line):  # meanwhile the phone asks what plays
+        def speak(line, meanwhile=False):  # meanwhile the phone asks what plays
             asking = threading.Thread(target=self.p.snapshot)
             asking.start()
             asking.join(0.5)
@@ -588,6 +588,28 @@ class CoreTests(Base):
         self.assertEqual(core.set_settings(language='en', appearance='nonsense'),
                          {'language': 'en', 'appearance': 'dark', 'output': None})
         self.assertEqual(core.set_settings(language='system')['language'], 'en', 'Only Chinese or English')
+
+    def test_with_her_pieces_get_their_other_names_at_the_start_and_as_they_come(self):
+        def model(prompt):
+            return {line.split(':')[0]: {'artist': '', 'aliases': '夜曲' if 'Nocturne' in line else 'x', 'tags': ''}
+                    for line in prompt.splitlines() if line[:1].isdigit()}
+        with patch('pianasoul.llm.complete_json', side_effect=model) as asked:
+            core = self.core()
+            for _ in range(50):
+                if self.lib.get(self.ids[2])['named_at']:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(core.assistant.library_matches('弹一下夜曲')[0]['id'], self.ids[2])
+            make_midi(self.root / 'Music' / 'Liszt - Liebestraum.mid')
+            while core.folder.scan():  # until the new file has settled
+                time.sleep(0.1)
+            for _ in range(50):
+                if all(r['named_at'] for r in self.lib.all()):
+                    break
+                time.sleep(0.05)
+            self.assertEqual(len(self.lib.all()), 4)
+            self.assertTrue(all(r['named_at'] for r in self.lib.all()), 'The new one too')
+            self.assertEqual(asked.call_count, 2, 'Each piece once')
 
     def test_a_piano_that_goes_away_while_playing_is_told_in_the_conversation_once(self):
         core = self.core()

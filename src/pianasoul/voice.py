@@ -557,6 +557,7 @@ class Conversation:
         self.stt, self.speaker = parts.stt, parts.speaker
         self.wake, self.speech = parts.detectors()
         self.hushed = threading.Event()
+        self.saying: threading.Thread | None = None  # a line said meanwhile, while she is busy with what it says
         self.recent: deque[np.ndarray] = deque(maxlen=PRE_ROLL_FRAMES)  # for one-breath requests
         self.frames: list[np.ndarray] = []
         self.state = "waiting"
@@ -574,7 +575,11 @@ class Conversation:
         self.out.status(state)
 
     def speak(self, pieces) -> None:
-        """Her voice out; a failure loses this sentence only."""
+        """Her voice out, after what she is still saying; a failure loses this sentence only."""
+        self.said()
+        self._speak(pieces)
+
+    def _speak(self, pieces) -> None:
         if self.hushed.is_set():
             return
         try:
@@ -582,11 +587,22 @@ class Conversation:
         except Exception:
             traceback.print_exc()
 
-    def say(self, text: str) -> None:
+    def say(self, text: str, meanwhile: bool = False) -> None:
+        """meanwhile: return as she begins, so that what she says she will do goes on while she says it."""
         if text and self.hushed.is_set():
             log.debug("not said aloud, no one is with her: %s", text[:60])
+        elif text and meanwhile:
+            self.said()
+            self.saying = threading.Thread(target=self._speak, args=(self.speaker.stream(text),), daemon=True)
+            self.saying.start()
         elif text:
             self.speak(self.speaker.stream(text))
+
+    def said(self) -> None:
+        """Wait for a line said meanwhile to have been heard (or for hushed)."""
+        if self.saying is not None:
+            self.saying.join()
+            self.saying = None
 
     def hush(self) -> None:
         """Quiet: set hushed (from any thread) to stop her voice at once, then call this on the conversation's
@@ -619,6 +635,7 @@ class Conversation:
     def end_turn(self, sleep: bool | None = None) -> None:
         """Her reply is out. Listen on without her name, but not while the piano plays: its sound would be
         taken for speech."""
+        self.said()
         if self.hushed.is_set():
             log.debug("her turn is over, no one is with her: she waits for her name")
             self.sleep()

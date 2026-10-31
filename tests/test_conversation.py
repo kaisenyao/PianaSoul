@@ -1,5 +1,6 @@
 """Her ears and voice, on the Mac and on the phone; no paid APIs or audio devices."""
 from types import SimpleNamespace
+import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -273,6 +274,34 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.out.spoken, [])
         self.assertEqual(self.c.state, 'waiting')
         self.assertNotIn(('turn_end', False), self.out.events)
+
+    def test_a_line_said_meanwhile_lets_her_work_and_what_follows_waits_for_it(self):
+        heard = threading.Event()
+        def speak(pieces, hushed):
+            list(pieces)
+            heard.wait(2)
+            self.out.events.append(('heard',))
+        self.out.speak = speak
+        started = time.monotonic()
+        self.c.say('我去找找看，稍等我一下～', meanwhile=True)
+        self.assertLess(time.monotonic() - started, 0.5, 'Back at once, to do what she said')
+        self.assertNotIn(('heard',), self.out.events)
+        heard.set()
+        self.c.end_turn(sleep=True)
+        self.assertLess(self.out.events.index(('heard',)), self.out.events.index(('turn_end', True)),
+                        'Her turn ends once it is heard')
+
+    def test_what_she_says_after_a_line_said_meanwhile_comes_after_it(self):
+        order = []
+        def speak(pieces, hushed):
+            text = next(iter(pieces))
+            time.sleep(0.05 if text == 'first' else 0)
+            order.append(text)
+        self.out.speak = speak
+        self.parts.speaker.stream.side_effect = lambda text: iter([text])
+        self.c.say('first', meanwhile=True)
+        self.c.say('second')
+        self.assertEqual(order, ['first', 'second'])
 
     def test_what_she_does_not_say_aloud_is_in_the_details(self):
         self.c.hushed.set()

@@ -22,7 +22,7 @@ from .chat import INSTRUCTIONS, TOOLS, Assistant, Worker
 from .conversations import Conversations
 from .downloads import Downloads
 from .folder import Folder
-from .library import ALIASES, NAMES, Library, title_parts
+from .library import ALIASES, NAMES, Library, enrich, title_parts
 from .play import clock
 from .playback import Playback
 
@@ -58,6 +58,7 @@ class Core:
         self.downloads.listeners.append(self._downloads_changed)
         self._jobs = 0
         self._audio: list[dict] = []  # as the app was last told
+        self._name = threading.Event()  # pieces may need their other names (with her: at the start, and as they come)
         self.folder = Folder(self.lib, self._folder_changed)
         self.folder.watch()
         self._transcribe_waiting()
@@ -69,6 +70,9 @@ class Core:
         self._playing = None
         self._told = False  # the piano's going away, while the piece waits for it
         threading.Thread(target=self._fill_in_videos, daemon=True).start()
+        if self.assistant:
+            self._name.set()
+            threading.Thread(target=self._name_pieces, daemon=True).start()
 
     def emit(self, event: dict) -> None:
         for listener in list(self.listeners):
@@ -149,13 +153,34 @@ class Core:
         if len(jobs) != self._jobs:  # a piece came in, or went: the library changed
             self._jobs = len(jobs)
             self.emit({"type": "library"})
+            self._name.set()
         self._audio_changed()
+
+    def _name_pieces(self) -> None:
+        """With her: each piece without its names in other languages gets them from the chat model, once (enrich), so
+        that a request in one language finds a piece titled in another."""
+        from .llm import complete_json
+
+        while not self._closed:
+            self._name.wait()
+            self._name.clear()
+            if self._closed:
+                return
+            try:
+                named = enrich(self.lib, complete_json)
+            except Exception as exc:  # the model out of reach: tried again when pieces next come in
+                print(f"  (pieces not named: {exc})", flush=True)
+                continue
+            if named:
+                log.debug("named %d piece(s) in other languages", named)
+                self.emit({"type": "library"})
 
     def _folder_changed(self) -> None:
         """Something came into the library folder, moved in it, or changed."""
         self.emit({"type": "library"})
         self._audio_changed()
         self._transcribe_waiting()
+        self._name.set()
 
     def _audio_changed(self) -> None:
         audio = self.audio()
@@ -284,6 +309,7 @@ class Core:
         """Stop the piano, letting the notes already sent finish."""
         self._closed = True
         self._look.set()
+        self._name.set()
         self.folder.close()
         self.playback.close()
 

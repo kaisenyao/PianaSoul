@@ -2,6 +2,8 @@
 import argparse
 import json
 
+import mido
+
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul.chat import INSTRUCTIONS, TOOLS
 from pianasoul.llm import make_chat
@@ -27,7 +29,25 @@ CASES = [
     ('换成德彪西的月光吧。', 'new_song'),
     ('好像又断开了，能帮我继续播放这首吗？', 'offline_resume'),
     ('好像又断开了，能从头重新播放吗？', 'offline_restart'),
+    # Titled in English, without names in other languages: found by her own search, not looked for online.
+    ('弹一下肖邦的夜曲', 'library:Chopin - Nocturne Op. 9 No. 2 (Lang Lang)'),
+    ('我想听贝多芬的月光奏鸣曲', 'library:Beethoven - Moonlight Sonata, I. Adagio sostenuto (Valentina Lisitsa)'),
+    ('来一首致爱丽丝', 'library:Beethoven - Für Elise (Lang Lang)'),
+    ('弹一下卡农吧', 'library:Pachelbel - Canon in D (Kassia)'),
+    # Not in the library: online only after the library was searched.
+    ('弹一首陈奕迅的十年', 'online'),
 ]
+ENGLISH_TITLES = [expected.split(':', 1)[1] for _, expected in CASES if expected.startswith('library:')]
+
+
+def add_english_titles(fixture):
+    for title in ENGLISH_TITLES:
+        path = fixture.root / 'Music' / (title + '.mid')
+        midi = mido.MidiFile(); track = mido.MidiTrack(); midi.tracks.append(track)
+        track.append(mido.Message('note_on', note=60, velocity=64, time=0))
+        track.append(mido.Message('note_off', note=60, time=480 * 240))
+        midi.save(path)
+        fixture.lib.add(path, title)
 
 
 def main():
@@ -45,6 +65,7 @@ def main():
         trace = []
         try:
             fixture.setUp()
+            add_english_titles(fixture)
             fixture.prime()
             if expected == 'pending':
                 fixture.connected = False
@@ -62,7 +83,14 @@ def main():
             answer = fixture.a.ask(chat, text)
             if fixture.player._thread: fixture.player._thread.join()
             player, pending = fixture.player, fixture.a.pending
-            if expected in {'resume', 'pending', 'restart', 'new_song', 'replay'}:
+            if expected.startswith('library:'):
+                okay = player.state == 'playing' and player._from == 0 and player.current[1] == expected[8:] \
+                    and not any(name == 'search_youtube' for name, _ in trace)
+            elif expected == 'online':
+                names = [name for name, _ in trace]
+                okay = 'search_youtube' in names and 'search_library' in names[:names.index('search_youtube')] \
+                    and player.current[1] == '贝加尔湖畔'
+            elif expected in {'resume', 'pending', 'restart', 'new_song', 'replay'}:
                 offset = 0 if expected in {'restart', 'new_song'} else 22
                 title = '月光' if expected == 'new_song' else '贝加尔湖畔'
                 offsets = {0, 22} if expected == 'replay' else {offset}

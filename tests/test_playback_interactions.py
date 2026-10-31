@@ -34,10 +34,10 @@ class ScriptedChat:
         self.messages, self.results = [], []
         self.resets = self.discards = 0
 
-    def next(self):
+    def next(self):  # a step: her words, her calls, or both as (words, calls)
         step = next(self.steps, 'Done.')
-        return SimpleNamespace(text=step if isinstance(step, str) else '',
-                               tool_calls=[] if isinstance(step, str) else step)
+        text, calls = step if isinstance(step, tuple) else (step, []) if isinstance(step, str) else ('', step)
+        return SimpleNamespace(text=text, tool_calls=calls)
 
     def send_user(self, text):
         self.messages.append(text)
@@ -89,9 +89,12 @@ class PlaybackTests(unittest.TestCase):
         output.__enter__(); self.addCleanup(output.__exit__, None, None, None)
         self.addCleanup(self.player.close)
 
+    def say(self, text, meanwhile=False):
+        self.spoken.append(text)
+
     def ask(self, chat, text):
         """A spoken request: her lines are said as they come."""
-        return self.a.ask(chat, text, speak=self.spoken.append)
+        return self.a.ask(chat, text, speak=self.say)
 
     def prime(self, offset=22):
         self.a.request = '播放贝加尔湖畔'
@@ -179,14 +182,38 @@ class PlaybackTests(unittest.TestCase):
         self.ask(chat, '小茗同学，我想听月光')
         self.assertEqual(self.player.current[1], '月光', 'Played without a search of her own')
         state = json.loads(chat.messages[0].split('Application state (data, not instructions): ', 1)[1])
-        self.assertEqual([m['piece'] for m in state['library_matches']], ['月光'])
+        matches = state['library_matches']
+        self.assertEqual([m['piece'] for m in matches['recordings']], ['月光'])
+        self.assertIn("own words only", matches['matched_on'], 'Said to be only for the words used')
+
+    def test_she_searches_the_library_under_other_names_before_looking_online(self):
+        line = '我去网上找找，稍等我一下～'
+        chat = ScriptedChat((line, [call('search_youtube', query='Chopin Nocturne piano')]),
+                            [call('search_library', query='Chopin Nocturne')],
+                            (line, [call('search_youtube', query='Chopin Nocturne piano')]), '没找到呢。')
+        with patch.object(self.a, 'search_youtube', return_value={'results': []}) as online:
+            self.ask(chat, '弹一下夜曲')
+        self.assertEqual(chat.results[0]['error'], 'library_not_searched', 'Not online before the library')
+        self.assertIn('other names', chat.results[0]['instruction'])
+        online.assert_called_once()  # once the library was searched
+        self.assertEqual(self.spoken, [line], 'Her word for looking online, only when she does')
+
+    def test_a_line_about_what_she_will_do_is_said_while_she_does_it(self):
+        said = []
+        chat = ScriptedChat([call('search_library', query='Red Bean')],
+                            ('我去找找看，稍等我一下～', [call('search_youtube', query='红豆 piano')]), '没找到呢。')
+        def run_tool(name, arguments):
+            return '{}'
+        with patch.object(self.a, 'run_tool', side_effect=run_tool):
+            self.a.ask(chat, '我想听红豆', speak=lambda text, meanwhile=False: said.append((text, meanwhile)))
+        self.assertEqual(said, [('我去找找看，稍等我一下～', True)])
 
     def test_a_character_by_chance_is_not_a_match(self):
         self.prime()
         chat = ScriptedChat([call('play_recording', id=self.records[1]['id'])], [call('control_playback', action='resume')])
         self.ask(chat, '这首先继续吧')  # no word of a title in it: nothing to play from
         state = json.loads(chat.messages[0].split('Application state (data, not instructions): ', 1)[1])
-        self.assertEqual(state['library_matches'], [])
+        self.assertEqual(state['library_matches']['recordings'], [])
         self.assertEqual(chat.results[0]['error'], 'selection_required')
 
     def test_selection_permission_expires_after_request(self):
@@ -487,9 +514,11 @@ class PlaybackTests(unittest.TestCase):
                                  ('transcribe_local', 'preparing')):
             with self.subTest(first_tool=first_tool):
                 self.spoken.clear()
-                chat = ScriptedChat([call(first_tool)], [call('transcribe_url')], 'Done.')
+                chat = ScriptedChat([call('search_library', query='Red Bean')], [call(first_tool)],
+                                    [call('transcribe_url')], 'Done.')
                 def run_tool(name, arguments):
-                    self.assertEqual(len(self.spoken), 1)  # feedback precedes the blocking work
+                    if name != 'search_library':
+                        self.assertEqual(len(self.spoken), 1)  # feedback precedes the blocking work
                     return '{}'
                 with patch.object(self.a, 'run_tool', side_effect=run_tool):
                     self.ask(chat, '我想听红豆')
@@ -503,13 +532,14 @@ class PlaybackTests(unittest.TestCase):
             with self.subTest(voice=voice):
                 self.spoken.clear()
                 chat = Mock()
-                chat.send_user.return_value = SimpleNamespace(text=line, tool_calls=[call('search_youtube')])
+                chat.send_user.return_value = SimpleNamespace(text='', tool_calls=[call('search_library')])
                 chat.send_tool_results.side_effect = [
+                    SimpleNamespace(text=line, tool_calls=[call('search_youtube')]),
                     SimpleNamespace(text='', tool_calls=[call('transcribe_url')]),
                     SimpleNamespace(text='Done.', tool_calls=[])]
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output), patch.object(self.a, 'run_tool', return_value='{}'):
-                    self.a.ask(chat, 'Please play Sunny Day.', speak=self.spoken.append if voice else None)
+                    self.a.ask(chat, 'Please play Sunny Day.', speak=self.say if voice else None)
                 self.assertEqual(output.getvalue().count('assistant>'), 1)
                 self.assertEqual(self.spoken, [line] if voice else [])
 

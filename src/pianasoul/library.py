@@ -97,11 +97,13 @@ CREATE TABLE IF NOT EXISTS audio (
 """
 # Columns added since the first libraries were made; an older library gets them when it is opened.
 # fingerprint: the file's sha256, to know it again when it moves; stamp: its size and time, to see it change.
+# named_at: when the chat model was asked for the piece's other names (enrich).
 ADDED_COLUMNS = {"favorited_at": "TEXT", "last_played_at": "TEXT",
                  "video_title": "TEXT NOT NULL DEFAULT ''", "channel": "TEXT NOT NULL DEFAULT ''",
                  "views": "INTEGER", "published": "TEXT NOT NULL DEFAULT ''",
                  "thumbnail": "TEXT NOT NULL DEFAULT ''", "channel_avatar": "TEXT NOT NULL DEFAULT ''",
-                 "fingerprint": "TEXT NOT NULL DEFAULT ''", "stamp": "TEXT NOT NULL DEFAULT ''"}
+                 "fingerprint": "TEXT NOT NULL DEFAULT ''", "stamp": "TEXT NOT NULL DEFAULT ''",
+                 "named_at": "TEXT"}
 VIDEO_FIELDS = ("video_title", "channel", "views", "published", "thumbnail", "channel_avatar")
 STOPWORDS = {"the", "a", "an", "of", "in", "and", "by", "for", "piano", "solo", "version", "play", "me"}
 
@@ -170,7 +172,8 @@ NAMES = {
     "performer": "the pianist (often the video's channel)",
 }
 # Its other names, kept for finding it, never in its title.
-ALIASES = "other names the piece is known by (in other languages, or its full catalog title), separated by '; '"
+ALIASES = ("other names the piece is known by, separated by '; ': its name in Chinese and in English (whichever the "
+           "piece's name is not in), other spellings, its full catalog title")
 
 
 def title_parts(title: str, composer: str = "", performer: str = "") -> dict:
@@ -450,6 +453,10 @@ class Library:
         """When a recording last played (on=False takes it out of 最近播放)."""
         self.execute("UPDATE recordings SET last_played_at = ? WHERE id = ?", (_now() if on else None, rec_id))
 
+    def mark_named(self, ids: list[int]) -> None:
+        """The chat model has been asked for these pieces' names (enrich): not again."""
+        self.execute(f"UPDATE recordings SET named_at = ? WHERE id IN ({', '.join('?' * len(ids))})", (_now(), *ids))
+
     def set_video(self, rec_id: int, video: dict) -> None:
         """What the recording's video page said when it was downloaded: title, channel (and its picture), views,
         date and thumbnail."""
@@ -527,8 +534,8 @@ class Library:
 
 def enrich(lib: Library, complete_json) -> int:
     """Ask the chat model to fill in the artist (where the library has none), aliases (other-language titles)
-    and tags."""
-    todo = [r for r in lib.all() if not r["composer"] or not r["aliases"]]
+    and tags: once for each piece, which the model may not know either."""
+    todo = [r for r in lib.all() if not r["named_at"] and (not r["composer"] or not r["aliases"])]
     changed = 0
     for i in range(0, len(todo), 30):
         batch = todo[i:i + 30]
@@ -550,6 +557,7 @@ def enrich(lib: Library, complete_json) -> int:
                        aliases=rec["aliases"] or info.get("aliases", ""),
                        tags=rec["tags"] or info.get("tags", ""))
             changed += 1
+        lib.mark_named([r["id"] for r in batch])
     return changed
 
 

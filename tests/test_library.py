@@ -7,7 +7,7 @@ import unittest
 import mido
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
-from pianasoul.library import Library, file_result, make_title, title_parts
+from pianasoul.library import Library, enrich, file_result, make_title, title_parts
 
 
 def make_midi(path: Path, note: int = 60) -> Path:
@@ -148,6 +148,20 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(rec['title'], 'Old')
         self.assertIsNone(rec['favorited_at'])
         self.assertEqual(rec['channel_avatar'], '')
+
+    def test_pieces_are_named_in_other_languages_once_each(self):
+        nocturne = self.lib.add(make_midi(self.music / 'Chopin - Nocturne Op. 9 No. 2.mid'), 'Chopin - Nocturne Op. 9 No. 2')
+        unknown = self.lib.add(make_midi(self.music / 'track 7.mid', note=62), 'track 7')
+        asked = []
+        def model(prompt):
+            asked.append(prompt)
+            return {str(nocturne['id']): {'artist': 'Chopin', 'aliases': '降E大调夜曲; 夜曲', 'tags': 'classical'},
+                    str(unknown['id']): {'artist': '', 'aliases': '', 'tags': ''}}
+        self.assertEqual(enrich(self.lib, model), 2)
+        self.assertIn('Chinese and in English', asked[0])
+        self.assertEqual(self.lib.search('夜曲')[0]['id'], nocturne['id'], 'Found by its name in the other language')
+        self.assertEqual(enrich(self.lib, model), 0)
+        self.assertEqual(len(asked), 1, 'Not asked again, about the one the model did not know either')
 
     def test_settings_are_kept(self):
         self.assertEqual(self.lib.setting('language', 'system'), 'system')

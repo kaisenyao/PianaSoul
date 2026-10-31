@@ -1,7 +1,8 @@
 """Imported by every test before pianasoul: the library, data and cache folders are throwaway ones, so that no test
 ever reads or writes the real ~/Music/PianaSoul or Application Support. Setting PIANASOUL_DATA also keeps the one-time
 move from a checkout's old output/ folder from starting. What goes to the Trash goes to a throwaway folder (TRASH),
-not the Mac's, and no note ever goes to a real MIDI output (a test that plays gives its own)."""
+not the Mac's, no note ever goes to a real MIDI output (a test that plays gives its own), and the real chat model is
+never asked to name pieces (a test that names them gives its own model)."""
 import atexit
 import os
 from pathlib import Path
@@ -25,7 +26,7 @@ def to_trash(path) -> None:
 send2trash.send2trash = to_trash
 
 
-from pianasoul import play  # noqa: E402  (after the places above)
+from pianasoul import llm, play  # noqa: E402  (after the places above)
 
 
 class NoMidi:
@@ -35,3 +36,10 @@ class NoMidi:
 
 REAL_MIDI_OUT = play.CoreMidiOut  # for the one test that plays on an output of its own (test_outputs)
 play.CoreMidiOut = NoMidi
+
+
+def no_model(prompt):
+    raise OSError('a test tried to ask the real chat model')
+
+
+llm.complete_json = no_model

@@ -39,6 +39,9 @@ MATCH_SCORE = 2.0  # a library match on a whole word (two characters or more), n
 VOLUME_STEP = 10  # percent, for "louder" and "softer"
 ACTIONS = {"play_recording", "control_playback", "set_volume"}  # tools that do something she then confirms
 WAITS = {"search_youtube": "searching", "transcribe_url": "preparing", "transcribe_local": "preparing"}  # long steps
+ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "First call search_library with the "
+                              "piece's other names (another language or spelling, the composer's other name); search "
+                              "online only if it is not there."})
 
 INSTRUCTIONS = """You are the PianaSoul assistant. The user asks for music; you find a good piano performance and
 play it on their piano. Talk like a friend who loves the piano: warm, cheerful and a little playful, never like a
@@ -58,12 +61,13 @@ accurate, and never claim authorship or pretend to be learning the piece. Briefl
 pause, continue, restart and volume changes; speak only the connection reminder when an action fails.
 
 When the user wants to hear something:
-1. The application state has library_matches: what the library has for the request's own words, best first (empty
-   when it has nothing). If a recording clearly matches (same piece; same pianist if one was named), call
-   play_recording with its id and say in a few words what you are playing; of several that match equally, play
-   the first. If none does, call search_library only when the piece may be in the library under other words
-   (another language or spelling, a composer's other name); otherwise go straight on to step 2.
-2. If it is not there, write one short, friendly sentence that says you will find it AND explicitly asks the
+1. The application state has library_matches: the library searched for the request's own words only, best first.
+   If a recording clearly matches (same piece; same pianist if one was named), call play_recording with its id and
+   say in a few words what you are playing; of several that match equally, play the first. If none does, the piece
+   may still be there under its other names, as titles are often in another language: call search_library with
+   them, saying nothing yet (its name in English or Chinese, whichever the request did not use, other spellings,
+   the composer's other name; for example 夜曲 -> Chopin Nocturne, 致爱丽丝 -> Für Elise), and play it if it is there.
+2. If it is not there either, write one short, friendly sentence that says you will find it AND explicitly asks the
    listener to wait (for example "I'll find a lovely piano performance for you; please give me a moment.").
    Vary the wording without predicting a duration or promising it will be ready immediately. Include the sentence
    with your search_youtube call. Search with the composer or singer, piece, catalog number, pianist if named, and "piano".
@@ -117,7 +121,7 @@ NAME_PROPERTIES = {name: {"type": "string", "description": meaning}
 TOOLS = [
     {"name": "search_library",
      "description": "Search the local MIDI library by piece, artist, performer, alias or tag (any language); "
-                    "the best match first.",
+                    "the best match first. Always before search_youtube, with the piece's other names.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
     {"name": "search_youtube",
      "description": "Search YouTube videos. Returns url, title, channel, duration_s, views, description, "
@@ -266,11 +270,12 @@ class Assistant:
         if self.on_message:
             self.on_message(message)
 
-    def tell(self, text: str) -> None:
-        """A line of hers before the reply: on the screen, aloud in voice, and in the conversation."""
+    def tell(self, text: str, meanwhile: bool = False) -> None:
+        """A line of hers before the reply: on the screen, aloud in voice, and in the conversation. meanwhile: what
+        she says she will do goes on while she says it."""
         print(f"assistant> {text}", flush=True)
         if self.speak:
-            self.speak(text)
+            self.speak(text, meanwhile=meanwhile)
         self.keep("assistant", text)
 
     def new_conversation(self, chat) -> None:
@@ -571,6 +576,13 @@ class Assistant:
             log.debug("a short request, no model: %s", action)
             return self.short_request(action)
 
+        # library_matches are for the request's own words only: the piece may be in the library under its other
+        # names, so she looks online only once she has searched the library herself.
+        library_searched = False
+
+        def refused(call) -> bool:
+            return call.name == "search_youtube" and not library_searched
+
         def model_reply(fn, *args):
             started = time.monotonic()
             reply = fn(*args)
@@ -581,7 +593,8 @@ class Assistant:
         try:
             model_text = text
             state = {"typed": True} if typed else {}
-            state["library_matches"] = self.library_matches(text)
+            state["library_matches"] = {"matched_on": "the request's own words only, not the piece's other names",
+                                        "recordings": self.library_matches(text)}
             if self.pending:
                 state["pending"] = {"title": self.pending.title, "from_s": self.pending.from_s,
                                     "status": "waiting to retry playback"}
@@ -597,16 +610,22 @@ class Assistant:
             for _ in range(MAX_TOOL_ROUNDS):
                 if not reply.tool_calls:
                     break
-                # Words that come with an action are not said before it is done: her reply follows it.
-                if reply.text.strip() and not any(c.name in ACTIONS for c in reply.tool_calls):
-                    self.tell(reply.text.strip())
+                # Words that come with an action are not said before it is done: her reply follows it. Nor are
+                # those that come with looking online too soon, which she does not do.
+                if reply.text.strip() and not any(c.name in ACTIONS or refused(c) for c in reply.tool_calls):
+                    self.tell(reply.text.strip(), meanwhile=True)
                     progress_spoken = True
                 results = []
                 for call in reply.tool_calls:
+                    if refused(call):
+                        log.debug("search_youtube: refused, the library not searched yet")
+                        results.append((call, ONLINE_TOO_SOON))
+                        continue
                     if not progress_spoken and call.name in WAITS:  # a long step is not started silently
-                        self.tell(line(WAITS[call.name], chinese))
+                        self.tell(line(WAITS[call.name], chinese), meanwhile=True)
                         progress_spoken = True
                     raw = self.run_tool(call.name, call.arguments)
+                    library_searched = library_searched or call.name == "search_library"
                     results.append((call, raw))
                     if call.name in {"play_recording", "control_playback"}:
                         playback_result = json.loads(raw)
