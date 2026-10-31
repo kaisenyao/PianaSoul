@@ -83,7 +83,7 @@ const zh = {
       ['分享', '播放器右上角，把这首的 MIDI 发出去。'],
     ]},
     {id: 'library', icon: 'piano', title: '曲库和添加曲子', items: [
-      ['找曲子', '在曲库里搜；结果下面可以上传文件，或者在线搜索钢琴版。'],
+      ['找曲子', '在曲库里搜；没找到的话，下面可以直接上传文件，或者在线搜索钢琴版。想找已有曲子的别的版本，点右上角的 ＋。'],
       ['上传', '点曲库右上角的 ＋，再点“上传文件”，MIDI 和录音可以一次选好几个，放进曲库的“Uploaded”文件夹。在 Mac 上直接拖进“音乐 › PianaSoul”文件夹也一样。'],
       ['来源', '每首曲子怎么来的，写在详细信息的“来源”里：由视频或录音转谱、从手机上传，或者你放进曲库的文件。'],
       ['只有钢琴版', '只列出能转成 MIDI 的钢琴版：教程、瀑布流、简单版、合集这些都不列。'],
@@ -236,7 +236,7 @@ const en = {
       ['Share', 'Top right of the player sends this piece’s MIDI.'],
     ]},
     {id: 'library', icon: 'piano', title: 'Library and New Pieces', items: [
-      ['Finding', 'Search the library; below the results, upload files or search online for piano versions.'],
+      ['Finding', 'Search the library; when nothing is found, upload files or search online for piano versions right there. For another version of a piece you have, tap + at the top right.'],
       ['Upload', 'Tap + at the top right of the library, then Upload Files: MIDI files and recordings, several at once, into the library’s Uploaded folder. Dragging them into Music › PianaSoul on the Mac does the same.'],
       ['Source', 'How each piece came is under Source in its details: transcribed from a video or a recording, uploaded from a phone, or a file you put in the library.'],
       ['Piano versions only', 'Only piano versions that make good MIDI are listed: no tutorials, falling notes, easy versions or compilations.'],

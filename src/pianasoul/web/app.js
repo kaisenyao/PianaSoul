@@ -573,11 +573,14 @@ function renderLibrary() {
   const q = libQ.trim().toLowerCase();
   const ready = [...data.recordings].sort(byNewest), recordings = audioItems();
   const shown = q ? ready.filter(p => matches(p, q)) : ready;
+  const audio = recordings.filter(a => !q || a.name.toLowerCase().includes(q));
   $('#library-list').classList.toggle('selecting', state.selecting);
   $('#library-list').innerHTML = (q ? [] : jobPieces()).map(p => pieceRow(p)).join('')
-    + recordings.filter(a => !q || a.name.toLowerCase().includes(q)).map(audioRow).join('') + shown.map(p => pieceRow(p)).join('');
-  // Below what the library has: the same two ways as its +, the search with these words.
-  $('#lib-online').innerHTML = !q ? '' : `<button class="online" data-how="upload">${ICON_UPLOAD}<span>${esc(T.upload)}</span></button>`
+    + audio.map(audioRow).join('') + shown.map(p => pieceRow(p)).join('');
+  // When the library has nothing for the words: the same two ways as its +, the search with these words. (Another
+  // version of a piece it has is found with the + itself.)
+  $('#lib-online').innerHTML = !q || shown.length || audio.length ? ''
+    : `<button class="online" data-how="upload">${ICON_UPLOAD}<span>${esc(T.upload)}</span></button>`
     + (data.features.transcribe ? `<button class="online" data-how="search">${ICON_FIND}<span>${esc(T.searchOnlineFor(libQ.trim()))}</span></button>` : '');
   $('#library-count').textContent = q ? (shown.length ? T.found(shown.length) : T.notFound)
     : [T.pieces(ready.length), totalTime(ready), data.jobs.length ? T.preparing(data.jobs.length) : '',
