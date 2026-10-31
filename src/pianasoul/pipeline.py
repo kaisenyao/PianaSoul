@@ -49,14 +49,14 @@ def transcribe_audio(engine, audio_path, options: Options):
     t0 = time.time()
     audio = load_audio(audio_path, engine.sample_rate)
     t1 = time.time()
-    raw = engine.transcribe(audio)
+    raw, device = engine.transcribe(audio)
     t2 = time.time()
     cleaned, report = clean(raw, keep_soft_pedal=options.keep_soft_pedal,
                             legato=options.legato, pedal_ramps=options.pedal_ramps)
     info = {
         "source": Path(audio_path).name,
         "engine": engine.version,
-        "device": engine.device,
+        "device": device,
         "audio_duration_s": round(len(audio) / engine.sample_rate, 3),
         "transcribe_seconds": round(t2 - t1, 1),
         "total_seconds": round(time.time() - t0, 1),
@@ -66,7 +66,7 @@ def transcribe_audio(engine, audio_path, options: Options):
         "options": vars(options),
     }
     log.debug("transcribed %s: %.0f s of music in %.0f s on %s (loading %.1f s); %d notes, %d pedal presses",
-              info["source"], info["audio_duration_s"], info["transcribe_seconds"], engine.device, t1 - t0,
+              info["source"], info["audio_duration_s"], info["transcribe_seconds"], device, t1 - t0,
               info["output"]["notes"], info["output"]["sustain_pedal_presses"])
     return raw, cleaned, info
 
