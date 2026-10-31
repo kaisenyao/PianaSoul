@@ -96,7 +96,7 @@ class Playback(Player):
     def snapshot(self) -> dict:
         """As it is heard: position moves on after starts_in seconds (the notes leave a lead early, and a next piece
         comes after a short silence), up to until (the end of the piece; after a pause, where the notes already
-        sent stop sounding)."""
+        sent stop sounding). lost: why it paused when the piano went away while playing, until it is tried again."""
         with self._lock:
             now, position = time.perf_counter(), self.position
             if self.state == "playing":
@@ -107,7 +107,8 @@ class Playback(Player):
             return {"id": self.current_id, "state": self.state, "position": round(position, 2),
                     "starts_in": round(starts_in, 2), "until": until if until is None else round(until, 2),
                     "duration": self.duration, "ended": self.ended,
-                    "mode": self.mode, "ids": list(self.ids), "scope": dict(self.scope), "volume": self.volume}
+                    "mode": self.mode, "ids": list(self.ids), "scope": dict(self.scope), "volume": self.volume,
+                    "lost": self.lost}
 
     def changed(self) -> None:
         for listener in list(self.listeners):

@@ -138,7 +138,7 @@ function listen() {
   socket.onmessage = ({data: raw}) => {
     let e = null;
     try { e = JSON.parse(raw); } catch { return; }
-    if (e.type === 'playback') { delete e.type; data.playback = e; heardAt = performance.now(); refresh(); }
+    if (e.type === 'playback') { delete e.type; onPlayback(e); }
     else if (e.type === 'jobs') onJobs(e.jobs);
     else if (e.type === 'library') recordings();
     else if (e.type === 'conversations') conversations();
@@ -215,6 +215,14 @@ async function control(action, value, index, from) {
     heardAt = performance.now();
     refresh();
   } catch (error) { failed(error, from); }
+}
+// The piano going away while it plays pauses the piece; she says so in the conversation, and without her the page
+// does, once.
+function onPlayback(snapshot) {
+  if (snapshot.lost && !pb().lost && !herOn()) toast(T.pianoMissing);
+  data.playback = snapshot;
+  heardAt = performance.now();
+  refresh();
 }
 // A piece that cannot play: the row shakes; when the piano is not there, she says so, or without her the page does.
 function failed(error, from) {
