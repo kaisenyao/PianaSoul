@@ -76,6 +76,7 @@ let voice = null;  // the orb's ears and voice, once the page is wired
 let T = LANGUAGES.zh, lang = 'zh';
 const dark = matchMedia('(prefers-color-scheme: dark)');
 function applySettings() {
+  try { localStorage.setItem('settings', JSON.stringify(data.settings)); } catch {}
   lang = LANGUAGES[data.settings.language] ? data.settings.language : /^zh/i.test(navigator.language) ? 'zh' : 'en';
   T = LANGUAGES[lang];
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
@@ -98,9 +99,10 @@ const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: '
   piano: {name: '', kind: 'other', connected: true},
   version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
-// What the Mac can do: kept on this phone too, so that the page opens on the right home (her orb, or the library)
-// before the Mac has said.
+// What the Mac can do and the look chosen: kept on this phone too, so that the page opens on the right home (her orb,
+// or the library) and in the right colors before the Mac has said.
 try { Object.assign(data.features, JSON.parse(localStorage.getItem('features')) || {}); } catch {}
+try { Object.assign(data.settings, JSON.parse(localStorage.getItem('settings')) || {}); } catch {}
 const herOn = () => !!data.features.assistant;
 
 // The address carries #token=…, and keeps it: Add to Home Screen saves this address, and the Home Screen app does
@@ -161,14 +163,21 @@ async function load() {
   renderRecent();
   for (const e of stack) if (e.view === 'session') renderSession(e.id);  // what was said while the Mac was away
 }
+// Until the Mac has said whether this page may come in (a moment, a second at most), the page shows only its background:
+// one it no longer lets in goes straight to saying so, without the home page showing first.
 async function signIn() {
-  if (!token) return signedOut(false);
+  const show = () => $('#app').classList.remove('waiting');
+  setTimeout(show, 1000);
   try {
+    if (!token) return signedOut(false);
     await api('/api/session', 'POST', {token});
+    show();
     await load();
     listen();
   } catch (error) {
     if (error.message === 'signed out') signedOut(true);
+  } finally {
+    show();
   }
 }
 

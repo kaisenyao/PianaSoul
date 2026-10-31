@@ -666,6 +666,7 @@ button.grow:active { background: var(--press); }
   text-align: center;
 }
 #signed-out[hidden] { display: none; }
+#app.waiting > :not(#signed-out) { visibility: hidden; }  /* until the Mac answers (signIn) */
 #signed-out svg { width: 56px; height: 56px; color: var(--text2); margin-bottom: 8px; }
 #signed-out b { font-size: 20px; font-weight: 600; }
 #signed-out p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text2); }
