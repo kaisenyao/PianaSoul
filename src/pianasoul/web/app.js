@@ -882,8 +882,12 @@ function showScreen(n) {
 (function screenGestures() {
   const view = $('#view-player'), el = $('#p-screens');
   let g = null;
+  // Not from the bottom edge, where a swipe up is the system's (the home indicator: going home, another app).
+  const fromEdge = e => e.clientY > innerHeight - parseFloat(getComputedStyle(app).paddingBottom) - 16;
   view.addEventListener('pointerdown', e => {
-    if (!e.button && !e.target.closest('.scrub')) g = {id: e.pointerId, x0: e.clientX, y0: e.clientY, t: performance.now(), dy: 0, on: false};
+    if (!e.button && !e.target.closest('.scrub') && !fromEdge(e)) {
+      g = {id: e.pointerId, x0: e.clientX, y0: e.clientY, t: performance.now(), dy: 0, on: false};
+    }
   });
   view.addEventListener('pointermove', e => {
     if (!g || e.pointerId !== g.id) return;
@@ -898,11 +902,12 @@ function showScreen(n) {
     g.dy = (playerScreen === 0 ? dy > 0 : dy < 0) ? dy * .3 : dy;  // past either end it resists, like the edge of a scroll view
     el.style.setProperty('--dy', g.dy + 'px');
   });
+  // Let go: to the screen it was swiped towards. Taken over by the system (pointercancel): back where it was.
   const end = e => {
     if (!g || e.pointerId !== g.id) return;
     if (g.on) {
       const far = performance.now() - g.t < 300 ? 30 : 110;
-      showScreen(g.dy < -far ? 1 : g.dy > far ? 0 : playerScreen);
+      showScreen(e.type === 'pointercancel' ? playerScreen : g.dy < -far ? 1 : g.dy > far ? 0 : playerScreen);
       guardUntil = performance.now() + 250;
     }
     g = null;
