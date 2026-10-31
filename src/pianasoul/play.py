@@ -746,7 +746,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     lib = Library()
     if args.all:
-        items = [(Path(r["midi_path"]), r["title"]) for r in lib.playlist()]
+        items = [(Path(r["midi_path"]), r["title"]) for r in lib.playable()]
     elif args.query:
         items = resolve(lib, args.query)
     else:

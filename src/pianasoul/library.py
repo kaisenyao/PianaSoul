@@ -83,6 +83,20 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- Playlists (歌单): the user's own lists of pieces, each piece once, in their order. Not files in the library folder:
+-- a piece renamed or moved stays in its playlists, one deleted leaves them (Library.delete).
+CREATE TABLE IF NOT EXISTS playlists (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS playlist_items (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id),
+    recording_id INTEGER NOT NULL REFERENCES recordings(id),
+    position INTEGER NOT NULL,
+    PRIMARY KEY (playlist_id, recording_id)
+);
 -- The recordings (mp3 and the like) in the library folder, each to be made into a piece: once on its own, when it is
 -- first seen and this Mac can transcribe (status waiting until then), and again only when asked.
 CREATE TABLE IF NOT EXISTS audio (
@@ -109,8 +123,18 @@ VIDEO_FIELDS = ("video_title", "channel", "views", "published", "thumbnail", "ch
 STOPWORDS = {"the", "a", "an", "of", "in", "and", "by", "for", "piano", "solo", "version", "play", "me"}
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+PLAYLIST_TIME = "microseconds"  # which of two playlists changed last, even within a second (her choice by name)
+
+
+def _playlist_name(name: str) -> str:
+    name = str(name).strip()
+    if not name:
+        raise ValueError("a playlist needs a name")
+    return name
+
+
+def _now(timespec: str = "seconds") -> str:
+    return datetime.now(timezone.utc).isoformat(timespec=timespec)
 
 
 def _norm(text: str) -> str:
@@ -452,8 +476,107 @@ class Library:
         with self.lock:
             self.db.execute("DELETE FROM recordings WHERE id = ?", (rec_id,))
             self.db.execute("UPDATE audio SET recording_id = NULL WHERE recording_id = ?", (rec_id,))
+            for row in self.db.execute("SELECT playlist_id FROM playlist_items WHERE recording_id = ?", (rec_id,)).fetchall():
+                self._renumber(row[0], [i for i in self._playlist_ids(row[0]) if i != rec_id])
             self.db.commit()
         return True
+
+    # ---- playlists ------------------------------------------------------------------------------------
+    def playlists(self) -> list[dict]:
+        """Every playlist, the newest first: id, name, ids (its pieces in order), created_at, updated_at."""
+        with self.lock:
+            rows = self.db.execute("SELECT * FROM playlists ORDER BY created_at DESC, id DESC").fetchall()
+            return [self._playlist(row) for row in rows]
+
+    def playlist(self, playlist_id: int) -> dict | None:
+        with self.lock:
+            row = self.db.execute("SELECT * FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+            return self._playlist(row) if row else None
+
+    def new_playlist(self, name: str, ids=()) -> dict:
+        """A new playlist with these pieces (each once, those in the library). ValueError for an empty name."""
+        name, now = _playlist_name(name), _now(PLAYLIST_TIME)
+        with self.lock:
+            playlist_id = self.db.execute("INSERT INTO playlists (name, created_at, updated_at) VALUES (?, ?, ?)",
+                                          (name, now, now)).lastrowid
+            self._renumber(playlist_id, self._known(ids))
+            self.db.commit()
+        return self.playlist(playlist_id)
+
+    def rename_playlist(self, playlist_id: int, name: str) -> dict | None:
+        """ValueError for an empty name; None when there is no such playlist."""
+        name = _playlist_name(name)
+        with self.lock:
+            if not self._touch(playlist_id, "name = ?", (name,)):
+                return None
+            self.db.commit()
+        return self.playlist(playlist_id)
+
+    def delete_playlist(self, playlist_id: int) -> bool:
+        """The playlist goes; its pieces stay in the library."""
+        with self.lock:
+            self.db.execute("DELETE FROM playlist_items WHERE playlist_id = ?", (playlist_id,))
+            deleted = self.db.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,)).rowcount > 0
+            self.db.commit()
+        return deleted
+
+    def add_to_playlist(self, playlist_id: int, ids) -> list[int] | None:
+        """At its end, those of the pieces not in it yet; returns them (None when there is no such playlist)."""
+        with self.lock:
+            have = self._playlist_ids(playlist_id)
+            added = [i for i in self._known(ids) if i not in have]
+            if not self._touch(playlist_id):
+                return None
+            self._renumber(playlist_id, have + added)
+            self.db.commit()
+        return added
+
+    def remove_from_playlist(self, playlist_id: int, rec_id: int) -> bool:
+        with self.lock:
+            have = self._playlist_ids(playlist_id)
+            if rec_id not in have:
+                return False
+            self._touch(playlist_id)
+            self._renumber(playlist_id, [i for i in have if i != rec_id])
+            self.db.commit()
+        return True
+
+    def move_in_playlist(self, playlist_id: int, rec_id: int, index: int) -> bool:
+        """The piece to index in the playlist (past either end: first or last)."""
+        with self.lock:
+            have = self._playlist_ids(playlist_id)
+            if rec_id not in have:
+                return False
+            have.remove(rec_id)
+            have.insert(max(0, min(int(index), len(have))), rec_id)
+            self._touch(playlist_id)
+            self._renumber(playlist_id, have)
+            self.db.commit()
+        return True
+
+    def _playlist(self, row: sqlite3.Row) -> dict:
+        return {"id": row["id"], "name": row["name"], "ids": self._playlist_ids(row["id"]),
+                "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+    def _playlist_ids(self, playlist_id: int) -> list[int]:
+        return [r[0] for r in self.db.execute(
+            "SELECT recording_id FROM playlist_items WHERE playlist_id = ? ORDER BY position", (playlist_id,))]
+
+    def _known(self, ids) -> list[int]:
+        """The ids of pieces in the library, each once, in their order."""
+        known = {r[0] for r in self.db.execute("SELECT id FROM recordings")}
+        return [i for i in dict.fromkeys(int(i) for i in ids) if i in known]
+
+    def _touch(self, playlist_id: int, change: str = "", params=()) -> bool:
+        """Changed now (and with change, a column set): False when there is no such playlist."""
+        sets = ", ".join(filter(None, [change, "updated_at = ?"]))
+        return self.db.execute(f"UPDATE playlists SET {sets} WHERE id = ?",
+                               (*params, _now(PLAYLIST_TIME), playlist_id)).rowcount > 0
+
+    def _renumber(self, playlist_id: int, ids: list[int]) -> None:
+        self.db.execute("DELETE FROM playlist_items WHERE playlist_id = ?", (playlist_id,))
+        self.db.executemany("INSERT INTO playlist_items (playlist_id, recording_id, position) VALUES (?, ?, ?)",
+                            [(playlist_id, rec_id, n) for n, rec_id in enumerate(ids)])
 
     def favorite(self, rec_id: int, on: bool) -> None:
         self.execute("UPDATE recordings SET favorited_at = ? WHERE id = ?", (_now() if on else None, rec_id))
@@ -482,7 +605,7 @@ class Library:
         self.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                      (key, value))
 
-    def playlist(self) -> list[dict]:
+    def playable(self) -> list[dict]:
         """Every recording whose file exists, in the order it was added."""
         rows = (self._public(r) for r in self.execute("SELECT * FROM recordings ORDER BY id"))
         return [r for r in rows if r["file_exists"]]

@@ -127,16 +127,21 @@ class Playback(Player):
             raise FileNotFoundError(f"recording {rec_id} is not in the library")
         return Path(rec["midi_path"]), rec["title"]
 
-    def select(self, rec_id: int, ids: list[int] | None = None, scope: dict | None = None, from_s: float = 0.0) -> None:
-        """Play rec_id, from the list ids (in their order) that scope names. LookupError when the piano is not
-        there; then nothing changes, and the piece that was playing goes on."""
+    def select(self, rec_id: int, ids: list[int] | None = None, scope: dict | None = None, from_s: float = 0.0,
+               mode: str | None = None) -> None:
+        """Play rec_id, from the list ids (in their order) that scope names, in mode if given (a playlist's 播放
+        is in order, its 随机播放 shuffled). LookupError when the piano is not there; then nothing changes, and the
+        piece that was playing goes on."""
         item = self.item(rec_id)
         ids = list(dict.fromkeys(ids or [rec_id]))
         if rec_id not in ids:
             ids.append(rec_id)
+        if mode is not None and mode not in MODES:
+            raise ValueError(f"mode must be one of {MODES}")
 
         def ready():
             self._set_current(rec_id)
+            self.mode = mode or self.mode
             self.ids, self.scope, self.unshuffled = ids, dict(scope or {}), None
             log.debug("the list: %d piece(s) from %s, %s", len(ids), self.scope.get("kind", "one choice"), self.mode)
             if self.mode == "shuffle":
@@ -145,12 +150,16 @@ class Playback(Player):
         with self._lock:
             self.start([item], from_s, ready)
 
-    def show(self, rec_id: int, ids: list[int] | None = None, scope: dict | None = None) -> None:
+    def show(self, rec_id: int, ids: list[int] | None = None, scope: dict | None = None,
+             mode: str | None = None) -> None:
         """The list a piece belongs to, for the piece already playing: tapping it in another list changes what
         comes next, not what plays now."""
+        if mode is not None and mode not in MODES:
+            raise ValueError(f"mode must be one of {MODES}")
         with self._lock:
             if rec_id != self.current_id:
                 return
+            self.mode = mode or self.mode
             self.ids = list(dict.fromkeys(ids or [rec_id]))
             if rec_id not in self.ids:
                 self.ids.append(rec_id)

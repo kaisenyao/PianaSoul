@@ -124,7 +124,7 @@ def hints(lib, limit: int = 50) -> list[str]:
     from .library import title_parts
 
     words: list[str] = []
-    for r in reversed(lib.playlist()):
+    for r in reversed(lib.playable()):
         for w in title_parts(r["title"], r["composer"], r["performer"]).values():
             if w and w not in words:
                 words.append(w)

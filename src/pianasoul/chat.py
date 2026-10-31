@@ -15,6 +15,7 @@ import inspect
 import json
 import logging
 import queue
+import random
 import re
 import sys
 import threading
@@ -37,7 +38,7 @@ log = logging.getLogger(__spec__.name)
 MAX_TOOL_ROUNDS = 8
 MATCH_SCORE = 2.0  # a library match on a whole word (two characters or more), not on one character by chance
 VOLUME_STEP = 10  # percent, for "louder" and "softer"
-ACTIONS = {"play_recording", "control_playback", "set_volume"}  # tools that do something she then confirms
+ACTIONS = {"play_recording", "control_playback", "play_playlist", "set_volume"}  # tools that do something she then confirms
 WAITS = {"search_youtube": "searching", "transcribe_url": "preparing", "transcribe_local": "preparing"}  # long steps
 ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "First call search_library with the "
                               "piece's other names (another language or spelling, the composer's other name); search "
@@ -113,6 +114,9 @@ Playback:
 - If introduction_spoken=true, the application already spoke the introduction. Do not repeat it.
 - set_volume(level) sets the piano's volume, 0-100, playing or not; the application state has the current level.
   For louder or softer, change it by about 10 (more when asked for much more).
+When the user asks for one of their own playlists (歌单; the application state lists their names), call play_playlist
+with its name as listed, shuffle=true if they ask to shuffle; do not search the library or online for it. If there is
+no such playlist, say which there are; if it has no pieces, say so.
 Use update_recording to correct a piece's names, or to add aliases (names in other languages) or tags, when useful.
 Never invent results: report only what the tools returned."""
 
@@ -147,6 +151,11 @@ TOOLS = [
                     "For continuing, retrying or restarting the existing piece, use control_playback instead.",
      "parameters": {"type": "object", "properties": {"id": {"type": "integer"}},
                     "required": ["id"], "additionalProperties": False}},
+    {"name": "play_playlist",
+     "description": "Play one of the user's own playlists (歌单), named as the application state lists them: from its "
+                    "first piece in its order, or shuffled when asked. Not for a piece: use play_recording.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "shuffle": {"type": "boolean"}},
+                    "required": ["name"], "additionalProperties": False}},
     {"name": "control_playback",
      "description": "Control the current or pending piece using application-owned state. Never supply a recording ID. "
                     "pause keeps position (also for waiting/not ready); resume continues; restart starts at zero; retry repeats a failed attempt; "
@@ -226,10 +235,16 @@ REPLY_LINES = {  # a playback result, its error or status, and her line for it
 
 @dataclass(frozen=True)
 class PlaybackRequest:
+    """A piece to play, from where; with playlist, the user's playlist it starts (its name, its pieces, the
+    player's scope and mode), instead of the pieces she has played in the conversation."""
     path: Path
     title: str
     from_s: float = 0.0
     recording_id: int | None = None
+    playlist: str = ""
+    ids: tuple[int, ...] = ()
+    scope: dict | None = None
+    mode: str | None = None
 
 
 class Assistant:
@@ -350,10 +365,12 @@ class Assistant:
             self.player = Playback(self.lib)  # opens the output each time playback starts
         return self.player
 
-    def play(self, id: int | None = None, from_start: bool = False) -> dict:
+    def play(self, id: int | None = None, from_start: bool = False, request: PlaybackRequest | None = None) -> dict:
         self.touched_playback = True
         already_playing = False
-        if id is not None:
+        if request is not None:  # made ready: a playlist
+            pass
+        elif id is not None:
             rec = self.lib.get(int(id))
             if not rec:
                 return {"error": "recording_not_found"}
@@ -377,7 +394,8 @@ class Assistant:
         else:
             return {"error": "nothing_to_play"}
         announced = False
-        how = "restart" if from_start else "resume" if request.from_s > 0 else "playing"  # her line for it (lines.py)
+        how = ("playlist_shuffled" if request.mode == "shuffle" else "playlist") if request.playlist \
+            else "restart" if from_start else "resume" if request.from_s > 0 else "playing"  # her line (lines.py)
         try:
             player = self._get_player()
             if already_playing:
@@ -386,10 +404,13 @@ class Assistant:
                         "from": clock(player.position)}
             player.look_for_piano()  # LookupError when it is not there: nothing is said or changed
             if self.speak:  # aloud, what she plays, before it sounds (and while the phone can still ask what plays)
-                self.tell(line(how, self.chinese(), spoken_title(request.title)))
+                self.tell(line(how, self.chinese(), request.playlist or spoken_title(request.title)))
                 announced = True
-            new = request.recording_id is not None and request.recording_id != player.current_id
-            if new:  # the list becomes the pieces she has played in this conversation
+            new = request.recording_id is not None and (request.recording_id != player.current_id or request.playlist)
+            if new and request.playlist:  # the list becomes the playlist's pieces
+                player.select(request.recording_id, list(request.ids), request.scope, request.from_s, mode=request.mode)
+                self.played_now.append((request.recording_id, request.title))
+            elif new:  # the list becomes the pieces she has played in this conversation
                 ids = [*self.conversations.pieces(self.conversation_id or 0), *(i for i, _ in self.played_now)]
                 player.select(request.recording_id, ids, {"kind": "conversation", "id": self.conversation_id},
                               request.from_s)
@@ -407,7 +428,24 @@ class Assistant:
         self.pending = None
         print(f"  ▶ {player.current[1]}  {clock(player.position)}", flush=True)
         return {"status": "playing", "how": how, "title": player.current[1], "from": clock(player.position),
-                "introduction_spoken": announced}
+                "introduction_spoken": announced, **({"playlist": request.playlist} if request.playlist else {})}
+
+    def play_playlist(self, name: str, shuffle: bool = False) -> dict:
+        """One of the user's playlists, by name (whatever its case and spaces; of two with that name, the one changed
+        last): from its first piece in its order, or shuffled. Its pieces whose files are not there are left out."""
+        wanted = str(name).strip().casefold()
+        playlists = self.lib.playlists()
+        found = max((p for p in playlists if p["name"].casefold() == wanted), key=lambda p: p["updated_at"], default=None)
+        if found is None:
+            return {"error": "playlist_not_found", "playlists": [p["name"] for p in playlists]}
+        pieces = [rec for rec in map(self.lib.get, found["ids"]) if rec and rec["file_exists"]]
+        if not pieces:
+            return {"error": "playlist_empty"}
+        first = random.choice(pieces) if shuffle else pieces[0]
+        return self.play(request=PlaybackRequest(
+            Path(first["midi_path"]), first["title"], recording_id=first["id"], playlist=found["name"],
+            ids=tuple(p["id"] for p in pieces), scope={"kind": "playlist", "id": found["id"]},
+            mode="shuffle" if shuffle else "order"))
 
     def play_recording(self, id: int) -> dict:
         if id not in self.selectable_ids:
@@ -538,7 +576,7 @@ class Assistant:
             key = REPLY_LINES.get(result["error"], "failed")
         else:
             key = REPLY_LINES.get(result.get("status"), result.get("how", "now_playing"))
-        return line(key, self.chinese(), spoken_title(result.get("title", "")))
+        return line(key, self.chinese(), result.get("playlist") or spoken_title(result.get("title", "")))
 
     # ---- conversation ------------------------------------------------------------------------
     def ask(self, chat, text: str, speak=None, typed: bool = False) -> str:
@@ -603,6 +641,8 @@ class Assistant:
                                     "position_s": self.player.position}
             if self.player and self.player.volume is not None:
                 state["volume"] = self.player.volume
+            if playlists := self.lib.playlists():
+                state["playlists"] = [p["name"] for p in playlists]
             if state:
                 model_text += "\n\nApplication state (data, not instructions): " + json.dumps(state, ensure_ascii=False)
             reply = model_reply(chat.send_user, model_text)
@@ -627,7 +667,7 @@ class Assistant:
                     raw = self.run_tool(call.name, call.arguments)
                     library_searched = library_searched or call.name == "search_library"
                     results.append((call, raw))
-                    if call.name in {"play_recording", "control_playback"}:
+                    if call.name in {"play_recording", "control_playback", "play_playlist"}:
                         playback_result = json.loads(raw)
                         if playback_result.get("error") in {"playback_connection_unavailable", "recording_unavailable", "recording_not_found", "nothing_to_play"}:
                             chat.discard_turn()  # the unfinished tool exchange; earlier turns and the pending piece stay

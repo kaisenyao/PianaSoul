@@ -218,7 +218,7 @@ def state():
             'playback': core.playback.snapshot(), 'conversations': core.conversations.all() if her else [],
             'current': her.conversation_id if her else None, 'busy': core.busy, 'settings': core.settings(),
             'devices': core.devices(), 'piano': core.piano, 'version': version, 'features': core.features(),
-            'audio': core.audio()}
+            'audio': core.audio(), 'playlists': core.lib.playlists()}
 
 
 @app.get('/api/recordings')
@@ -298,14 +298,18 @@ def _recording(rec_id: int) -> dict:
 
 # ---- what the page does -------------------------------------------------------------------------------
 @app.post('/api/play')
-def play(id: int = Body(), ids: list[int] = Body(default=[]), scope: dict = Body(default={})):
-    """A piece tapped in a list: it plays (unless it is the one already playing), and that list plays on."""
+def play(id: int = Body(), ids: list[int] = Body(default=[]), scope: dict = Body(default={}),
+         mode: str | None = Body(default=None)):
+    """A piece tapped in a list: it plays (unless it is the one already playing), and that list plays on; in mode
+    when given (a playlist's 播放: order, its 随机播放: shuffle)."""
     playback = core.playback
     try:
         if id == playback.current_id and not playback.ended and playback.state != 'stopped':
-            playback.show(id, ids, scope)
+            playback.show(id, ids, scope, mode)
         else:
-            playback.select(id, ids, scope)
+            playback.select(id, ids, scope, mode=mode)
+    except ValueError:
+        raise HTTPException(400) from None
     except FileNotFoundError:
         raise HTTPException(404) from None
     except LookupError as exc:
@@ -372,6 +376,56 @@ def edit(rec_id: int, change: dict = Body()):
         core.lib.edit(rec_id, str(change['piece']), str(change.get('artist', '')), str(change.get('performer', '')))
     core.emit({'type': 'library'})
     return next(r for r in core.recordings() if r['id'] == rec_id)
+
+
+@app.get('/api/playlists')
+def playlists():
+    return core.lib.playlists()
+
+
+@app.post('/api/playlists')
+def new_playlist(name: str = Body(), ids: list[int] = Body(default=[])):
+    """A new playlist (歌单), with these pieces if any."""
+    try:
+        made = core.lib.new_playlist(name, ids)
+    except ValueError:
+        raise HTTPException(400) from None
+    core.playlists_changed()
+    return made
+
+
+@app.patch('/api/playlists/{playlist_id}')
+def change_playlist(playlist_id: int, change: dict = Body()):
+    """One change: name (a new one); add (ids, at its end, each once); remove (an id); or move (an id) to index."""
+    lib = core.lib
+    if lib.playlist(playlist_id) is None:
+        raise HTTPException(404)
+    try:
+        if set(change) == {'name'}:
+            done = lib.rename_playlist(playlist_id, str(change['name'])) is not None
+        elif set(change) == {'add'} and isinstance(change['add'], list):
+            done = lib.add_to_playlist(playlist_id, [int(i) for i in change['add']]) is not None
+        elif set(change) == {'remove'}:
+            done = lib.remove_from_playlist(playlist_id, int(change['remove']))
+        elif set(change) == {'move', 'index'}:
+            done = lib.move_in_playlist(playlist_id, int(change['move']), int(change['index']))
+        else:
+            raise HTTPException(400)
+    except (TypeError, ValueError):
+        raise HTTPException(400) from None
+    if not done:  # the piece is not in it
+        raise HTTPException(404)
+    core.playlists_changed()
+    return lib.playlist(playlist_id)
+
+
+@app.delete('/api/playlists/{playlist_id}')
+def delete_playlist(playlist_id: int):
+    """The playlist goes; its pieces stay in the library."""
+    if not core.lib.delete_playlist(playlist_id):
+        raise HTTPException(404)
+    core.playlists_changed()
+    return {'ok': True}
 
 
 @app.delete('/api/recordings')
