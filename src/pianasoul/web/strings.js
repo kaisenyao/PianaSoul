@@ -38,7 +38,7 @@ const zh = {
   transcribedTag: '转谱', needsTranscription: '需要转谱', waitingTranscription: '等待转谱', canTranscribe: '可以转谱',
   transcribeFailed: '转谱失败', transcribe: '转谱', retry: '重试', toTranscribe: n => `${n} 段录音待转谱`,
   recording: '这是一段录音', needsAdvanced: '在 Mac 的 PianaSoul 设置里开启高级功能（Beta）后，它会自动转成 MIDI。',
-  pianoOff: name => `琴没有连上 · ${name}`, howToConnect: '怎么连上琴',
+  pianoOff: name => `琴没有连上 · ${name}`, howToConnect: '怎么连上琴', hideNotice: '关闭提示',
   connectHow: {
     usb: '确认琴开着，USB 线两头都插好。连上以后，这条提示会自己消失。',
     bluetooth: '确认琴开着、蓝牙 MIDI 打开，再在 Mac 上连接：PianaSoul 设置 › 钢琴 › 连接蓝牙 MIDI…，或者“音频 MIDI 设置” › 窗口 › 显示 MIDI 工作室 › 蓝牙。连上以后，这条提示会自己消失。',
@@ -183,7 +183,7 @@ const en = {
   canTranscribe: 'Ready to transcribe', transcribeFailed: 'Transcription failed', transcribe: 'Transcribe', retry: 'Retry',
   toTranscribe: n => `${n} to transcribe`,
   recording: 'A recording', needsAdvanced: 'Turn on Advanced Features (Beta) in PianaSoul’s settings on the Mac, and it is made into MIDI on its own.',
-  pianoOff: name => `Piano not connected · ${name}`, howToConnect: 'Connecting the Piano',
+  pianoOff: name => `Piano not connected · ${name}`, howToConnect: 'Connecting the Piano', hideNotice: 'Hide notice',
   connectHow: {
     usb: 'Check that the piano is on and the USB cable is plugged in at both ends. Once it is connected, this goes away.',
     bluetooth: 'Check that the piano is on with Bluetooth MIDI turned on, then connect it on the Mac: PianaSoul Settings › Piano › Connect Bluetooth MIDI…, or Audio MIDI Setup › Window › Show MIDI Studio › Bluetooth. Once it is connected, this goes away.',

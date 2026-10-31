@@ -1492,15 +1492,20 @@ function info(title, text) {
 $('#info-ok').addEventListener('click', closeOverlays);
 
 // The piano, as the Mac watches it: while the one chosen is not connected, a bar at the top of every page says so,
-// and the pages make room for it; a tap says how to connect it. It goes once the piano is back. With her, she says so
+// and the pages make room for it; a tap says how to connect it. It goes once the piano is back. × hides it until
+// then: it shows again the next time that piano goes, or for another one chosen meanwhile. With her, she says so
 // too, as ever.
+let pianoHidden = null;  // the piano whose bar was hidden, while it stays away
 function renderPiano() {
-  const off = !data.piano.connected;
+  if (data.piano.connected) pianoHidden = null;
+  const off = !data.piano.connected && pianoHidden !== data.piano.name;
   app.classList.toggle('piano-off', off);
   $('#piano-bar').hidden = !off;
   if (off) $('#piano-text').textContent = T.pianoOff(data.piano.name);
 }
-$('#piano-bar').addEventListener('click', () => info(T.howToConnect, T.connectHow[data.piano.kind] || T.connectHow.other));
+$('#piano-how').addEventListener('click', () => info(T.howToConnect, T.connectHow[data.piano.kind] || T.connectHow.other));
+$('#piano-hide').innerHTML = ICON.close;
+$('#piano-hide').addEventListener('click', () => { pianoHidden = data.piano.name; renderPiano(); });
 $('#dim').addEventListener('click', closeOverlays);
 
 // Long-press menu, for a piece and for a conversation: the row lifts and its actions show by it. With html null it is

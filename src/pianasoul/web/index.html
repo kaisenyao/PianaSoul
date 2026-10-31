@@ -252,8 +252,11 @@
     <div class="abtns one"><button id="info-ok" data-t="ok"></button></div>
   </div>
 
-  <!-- At the top of every page while the piano is not connected; a tap says how to connect it -->
-  <button id="piano-bar" hidden><span class="pdot"></span><span id="piano-text"></span></button>
+  <!-- At the top of every page while the piano is not connected; a tap says how to connect it, × hides it -->
+  <div id="piano-bar" hidden>
+    <button id="piano-how"><span class="pdot"></span><span id="piano-text"></span></button>
+    <button id="piano-hide" data-t-label="hideNotice"></button>
+  </div>
 
   <!-- A conversation's name -->
   <div class="alert" id="rename" role="dialog">
