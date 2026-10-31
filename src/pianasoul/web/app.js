@@ -1075,12 +1075,13 @@ function showScreen(n) {
     g.dy = (playerScreen === 0 ? dy > 0 : dy < 0) ? dy * .3 : dy;  // past either end it resists, like the edge of a scroll view
     el.style.setProperty('--dy', g.dy + 'px');
   });
-  // Let go: to the screen it was swiped towards. Taken over by the system (pointercancel): back where it was.
+  // Let go (or the touch ends in a pointercancel, as iOS sends one over 详细信息, which scrolls): to the screen it
+  // was swiped towards.
   const end = e => {
     if (!g || e.pointerId !== g.id) return;
     if (g.on) {
       const far = performance.now() - g.t < 300 ? 30 : 110;
-      showScreen(e.type === 'pointercancel' ? playerScreen : g.dy < -far ? 1 : g.dy > far ? 0 : playerScreen);
+      showScreen(g.dy < -far ? 1 : g.dy > far ? 0 : playerScreen);
       guardUntil = performance.now() + 250;
     }
     g = null;
@@ -1868,6 +1869,8 @@ $('#rename-input').addEventListener('keydown', e => { if (isEnter(e)) saveName()
 // again), a left swipe brings in the player. On any page, the player included, a right swipe takes it away.
 // Whatever moves follows the finger, as on iOS. Away from the orb she keeps quiet (voice.hold).
 const sidebarWidth = () => app.clientWidth * .78;
+// A flick goes on its way only once the finger has really moved: a touch that wobbles is not one.
+const FLICK_PX = 40, flicked = (v, dx) => Math.abs(dx) >= FLICK_PX && v * Math.sign(dx) > .3;
 function setOpen(open) {
   state.open = open;
   voice?.hold(open || stack.length > 0);
@@ -1919,12 +1922,15 @@ const endDrag = e => {
   if (drag.active) {
     app.classList.remove('dragging');
     if (drag.player) {
-      if (drag.dx < -90 || drag.v < -.3) push('player', null, drag.player);
+      if (drag.dx < -90 || flicked(drag.v, drag.dx)) push('player', null, drag.player);
       else slideOut(drag.player);
     } else if (drag.page) {
-      if (drag.dx > 90 || drag.v > .3) pop();
+      if (drag.dx > 90 || flicked(drag.v, drag.dx)) pop();
       else { moveAside(drag.page, null); $('#mini').style.transform = ''; }
-    } else setOpen(drag.v > .3 ? true : drag.v < -.3 ? false : drag.p > .5);
+    } else {
+      const moved = (drag.p - drag.p0) * sidebarWidth();
+      setOpen(flicked(drag.v, moved) ? drag.v > 0 : drag.p > .5);
+    }
     guardUntil = performance.now() + 300;
   }
   drag = null;
