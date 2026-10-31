@@ -16,7 +16,6 @@ dependencies = [
     "numpy",
     "pretty_midi",
     "mido",
-    "python-rtmidi",
     "watchdog",
     "send2trash",
 ]

@@ -508,7 +508,7 @@ class LightInstallTests(unittest.TestCase):
         script = """
 import sys
 HEAVY = ('transkun', 'torch', 'imageio_ffmpeg', 'yt_dlp', 'openai', 'anthropic', 'sherpa_onnx', 'pypinyin',
-         'sounddevice')
+         'sounddevice', 'rtmidi')  # rtmidi: no dependency at all, CoreMIDI is called directly
 for name in HEAVY:
     sys.modules[name] = None  # import fails, find_spec finds nothing
 import places
