@@ -438,18 +438,21 @@ class UploadTests(unittest.TestCase):
         return self.client.post('/api/uploads', params={'name': name}, content=content)
 
     def left_over(self):
-        return [p.name for p in self.music.iterdir() if p.name.startswith('.')]
+        return [p.name for p in self.music.rglob('.*')]
 
-    def test_a_midi_file_becomes_a_piece_of_yours(self):
+    def test_a_midi_file_becomes_a_piece_of_yours_in_uploaded(self):
         midi = make_midi(self.root / 'x.mid').read_bytes()
+        self.assertFalse((self.music / 'Uploaded').exists(), 'Made with the first file, not before')
         self.assertEqual(self.send('Clair de Lune.mid', midi).json(), {'name': 'Clair de Lune.mid'})
         self.assertEqual(self.send('Clair de Lune.mid', midi).json(), {'name': 'Clair de Lune (2).mid'},
                          'A name taken: as Finder would')
+        self.assertEqual(sorted(p.name for p in (self.music / 'Uploaded').iterdir()),
+                         ['Clair de Lune (2).mid', 'Clair de Lune.mid'])
         pieces = self.client.get('/api/state').json()['recordings']
         self.assertEqual(sorted((r['title'], r['origin']) for r in pieces),
-                         [('Clair de Lune', 'yours'), ('Clair de Lune (2)', 'yours')])
+                         [('Clair de Lune', 'uploaded'), ('Clair de Lune (2)', 'uploaded')])
         self.assertEqual(self.send('../../evil:name.mid', midi).json(), {'name': 'evil_name.mid'}, 'Only a name')
-        self.assertTrue((self.music / 'evil_name.mid').is_file())
+        self.assertTrue((self.music / 'Uploaded' / 'evil_name.mid').is_file())
 
     def test_a_recording_waits_to_be_transcribed(self):
         self.assertEqual(self.send('Nocturne.mp3', b'ID3' + b'\0' * 100).status_code, 200)
@@ -467,7 +470,7 @@ class UploadTests(unittest.TestCase):
             streamed = self.client.post('/api/uploads', params={'name': 'big.mp3'},
                                         content=(b'\0' * 400 for _ in range(5)))  # no size given: chunked
             self.assertEqual(streamed.json(), {'error': 'too_large'}, 'Stopped as it comes')
-        self.assertEqual(sorted(p.name for p in self.music.iterdir()), [])
+        self.assertEqual(sorted(p.name for p in self.music.rglob('*') if p.is_file()), [])
         self.assertEqual(self.left_over(), [])
 
     def test_uploads_need_the_cookie_and_the_page(self):

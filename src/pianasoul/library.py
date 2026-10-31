@@ -36,6 +36,7 @@ def _place(variable: str, default: Path) -> Path:
 
 MUSIC_DIR = _place("PIANASOUL_MUSIC", Path.home() / "Music" / "PianaSoul")  # the library: your music, and
 TRANSCRIBED = "Transcribed"  # the subfolder only PianaSoul writes to, with the pieces it made
+UPLOADED = "Uploaded"  # where files sent from the phone go: yours, as if put there by hand, and left as they are
 DATA_DIR = _place("PIANASOUL_DATA", Path.home() / "Library" / "Application Support" / "PianaSoul")  # what lasts
 CACHE_DIR = _place("PIANASOUL_CACHE", Path.home() / "Library" / "Caches" / "PianaSoul")  # what may go
 DB_PATH = DATA_DIR / "library.db"
@@ -261,6 +262,7 @@ class Library:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.music_dir = Path(music_dir).resolve()
         self.transcribed = self.music_dir / TRANSCRIBED  # where the pieces PianaSoul makes are filed, by title
+        self.uploaded = self.music_dir / UPLOADED  # where the phone's files go
         self.lock = threading.RLock()  # one statement and its commit at a time
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
@@ -530,12 +532,18 @@ class Library:
         """Whether a file is in the library: in its folder (the one in use now), and there to be read."""
         return path.is_relative_to(self.music_dir) and present(path)
 
+    def origin(self, path: Path) -> str:
+        """Where a file is, and so how it came: transcribed (in Transcribed/, made by PianaSoul), uploaded (in
+        Uploaded/, sent from the phone) or yours (put in the library folder on the Mac). Moved, it is what its place
+        says."""
+        return ("transcribed" if path.is_relative_to(self.transcribed) else
+                "uploaded" if path.is_relative_to(self.uploaded) else "yours")
+
     def _public(self, row: sqlite3.Row) -> dict:
-        """A record, with whether its file is in the library and whose it is: transcribed (in Transcribed/) or
-        yours."""
+        """A record, with whether its file is in the library and how it came (origin)."""
         d = dict(row)
         d["file_exists"] = self.here(Path(d["midi_path"]))
-        d["origin"] = "transcribed" if Path(d["midi_path"]).is_relative_to(self.transcribed) else "yours"
+        d["origin"] = self.origin(Path(d["midi_path"]))
         return d
 
 

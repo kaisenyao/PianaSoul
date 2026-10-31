@@ -379,10 +379,10 @@ def delete(ids: list[int] = Body(embed=True)):
 
 @app.post('/api/uploads')
 async def upload(request: Request, name: str):
-    """One file for the library folder, its content the request's body and name its file name: a MIDI file or a
-    recording, as yours, as if put there by hand ("name (2)" when the name is taken). It is written to a hidden file
-    as it comes, stopped as soon as it is too large, and named only once it is whole; nothing stays of one that
-    fails."""
+    """One file for the library folder's Uploaded/ (made with the first), its content the request's body and name its
+    file name: a MIDI file or a recording, yours as if put there by hand ("name (2)" when the name is taken). It is
+    written to a hidden file as it comes, stopped as soon as it is too large, and named only once it is whole;
+    nothing stays of one that fails."""
     from starlette.requests import ClientDisconnect
     from .audio import AUDIO_EXTENSIONS
     from .library import MIDI_TYPES, free_name, safe_name
@@ -393,7 +393,7 @@ async def upload(request: Request, name: str):
     limit = UPLOAD_LIMITS[kind]
     if int(request.headers.get('content-length') or 0) > limit:
         return JSONResponse({'error': 'too_large'}, status_code=413)
-    folder = core.lib.music_dir
+    folder = core.lib.uploaded
     folder.mkdir(parents=True, exist_ok=True)
     part = folder / f'.upload-{secrets.token_hex(8)}.part'  # hidden: the folder's scan passes it over
     try:

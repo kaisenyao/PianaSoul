@@ -309,12 +309,13 @@ uv pip install --python .venv/bin/python --upgrade 'yt-dlp[default]'
 ### Your library
 
 The library is the folder `~/Music/PianaSoul`. Everything in it, in any subfolder, is in the app: put files in with
-Finder or send them from the phone, move and rename them as you like, and the app follows at once, with each piece's
-names, favorite and plays. The files are yours: PianaSoul never renames, moves or changes them, and renaming a piece in
-the app changes only its name there. The pieces PianaSoul makes go into `Transcribed/`, named after their titles, and
-show a small "Transcribed" tag. A recording you put in the folder (mp3, m4a, wav, flac and the like) is made into a
-piece once, when transcription is installed; after that only when you ask. Deleting a piece in the app moves its file
-to the Mac's Trash. A file that disappears is only hidden, and is back as it was when it returns.
+Finder or send them from the phone (they go into `Uploaded/`), move and rename them as you like, and the app follows
+at once, with each piece's names, favorite and plays. The files are yours: PianaSoul never renames, moves or changes
+them, and renaming a piece in the app changes only its name there. The pieces PianaSoul makes go into `Transcribed/`,
+named after their titles, and show a small "Transcribed" tag. A recording you put in the folder (mp3, m4a, wav, flac
+and the like) is made into a piece once, when transcription is installed; after that only when you ask. Deleting a
+piece in the app moves its file to the Mac's Trash. A file that disappears is only hidden, and is back as it was when
+it returns.
 
 Files in iCloud Drive that are not downloaded are left out until they are. Another folder can be the library (set
 `PIANASOUL_MUSIC`); files moved there are recognized by their content.
