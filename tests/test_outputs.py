@@ -127,9 +127,13 @@ class ChoiceTests(unittest.TestCase):
     def test_a_short_arpeggio_at_the_volume_set(self):
         self.p.choose(USB)
         self.p.volume = 50
+        started = time.perf_counter()
         self.p.test_tone()
+        self.assertLess(time.perf_counter() - started, 0.1, 'Not waited for: it plays on its own')
+        self.p._thread.join()
         sent = [c.args[0] for c in self.p.port.send.call_args_list]
         self.assertEqual([m.note for m in sent if m.type == 'note_on'], [60, 64, 67, 72])
+        self.assertEqual([m.note for m in sent if m.type == 'note_off'][:4], [60, 64, 67, 72], 'And let go')
         self.assertEqual({m.value for m in sent if m.type == 'control_change' and m.control == 7}, {64})
         self.p.state = 'playing'
         with self.assertRaises(RuntimeError):
@@ -138,6 +142,23 @@ class ChoiceTests(unittest.TestCase):
         self.outputs.clear()
         with self.assertRaises(LookupError):
             self.p.test_tone()
+
+
+    def test_on_a_network_session_the_arpeggio_leaves_as_a_piece_does_one_lead_ahead_in_turn(self):
+        self.p.choose(SESSION)
+        left = []
+        port = Mock(output=SESSION)
+        port.send.side_effect = lambda msg, when=None: left.append((time.perf_counter(), msg, when))
+        with patch('pianasoul.play.CoreMidiOut', return_value=port):
+            self.p.test_tone()
+            self.p._thread.join()
+        notes = [(sent, msg, when) for sent, msg, when in left if msg.type in {'note_on', 'note_off'}]
+        self.assertEqual([m.note for _, m, _ in notes if m.type == 'note_on'], [60, 64, 67, 72])
+        first = notes[0][2]
+        self.assertEqual([round(when - first, 2) for _, _, when in notes], [0, .15, .3, .45, 1.2, 1.2, 1.2, 1.2],
+                         'Each with the time it sounds')
+        for sent, msg, when in notes:
+            self.assertAlmostEqual(when - sent, 1.0, delta=0.05, msg=f'{msg}: leaves one lead early, not all at once')
 
 
 class OutputsApiTests(unittest.TestCase):
@@ -302,6 +323,7 @@ class CoreMidiTests(unittest.TestCase):
         p.choose(mine)
         p.volume = 100
         p.test_tone()
+        p._thread.join()
         heard = self.messages(16 + 8)
         self.assertEqual([m.note for m in heard if m.type == 'note_on'], [60, 64, 67, 72])
         self.assertEqual(len([m for m in heard if m.type == 'note_off']), 4)

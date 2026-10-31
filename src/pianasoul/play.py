@@ -294,6 +294,23 @@ def _cfstring(text: str) -> int:
     return _corefoundation().CFStringCreateWithCString(None, text.encode(), 0x08000100)  # UTF-8
 
 
+def arpeggio():
+    """The test tone: C, E, G and the C above, a little apart, then held together; about 1.2 seconds."""
+    import mido
+
+    notes = (60, 64, 67, 72)
+    events = [(i * 0.15, mido.Message("note_on", note=n, velocity=80)) for i, n in enumerate(notes)]
+    events += [(1.2, mido.Message("note_off", note=n)) for n in notes]
+    midi = mido.MidiFile(ticks_per_beat=480)  # at the default 120 beats a minute: 960 ticks a second
+    track = mido.MidiTrack()
+    midi.tracks.append(track)
+    previous = 0.0
+    for at, msg in events:
+        track.append(msg.copy(time=round((at - previous) * 960)))
+        previous = at
+    return midi
+
+
 def default_lead(out: Output) -> float:
     """How early each message leaves: PIANASOUL_LEAD, or a second for a network session and none otherwise."""
     text = os.environ.get("PIANASOUL_LEAD", "").strip()
@@ -498,20 +515,24 @@ class Player:
         self.port, self.output = None, None
 
     def test_tone(self) -> None:
-        """A short C major arpeggio on the output, at the volume set: to hear that the piano is there. LookupError
-        when it is not; RuntimeError while a piece is playing."""
-        import mido
-
+        """A short C major arpeggio on the output, at the volume set: to hear that the piano is there. Sent the way a
+        piece is (a very short one), from a thread of its own; a piece played meanwhile takes over. LookupError when
+        the piano is not there; RuntimeError while a piece is playing."""
         if self.state == "playing":
             raise RuntimeError("a piece is playing")
         self.check_connection()
-        if self.volume is not None:
-            self._send_volume()
-        start = time.perf_counter() + self.lead + 0.05
-        for i, note in enumerate((60, 64, 67, 72)):
-            self.port.send(mido.Message("note_on", note=note, velocity=80), start + i * 0.15)
-            self.port.send(mido.Message("note_off", note=note), start + 1.2)
-        self._last_when = max(self._last_when, start + 1.2)
+        self._halt()  # a test still sounding gives way
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._sound_test, daemon=True)
+        self._thread.start()
+
+    def _sound_test(self) -> None:
+        try:
+            self._send_midi(arpeggio())
+        except (LookupError, OSError) as exc:  # the piano went just now: the next try says so
+            log.debug("the test tone stopped: %s", exc)
+        finally:
+            self.release()
 
     def start(self, items: list[tuple[Path, str]], from_s: float = 0.0, on_ready=None) -> None:
         """Play items in a thread of their own. FileNotFoundError when the piece's file is gone, LookupError when
@@ -594,7 +615,22 @@ class Player:
             self.port.send(msg)
 
     def _play_file(self, path: Path, from_s: float = 0.0) -> bool:
-        """Send one file from from_s seconds, each message one lead early. True when it reached the end."""
+        """Send one file from from_s seconds, each message one lead early. True when it reached the end; when the
+        piano goes away, playback pauses where its sound stopped."""
+        import mido
+
+        try:
+            return self._send_midi(mido.MidiFile(path), from_s)
+        except (LookupError, OSError) as exc:  # the piano went away (not found, or the notes no longer go out):
+            heard = time.perf_counter() - self._t0 - LOOK_EVERY_S  # pause where the sound stopped, a moment back
+            self.state, self._offset, self.lost = "paused", max(0.0, self._from, heard), str(exc)
+            log.debug("the piano went away at %s: %s", clock(self._offset), exc)
+            return False
+
+    def _send_midi(self, midi, from_s: float = 0.0) -> bool:
+        """Send a mido.MidiFile from from_s seconds, each message one lead early (with its time, which a network
+        session carries along). True when it reached the end, False when stopped; LookupError or OSError when the
+        piano goes away."""
         import mido
 
         pedal: dict[int, int] = {}  # sustain value per channel at from_s, restored before continuing
@@ -603,7 +639,6 @@ class Player:
         at, restored = 0.0, from_s <= 0
         late: list[float] = []  # seconds each message left after its time, for the details
         look_at = time.perf_counter() + LOOK_EVERY_S
-        midi = mido.MidiFile(path)
         try:
             if self.volume is not None:
                 self._send_volume()  # at once: the first notes follow it
@@ -637,11 +672,6 @@ class Player:
                 elif msg.type in {"note_on", "note_off"}:
                     self._down.discard((msg.channel, msg.note))
             return True
-        except (LookupError, OSError) as exc:  # the piano went away (not found, or the notes no longer go out):
-            heard = time.perf_counter() - self._t0 - LOOK_EVERY_S  # pause where the sound stopped, a moment back
-            self.state, self._offset, self.lost = "paused", max(0.0, self._from, heard), str(exc)
-            log.debug("the piano went away at %s: %s", clock(self._offset), exc)
-            return False
         finally:  # everything due to leave by now has left, so the music runs up to here
             self._sent_to = max(self._sent_to, time.perf_counter() - self._t0 + self.lead)
             if late and log.isEnabledFor(logging.DEBUG):
