@@ -92,11 +92,16 @@ export function voice(element, toggle, orb, cues, labels) {
     render();
   }
 
-  // The Mac keeps her quiet until the phone is with her: on, and on the orb.
+  // The Mac keeps her quiet until the phone is with her: on, and on the orb. The first time since she was turned on,
+  // the phone says so, and she takes that request without her name; back on the orb later, she waits for it.
+  function withHer(s) {
+    send(s, s.fresh ? 'start_session' : 'continue_session');
+    s.fresh = false;
+  }
   function activate(s) {
     phase = 'active';
     capture(s, !held);
-    if (!held) send(s, 'continue_session');
+    if (!held) withHer(s);
     render();
     cues.play('active');
   }
@@ -192,7 +197,7 @@ export function voice(element, toggle, orb, cues, labels) {
   async function start() {
     if (!window.isSecureContext || !navigator.mediaDevices) return render();
     if (session) release(session, 'turned on again'); // still letting go after its end sound: no longer
-    const s = session = {turn: 0, state: 'idle', clips: new Set(), until: 0, spoken: Promise.resolve()};
+    const s = session = {turn: 0, state: 'idle', clips: new Set(), until: 0, spoken: Promise.resolve(), fresh: true};
     phase = 'starting';
     render();
     // The screen stays awake while she is on (where the system allows it), and sleeps as usual once she is off.
@@ -262,8 +267,12 @@ export function voice(element, toggle, orb, cues, labels) {
       const s = session;
       if (!s || phase !== 'active') return;
       capture(s, !away);
-      if (away) silence(s);
-      send(s, away ? 'pause_session' : 'continue_session');
+      if (away) {
+        silence(s);
+        send(s, 'pause_session');
+      } else {
+        withHer(s);
+      }
     },
     off: () => off,
     render,

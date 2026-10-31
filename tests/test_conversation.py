@@ -127,6 +127,39 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.c.state, 'waiting')
         self.parts.stt.assert_not_called()
 
+    def test_turned_on_the_first_request_needs_no_name(self):
+        # Tapping the orb on is as good as her name. After that request, as after any reply, she listens on for a
+        # while, then waits for her name; coming back to the orb does not count as turning her on.
+        self.c.hushed.clear()
+        self.c.turn_on()
+        self.assertEqual(self.c.state, 'conversation')
+        self.assertAlmostEqual(self.c.dialogue_until - time.monotonic(), voice.START_TIMEOUT_S, delta=.5,
+                               msg='As long as after her greeting')
+        self.frames(1, speaking=True)
+        self.assertEqual(self.c.state, 'listening', 'No name needed')
+        self.parts.wake.heard.assert_not_called()
+        self.c.sleep()
+        self.c.unhush()
+        self.frames(30, speaking=True)
+        self.assertEqual(self.c.state, 'waiting', 'Back on the orb, her name again')
+
+    def test_turned_on_and_not_spoken_to_she_waits_for_her_name(self):
+        self.c.hushed.clear()
+        self.c.turn_on()
+        self.c.dialogue_until = time.monotonic() - 1
+        self.frames(1, speaking=True)
+        self.assertEqual(self.c.state, 'waiting')
+        self.parts.stt.assert_not_called()
+
+    def test_turned_on_while_the_piano_plays_she_waits_for_her_name(self):
+        player = self.assistant.player = Mock(state='playing', completed=None, lost=None)
+        self.c.hushed.clear()
+        self.c.turn_on()
+        self.assertEqual(self.c.state, 'waiting')
+        self.frames(30, speaking=True)  # the piano, taken for speech
+        self.assertEqual(self.c.state, 'waiting')
+        player.pause.assert_not_called()
+
     def test_goodbye_is_answered_as_any_request_then_she_waits_for_her_name(self):
         self.c.frames = [np.ones(voice.FRAME, dtype=np.int16)]
         self.parts.stt.return_value = '再见'

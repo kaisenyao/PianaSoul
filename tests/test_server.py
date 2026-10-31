@@ -294,6 +294,10 @@ class VoiceTests(unittest.TestCase):
                 if not self.hushed.is_set() and self.state != 'speaking':
                     phone.send({'type': 'unhushed'})
 
+            def turn_on(self):
+                if not self.hushed.is_set() and self.state != 'speaking':
+                    phone.send({'type': 'turned on'})
+
         ears = Ears()
         ears.hushed.set()
         return patch.object(server, '_her', (ears, phone, Worker()))
@@ -336,7 +340,13 @@ class VoiceTests(unittest.TestCase):
             self.assertEqual(socket.receive_json()['type'], 'unhushed')
             socket.send_bytes(b'\0' * voice.FRAME * 2)
             self.assertEqual(socket.receive_json()['type'], 'frame')
-        self.assertEqual(len(threads), 2)
+            socket.send_json({'type': 'pause_session'})
+            self.assertEqual(socket.receive_json()['type'], 'hushed')
+            socket.send_json({'type': 'start_session'})  # tapped on: with her at once, and no name needed
+            self.assertEqual(socket.receive_json()['type'], 'turned on')
+            socket.send_bytes(b'\0' * voice.FRAME * 2)
+            self.assertEqual(socket.receive_json()['type'], 'frame')
+        self.assertEqual(len(threads), 3)
         self.assertEqual(len(set(threads)), 1)
 
     def test_a_reply_she_is_still_making_is_heard_by_the_phone_that_is_back(self):

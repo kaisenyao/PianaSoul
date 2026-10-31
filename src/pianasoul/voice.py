@@ -547,6 +547,7 @@ class Conversation:
     each reply, and then calls conversation.sleep() (wait for her name again) or conversation.resume() (listen on
     without it).
 
+    Tapped on (turn_on), she takes the first request without her name; back on the orb (unhush), she waits for it.
     While hushed is set (no phone is with her: it shows another page, or she is gray) she neither listens nor
     speaks. Whatever she was asked is still answered, on screen, and aloud from the moment hushed is cleared; the
     piano is not touched.
@@ -624,6 +625,27 @@ class Conversation:
         log.debug("back: she listens for her name")
         self.news_is_old()
         self.sleep()
+
+    def turn_on(self) -> None:
+        """Tapped on: clear hushed (from any thread), then call this on the conversation's thread. As if her name had
+        been said, she listens for a request without it, for as long as after her greeting; after it, as after any
+        reply, her name again once the conversation pauses. Not while the piano plays (its sound would be taken for
+        speech): then she waits for her name, as she does on coming back to the orb (unhush)."""
+        if self.hushed.is_set():
+            return
+        if self.state == "speaking":
+            log.debug("on while her reply is out: the phone says when it has been heard")
+            return
+        self.news_is_old()
+        player = self.assistant.player
+        if player is not None and player.state == "playing":
+            log.debug("on while the piano plays: she listens for her name")
+            self.sleep()
+            return
+        log.debug("on: she listens for a request without her name")
+        self.finish_playback()
+        self.follow_up_s = START_TIMEOUT_S
+        self.resume()
 
     def news_is_old(self) -> None:
         """She is listening from now on: what happened to the piece before (it ended, or the piano went away),

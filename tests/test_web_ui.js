@@ -151,9 +151,9 @@ function harness(options = {}) {
   assert.equal(slow.timers.size, 0, 'No connection timeout is left behind');
 
   // Listening: audio goes to the Mac only while listening; the orb follows the voice. The Mac keeps her quiet until
-  // the phone says it is with her.
+  // the phone says it is with her: just turned on, so that the first request needs no name.
   await h.tap();
-  assert.deepEqual(h.socket().sent, ['continue_session']);
+  assert.deepEqual(h.socket().sent, ['start_session']);
   assert.equal(h.nodes[0].capturing, true);
   assert.equal(h.track().enabled, true);
   h.frame(.2);
@@ -291,7 +291,7 @@ function harness(options = {}) {
   away.voice.hold(true);
   assert.equal(away.socket().sent.filter(type => type === 'pause_session').length, 1, 'Once');
   away.voice.hold(false);
-  assert.equal(away.socket().sent.at(-1), 'continue_session');
+  assert.equal(away.socket().sent.at(-1), 'continue_session', 'Back on the orb: not turned on again');
   assert.equal(away.nodes[0].capturing, true);
   assert.equal(away.track().enabled, true);
   // Turned on while away (新对话 in the sidebar, say): on, and quiet until back.
@@ -302,7 +302,7 @@ function harness(options = {}) {
   assert.equal(elsewhere.nodes[0].capturing, false);
   assert.deepEqual(elsewhere.socket().sent, [], 'Quiet as the Mac keeps her until the phone is with her');
   elsewhere.voice.hold(false);
-  assert.equal(elsewhere.socket().sent.at(-1), 'continue_session');
+  assert.deepEqual(elsewhere.socket().sent, ['start_session'], 'With her for the first time since turned on');
   assert.equal(elsewhere.nodes[0].capturing, true);
 
   // on() from elsewhere: starts her, also after she was turned gray; while she is on it does nothing.

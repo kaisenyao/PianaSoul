@@ -659,7 +659,8 @@ def her() -> tuple[Conversation, Phone, Worker]:
     return _her
 
 
-SAID = {'continue_session': 'with her', 'pause_session': 'away from her', 'resume': 'her reply heard, listen on',
+SAID = {'start_session': 'turned on, with her', 'continue_session': 'with her', 'pause_session': 'away from her',
+        'resume': 'her reply heard, listen on',
         'sleep': 'her reply heard, wait for her name'}  # what the phone's messages mean, for the details
 
 
@@ -699,7 +700,7 @@ async def voice(socket: WebSocket):
                 if conversation.state == 'speaking':  # her turn is over and has been heard
                     getattr(conversation, command)()
             else:
-                getattr(conversation, command)()  # hush, unhush
+                getattr(conversation, command)()  # hush, unhush, turn_on
 
         async def process():
             while True:
@@ -722,7 +723,7 @@ async def voice(socket: WebSocket):
                     except json.JSONDecodeError:
                         payload = None
                     commands = {'resume': 'resume', 'sleep': 'sleep', 'pause_session': 'hush',
-                                'continue_session': 'unhush'}
+                                'continue_session': 'unhush', 'start_session': 'turn_on'}
                     if not isinstance(payload, dict) or payload.get('type') not in commands or set(payload) != {'type'}:
                         await socket.close(code=1008, reason='Unsupported voice message')
                         return
@@ -732,7 +733,7 @@ async def voice(socket: WebSocket):
                     # in order.
                     if item[0] == 'hush':
                         conversation.hushed.set()
-                    elif item[0] == 'unhush':
+                    elif item[0] in {'unhush', 'turn_on'}:
                         conversation.hushed.clear()
                 try:
                     incoming.put_nowait(item)
