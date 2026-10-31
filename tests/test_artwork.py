@@ -56,9 +56,20 @@ class LibraryArtworkTests(Base):
         self.assertEqual(self.lib.piece_artwork(self.lib.get(a)).read_bytes(), JPEG, 'It goes along...')
         self.assertEqual(self.lib.piece_artwork(self.lib.get(twin)).read_bytes(), JPEG, '...and the copy keeps it')
         self.lib.set_piece_artwork(c, JPEG + b'c')
+        own = self.lib.piece_artwork(self.lib.get(a))
         Path(self.lib.get(a)['midi_path']).write_bytes(Path(self.lib.get(c)['midi_path']).read_bytes())  # a becomes c
-        self.lib.refresh(a)
+        with patch('pianasoul.library.send2trash') as trash:
+            self.lib.refresh(a)
         self.assertEqual(self.lib.piece_artwork(self.lib.get(c)).read_bytes(), JPEG + b'c', "c's is not overwritten")
+        trash.assert_called_once_with(str(own))  # and a's own is not lost: it can be put back
+
+    def test_a_file_added_again_with_new_content_takes_its_artwork_along(self):
+        a = self.ids[0]
+        self.lib.set_piece_artwork(a, JPEG)
+        path = Path(self.lib.get(a)['midi_path'])
+        make_midi(path, note=74)  # transcribed again, to the same place
+        self.lib.add(path, 'again')
+        self.assertEqual(self.lib.piece_artwork(self.lib.get(a)).read_bytes(), JPEG)
 
     def test_taken_away_and_only_for_a_piece_that_is_there(self):
         a = self.ids[0]
@@ -85,6 +96,16 @@ class LibraryArtworkTests(Base):
         self.assertEqual(self.lib.pictures([long]), {}, 'No picture, and no failure')
         self.lib.set_artist_picture(long, JPEG)
         self.assertEqual(list(self.lib.pictures([long])), [long])
+
+    def test_an_artists_description_by_name(self):
+        self.lib.set_artist_description('周杰伦', ' 华语流行。\n也写钢琴曲 ')
+        self.assertEqual(self.lib.descriptions(['周杰伦', 'Adele']), {'周杰伦': '华语流行。\n也写钢琴曲'})
+        self.lib.set_artist_description('周杰伦', '另一段')
+        self.assertEqual(self.lib.descriptions(['周杰伦']), {'周杰伦': '另一段'})
+        with self.assertRaises(ValueError):
+            self.lib.set_artist_description('周杰伦', 'x' * 1001)
+        self.lib.set_artist_description('周杰伦', '  ')
+        self.assertEqual(self.lib.descriptions(['周杰伦']), {}, 'Empty: taken away')
 
     def test_a_new_playlist_does_not_take_the_artwork_of_one_deleted_with_its_id(self):
         made = self.lib.new_playlist('一')
@@ -116,7 +137,7 @@ class ArtworkApiTests(Base):
         a = self.ids[0]
         self.assertEqual(self.client.get(f'/api/recordings/{a}/artwork').status_code, 404)
         self.assertEqual(self.client.put(f'/api/recordings/{a}/artwork', content=JPEG).json(), {'ok': True})
-        self.assertEqual(self.events[-1], {'type': 'library', 'pictures': {}})
+        self.assertEqual(self.events[-1], {'type': 'library', 'pictures': {}, 'descriptions': {}})
         self.assertEqual(self.client.get(f'/api/recordings/{a}/artwork').content, JPEG)
         self.assertTrue(next(r for r in self.client.get('/api/state').json()['recordings'] if r['id'] == a)['artwork'])
         self.client.delete(f'/api/recordings/{a}/artwork')
@@ -142,5 +163,11 @@ class ArtworkApiTests(Base):
         self.assertEqual(self.client.get('/api/state').json()['pictures'], self.events[-1]['pictures'])
         picture = self.client.get('/api/pictures', params={'name': '周杰伦', 'v': 1})
         self.assertEqual((picture.content, picture.headers['cache-control']), (JPEG, 'private, max-age=31536000, immutable'))
+        self.assertEqual(self.client.patch('/api/artists', json={'name': '周杰伦', 'description': '华语流行'}).json(), {'ok': True})
+        self.assertEqual(self.events[-1]['descriptions'], {'周杰伦': '华语流行'})
+        self.assertEqual(self.client.get('/api/state').json()['descriptions'], {'周杰伦': '华语流行'})
+        for bad in ({'name': ' ', 'description': 'x'}, {'name': '周杰伦', 'description': 'x' * 1001}, {'name': '周杰伦'}):
+            self.assertIn(self.client.patch('/api/artists', json=bad).status_code, (400, 422), bad)
+        self.client.patch('/api/artists', json={'name': '周杰伦', 'description': ''})
         self.client.delete('/api/pictures', params={'name': '周杰伦'})
-        self.assertEqual(self.events[-1], {'type': 'library', 'pictures': {}})
+        self.assertEqual(self.events[-1], {'type': 'library', 'pictures': {}, 'descriptions': {}})

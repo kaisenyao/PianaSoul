@@ -32,11 +32,11 @@ RESTART_AFTER_S = 3.0  # ⏮ past this point starts the piece over
 DEFAULT_VOLUME = 80  # percent, until one is chosen: about where MIDI's own default (100 of 127) is
 
 
-
 def _check_mode(mode: str | None) -> None:
     """ValueError for a mode that is not one of MODES (None: as it is)."""
     if mode is not None and mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
+
 
 class Playback(Player):
     def __init__(self, lib, port=None, lead: float | None = None):

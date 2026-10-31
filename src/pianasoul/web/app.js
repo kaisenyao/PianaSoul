@@ -1,4 +1,4 @@
-// The app: the orb at home, the sidebar beside it, and the pages over it (library, artists, conversations,
+// The app: the orb at home, the sidebar beside it, and the pages over it (library, playlists, artists, conversations,
 // settings) with the player always one swipe away. Without her (the Mac has no key for her, or not the advanced
 // features), the library is home instead, and nothing of hers shows. Everything shown comes from the Mac (/api,
 // /events); what is done here goes back to it, so voice, chat and the phone always agree.
@@ -36,7 +36,6 @@ const ICON = {
   shuffle: svg('<path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>'),
   playlist: svg('<path d="M21 15V6"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M12 12H3M16 6H3M12 18H3"/>'),
   queue: svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/>'),
-  camera: svg('<path d="M4 8.6a2 2 0 0 1 2-2h2.1l1.6-2.1h4.6l1.6 2.1H18a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.6" r="3.4"/>'),
   photo: svg('<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M20.5 16l-5-5-8 8"/>'),
   addTo: svg('<path d="M4 7h11M4 12h11M4 17h7"/><path d="M18 14v6M15 17h6"/>'),
   more: svg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>'),
@@ -108,7 +107,7 @@ dark.addEventListener('change', () => { if (data.settings.appearance === 'system
 const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
   conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system'}, devices: [],
   piano: {name: '', kind: 'other', connected: true},
-  version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}, playlists: [], pictures: {}};
+  version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}, playlists: [], pictures: {}, descriptions: {}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
 // What the Mac can do and the look chosen: kept on this phone too, so that the page opens on the right home (her orb,
 // or the library) and in the right colors before the Mac has said.
@@ -154,13 +153,13 @@ function listen() {
     try { e = JSON.parse(raw); } catch { return; }
     if (e.type === 'playback') { delete e.type; data.playback = e; heardAt = performance.now(); refresh(); }
     else if (e.type === 'jobs') onJobs(e.jobs);
-    else if (e.type === 'library') { data.pictures = e.pictures; recordings(); }  // the artists' pictures with it
+    else if (e.type === 'library') { Object.assign(data, {pictures: e.pictures, descriptions: e.descriptions}); recordings(); }  // the artists' with it
     else if (e.type === 'conversations') conversations();
     else if (e.type === 'message') onMessage(e.message);
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
     else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
-    else if (e.type === 'playlists') setPlaylists(e.playlists);
+    else if (e.type === 'playlists') { if (!changing) setPlaylists(e.playlists); }  // changing: as it is here, until answered
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
   };
   socket.onclose = () => setTimeout(() => load().then(listen, error => error.message === 'signed out' ? signedOut(true)
@@ -368,8 +367,12 @@ function renderEntry({view, id}) {
   if (view === 'article') renderArticle(id);
   if (view === 'player') renderNow();
 }
-// Redraw every open page, the 播放列表 if it is open, and what is playing.
+// Redraw every open page, the sheets that show the library (播放列表, 添加到歌单, 添加曲目, an edit's picture), and
+// what is playing. Not under a finger on a row (rowFinger): what comes meanwhile is drawn once it lets go. A row
+// swiped open stays open.
 function refresh() {
+  if (rowFinger !== null) { missed = true; return; }
+  const open = [...document.querySelectorAll('.swipe.open')].map(row => [row.parentElement, row.dataset.id]);
   renderPiano();
   if (!herOn()) renderLibrary();  // home
   for (const e of stack) if (e.view !== 'session') renderEntry(e);
@@ -380,7 +383,20 @@ function refresh() {
   for (const ed of pictureEditors) if (openSheet === ed.sheet) ed.render();
   renderSessionCards();
   renderNow();
+  for (const [list, id] of open) list.querySelector(`:scope > .swipe[data-id="${CSS.escape(id)}"]`)?.classList.add('open');
 }
+// The finger on a row (a press, a swipe, a drag by its handle), whose list is not drawn again under it: the row would
+// go, and with it the swipe, or the tap. Once it lets go, and the tap that may follow is done, the list is drawn.
+let rowFinger = null, missed = false, flushTimer = 0;
+function flushRows() {
+  clearTimeout(flushTimer);
+  if (rowFinger === null && missed) { missed = false; refresh(); }
+}
+const letRowsGo = () => { rowFinger = null; flushTimer = setTimeout(flushRows, 350); };
+for (const type of ['pointerup', 'pointercancel']) addEventListener(type, e => { if (e.pointerId === rowFinger) letRowsGo(); });
+addEventListener('click', flushRows);
+// A new touch: the one before has ended, whether or not its end came here.
+addEventListener('pointerdown', e => { if (e.isPrimary && rowFinger !== null) letRowsGo(); }, true);
 
 // ---------- Conversations ----------
 // Named after the pieces she played in it, or else what you said first (without her name), unless renamed.
@@ -669,7 +685,7 @@ function collapse(rows, after) {
   setTimeout(after, 270);
 }
 
-// ---------- Artists, and the list page for 收藏 / 最近播放 / one artist ----------
+// ---------- Artists, and the list page for 收藏 / 最近播放 / one artist (a playlist's is the same page) ----------
 // A piano version has two people: whose piece it is (原作者: the singer of a song, the composer of a classical
 // piece) and who plays it here (演奏者), whose picture is that of the channel the video came from.
 let role = 'artist';
@@ -686,6 +702,8 @@ const ownPicture = name => data.pictures[name] ? `/api/pictures?name=${encodeURI
 const channelPicture = (by, pieces) => by === 'performer' && pieces.find(p => p.channel_avatar)?.channel_avatar || '';
 const pictureOf = (by, name, pieces) => ownPicture(name) || channelPicture(by, pieces);
 const artworkOf = p => p.artwork ? `/api/recordings/${p.id}/artwork?v=${p.artwork}` : '';
+// What the user wrote of an artist or a playlist (简介), under its name, as written.
+const description = text => text ? `<p class="desc">${esc(text)}</p>` : '';
 const avatar = (name, picture, cls = '') => picture
   ? `<img class="mono${cls}" src="${esc(picture)}" alt="" referrerpolicy="no-referrer">`
   : `<span class="mono${cls}" style="--h:${hueOfName(name)}">${esc(initial(name))}</span>`;
@@ -722,7 +740,8 @@ function renderGroup(g) {
   $('#group-title').textContent = name;
   $('#group-hero').hidden = g.kind === 'recent';
   $('#group-hero').innerHTML = (g.kind === 'favorites' ? `<span class="mono square" style="--h:340">${HEART_FILL}</span>` : avatar(name, pictureOf(g.kind, name, ps)))
-    + `<b>${esc(name)}</b><span>${esc([g.kind === 'artist' || g.kind === 'performer' ? T[g.kind] : '', T.pieces(ps.length), totalTime(ps)].filter(Boolean).join(' · '))}</span>`;
+    + `<b>${esc(name)}</b><span>${esc([g.kind === 'artist' || g.kind === 'performer' ? T[g.kind] : '', T.pieces(ps.length), totalTime(ps)].filter(Boolean).join(' · '))}</span>`
+    + description(g.kind === 'artist' || g.kind === 'performer' ? data.descriptions[name] : '');
   const remove = {favorites: T.unfavorite, recent: T.forgetPlay}[g.kind];
   $('#group-list').innerHTML = ps.map(p => pieceRow(p, g.kind === 'recent' ? agoLabel(p.last_played_at) : '', remove)).join('')
     || `<p class="empty">${esc(g.kind === 'favorites' ? T.noFavorites : T.noPlays)}</p>`;
@@ -833,11 +852,12 @@ cropStage.addEventListener('pointerdown', e => {
 cropStage.addEventListener('pointermove', e => {
   if (!crop?.fingers.has(e.pointerId)) return;
   crop.fingers.set(e.pointerId, {x: e.clientX, y: e.clientY});
-  const {from} = crop, now = cropFingers();
-  crop.s = Math.min(crop.least * 5, Math.max(crop.least, from.d && now.d ? from.s * now.d / from.d : from.s));
-  crop.x = now.cx - (from.cx - from.x) * crop.s / from.s;
-  crop.y = now.cy - (from.cy - from.y) * crop.s / from.s;
+  const {from} = crop, now = cropFingers(), scale = from.d && now.d ? from.s * now.d / from.d : from.s;
+  crop.s = Math.min(crop.least * 5, Math.max(crop.least, scale));
+  const x = now.cx - (from.cx - from.x) * crop.s / from.s, y = now.cy - (from.cy - from.y) * crop.s / from.s;
+  Object.assign(crop, {x, y});
   placeCrop();
+  if (crop.s !== scale || crop.x !== x || crop.y !== y) anchorCrop();  // held at a limit: from here on, not from where it began
 });
 for (const type of ['pointerup', 'pointercancel']) {
   cropStage.addEventListener(type, e => {
@@ -855,7 +875,7 @@ cropStage.addEventListener('wheel', e => {
   crop.y = cy - (cy - crop.y) * crop.s / was;
   placeCrop();
 }, {passive: false});
-addEventListener('resize', () => { if (crop) layCrop(); });
+addEventListener('resize', () => { if (crop) { layCrop(); anchorCrop(); } });
 function endCrop(choose) {
   const c = crop;
   crop = null;
@@ -892,13 +912,12 @@ function renderPlaylists() {
     </div>`).join('') || `<p class="empty">${esc(T.noPlaylists)}</p>`;
 }
 function renderPlaylist(id) {
-  if ($('#group-list').classList.contains('reordering')) return;
   const pl = playlistById(id), ps = playlistPieces(pl);
   $('#group-title').textContent = pl?.name || '';
   $('#group-more').hidden = $('#group-hero').hidden = !pl;
   if (!pl) { $('#group-list').innerHTML = $('#group-foot').innerHTML = ''; return; }
   $('#group-hero').innerHTML = `${cover(pl)}<b>${esc(pl.name)}</b><span>${esc([T.pieces(ps.length), totalTime(ps)].filter(Boolean).join(' · '))}</span>`
-    + (pl.description ? `<p class="desc">${esc(pl.description)}</p>` : '')
+    + description(pl.description)
     + (ps.length ? `<div class="hero-acts"><button data-act="order">${ICON_PLAY}<span>${esc(T.play)}</span></button><button data-act="shuffle">${ICON.shuffle}<span>${esc(T.shufflePlay)}</span></button></div>` : '');
   $('#group-list').innerHTML = ps.map(p => pieceRow(p, '', T.removeFromPlaylist, true)).join('') || `<p class="empty">${esc(T.noPlaylistPieces)}</p>`;
   $('#group-foot').innerHTML = `<button class="online" id="group-add">${ICON_ADD}<span>${esc(T.addMusic)}</span></button>`;
@@ -911,11 +930,14 @@ function setPlaylists(playlists) {
 }
 // What was shown at once of a change the Mac then refused (or did not get) is set right again from the Mac.
 const resyncPlaylists = () => api('/api/playlists').then(setPlaylists).catch(() => {});
-// A change, shown at once (by the caller) and then as the Mac has it; null when it failed.
+// A change, shown at once (by the caller) and then as the Mac has it; null when it failed. Several made quickly (two
+// pieces added, two rows taken out) each show at once: what the Mac says of the playlists meanwhile (its events, its
+// answers) knows only those before it, so it waits for the last answer, and then the playlists are read again.
+let changing = 0;
 async function changePlaylist(id, change) {
+  changing++;
   const changed = await api(`/api/playlists/${id}`, 'PATCH', change).catch(() => null);
-  if (changed) setPlaylists(data.playlists.map(pl => pl.id === changed.id ? changed : pl));
-  else resyncPlaylists();
+  if (--changing === 0) resyncPlaylists();
   return changed;
 }
 // A playlist gone (deleted here or on another phone): its page closes, wherever it is in the stack, and adding to it
@@ -932,13 +954,12 @@ function closeGone() {
 // A new playlist, named first: with pieces (it stays where it was), or empty (it opens, to add to).
 function newPlaylist(ids = []) {
   askName(T.newPlaylistTitle, '', async name => {
-    if (!name) return;
     const made = await api('/api/playlists', 'POST', {name, ids}).catch(() => null);
     if (!made) return;
     setPlaylists([made, ...data.playlists.filter(pl => pl.id !== made.id)]);
     if (ids.length) hud(T.addedTo(made.name));
-    else push('group', {kind: 'playlist', id: made.id});
-  });
+    else if (state.view === 'playlists') push('group', {kind: 'playlist', id: made.id});
+  }, true);
 }
 function addToPlaylist(pl, ids) {
   if (!pl) return;
@@ -977,15 +998,8 @@ function editPlaylist(id) {
   $('#plist-desc').value = pl.description;
   plistArt.reset();
   showSheet($('#sheet-plist'));
-  fitDescription();
+  fitField($('#plist-desc'));
 }
-// The description's field grows with what is written.
-function fitDescription() {
-  const field = $('#plist-desc');
-  field.style.height = '';
-  field.style.height = field.scrollHeight + 'px';
-}
-$('#plist-desc').addEventListener('input', fitDescription);
 $('#plist-name').addEventListener('keydown', e => { if (isEnter(e)) e.currentTarget.blur(); });
 $('#plist-cancel').addEventListener('click', closeOverlays);
 $('#plist-save').addEventListener('click', () => {
@@ -1054,23 +1068,36 @@ $('#group-more').innerHTML = ICON.more;
 $('#group-more').addEventListener('click', e => {
   const g = state.session, pl = g?.kind === 'playlist' && playlistById(g.id);
   if (pl) playlistMenu(pl, e.currentTarget, null);
-  else if (g?.kind === 'artist' || g?.kind === 'performer') showCtx(e.currentTarget, null, [[T.editPicture, ICON.photo, () => editPicture(g)]]);
+  else if (g?.kind === 'artist' || g?.kind === 'performer') showCtx(e.currentTarget, null, [[T.editArtist, ICON.edit, () => editArtist(g)]]);
 });
-// 编辑头像: an artist's (or a pianist's) own picture, kept with 完成.
-let personFor = {kind: 'artist', name: ''};
-const personArt = pictureEditor('#person-art', () => ownPicture(personFor.name),
-                                () => avatar(personFor.name, channelPicture(personFor.kind, groupPieces(personFor))));
-function editPicture(g) {
-  personFor = g;
-  $('#person-name').textContent = g.name;
-  personArt.reset();
-  showSheet($('#sheet-person'));
+// 编辑艺术家: an artist's (or a pianist's) own picture and description (简介), by name, kept with 完成.
+let artistFor = {kind: 'artist', name: ''};
+const artistArt = pictureEditor('#artist-art', () => ownPicture(artistFor.name),
+                                () => avatar(artistFor.name, channelPicture(artistFor.kind, groupPieces(artistFor))));
+function editArtist(g) {
+  artistFor = g;
+  $('#artist-name').textContent = g.name;
+  $('#artist-desc').value = data.descriptions[g.name] || '';
+  artistArt.reset();
+  showSheet($('#sheet-artist'));
+  fitField($('#artist-desc'));
 }
-$('#person-cancel').addEventListener('click', closeOverlays);
-$('#person-save').addEventListener('click', () => {
+$('#artist-cancel').addEventListener('click', closeOverlays);
+$('#artist-save').addEventListener('click', () => {
+  const {name} = artistFor, description = $('#artist-desc').value.trim(), was = data.descriptions[name] || '';
   closeOverlays();
-  personArt.keep(`/api/pictures?name=${encodeURIComponent(personFor.name)}`);
+  artistArt.keep(`/api/pictures?name=${encodeURIComponent(name)}`);
+  if (description === was) return;
+  const set = text => { data.descriptions = {...data.descriptions, [name]: text}; if (!text) delete data.descriptions[name]; refresh(); };
+  set(description);  // at once; the Mac then says so (the library event), or it is as it was
+  api('/api/artists', 'PATCH', {name, description}).catch(() => set(was));
 });
+// A description's field grows with what is written.
+function fitField(field) {
+  field.style.height = '';
+  field.style.height = field.scrollHeight + 'px';
+}
+for (const field of document.querySelectorAll('textarea.fline')) field.addEventListener('input', () => fitField(field));
 $('#group-foot').addEventListener('click', e => {
   if (e.target.closest('#group-add') && state.session?.kind === 'playlist') openPick(state.session.id);
 });
@@ -1084,7 +1111,7 @@ $('#group-hero').addEventListener('click', e => {
        shuffle ? 'shuffle' : 'order');
 });
 
-// A word that something was done, for a moment (added to a playlist).
+// A word, for a moment: something done (added to a playlist), or that could not be (a photo).
 let hudTimer = 0;
 function hud(text) {
   $('#hud').textContent = text;
@@ -1104,12 +1131,14 @@ function pieceMenu(key, row) {
   ]);
   const id = +key, p = pieceById(id);
   if (!p) return;
-  // In 收藏 and 最近播放 a swipe only takes a piece out of the list; the menu says plainly where the file goes.
+  // In 收藏, 最近播放 and a playlist a swipe only takes a piece out of the list; the menu says plainly where the file goes.
+  const pl = state.session?.kind === 'playlist' && playlistById(state.session.id);
   showCtx(row, pieceText(p) + pieceSide(p), [
     [p.favorited_at ? T.unfavorite : T.favorite, ICON.heart, () => favorite(id, !p.favorited_at)],
-    [T.addToPlaylist, ICON.playlist, () => pickPlaylist([id])],
+    [T.addToPlaylist, ICON.addTo, () => pickPlaylist([id])],
     [T.edit, ICON.edit, () => openEdit(id)],
     state.view === 'library' && [T.selectSeveral, ICON.select, () => setSelecting(true, id)],
+    pl && [T.removeFromPlaylistLong, ICON.trash, () => foldAway(row, () => removeFromPlaylist(pl, id)), true],
     [T.moveToTrash, ICON.trash, () => foldAway(row, () => deletePieces([id])), true],
   ]);
 }
@@ -1301,17 +1330,21 @@ function showScreen(n) {
   let g = null;
   // Not from the bottom edge, where a swipe up is the system's (the home indicator: going home, another app).
   const fromEdge = e => e.clientY > innerHeight - parseFloat(getComputedStyle(app).paddingBottom) - 16;
+  const info = $('#p-info');
   view.addEventListener('pointerdown', e => {
-    if (!e.button && !e.target.closest('.scrub') && !fromEdge(e)) {
+    if (!e.button && e.isPrimary && !e.target.closest('.scrub') && !fromEdge(e)) {
       g = {id: e.pointerId, x0: e.clientX, y0: e.clientY, t: performance.now(), dy: 0, on: false};
     }
   });
+  // On 详细信息, which scrolls, the swipe is the screens' only from its top and down: anything else scrolls it.
+  const scrolls = dy => playerScreen === 1 && (dy < 0 || info.scrollTop > 0);
   view.addEventListener('pointermove', e => {
     if (!g || e.pointerId !== g.id) return;
     const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
     if (!g.on) {
       if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { g = null; return; }
       if (Math.abs(dy) < 10) return;
+      if (scrolls(dy)) { g = null; return; }
       g.on = true;
       view.setPointerCapture(e.pointerId);
       el.classList.add('dragging');
@@ -1332,6 +1365,10 @@ function showScreen(n) {
   };
   view.addEventListener('pointerup', end);
   view.addEventListener('pointercancel', end);
+  // ...and kept from the scroll, which would otherwise take the touch (a pointercancel) a few pixels in.
+  view.addEventListener('touchmove', e => {
+    if (g && playerScreen === 1 && !scrolls(e.touches[0].clientY - g.y0) && e.cancelable) e.preventDefault();
+  }, {passive: false});
 })();
 
 // 详细信息: the video as YouTube shows it (when the piece came from one), then the library's facts about the piece,
@@ -1387,19 +1424,21 @@ $('#p-info').addEventListener('click', e => {
     const r = el.getBoundingClientRect();
     return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (nowPiece()?.duration_s || 0);
   };
+  let held = false;  // the finger is on it; scrubbing stays until the Mac has gone there, unless it is held again
   el.addEventListener('pointerdown', e => {
-    if (!nowPiece()) return;
+    if (!nowPiece() || !e.isPrimary) return;
+    held = true;
     el.classList.add('active');
     el.setPointerCapture(e.pointerId);
     scrubbing = at(e);
     renderProgress();
   });
-  el.addEventListener('pointermove', e => { if (scrubbing !== null) { scrubbing = at(e); renderProgress(); } });
+  el.addEventListener('pointermove', e => { if (held) { scrubbing = at(e); renderProgress(); } });
   const end = () => {
-    if (scrubbing === null) return;
-    const to = scrubbing;
+    if (!held) return;
+    held = false;
     el.classList.remove('active');
-    control('seek', to).finally(() => { scrubbing = null; });
+    control('seek', scrubbing).finally(() => { if (!held) scrubbing = null; });
   };
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);
@@ -1491,7 +1530,8 @@ function dragToReorder(list, moved) {
   let r = null;
   list.addEventListener('pointerdown', e => {
     const grip = e.target.closest('.grip');
-    if (!grip || e.button > 0) return;
+    if (!grip || e.button > 0 || !e.isPrimary) return;
+    rowFinger = e.pointerId;
     const row = grip.closest('.swipe');
     const i = [...list.children].indexOf(row);
     r = {id: e.pointerId, row, y0: e.clientY, i0: i, i, h: row.offsetHeight};
@@ -1516,24 +1556,32 @@ function dragToReorder(list, moved) {
     guardUntil = performance.now() + 200;
     r = null;
     if (changed) moved(id, index);
-    refresh();  // what came while it was held, drawn now
+    refresh();  // as it is now (drawn once the finger is gone: flushRows)
   };
   list.addEventListener('pointerup', end);
   list.addEventListener('pointercancel', end);
 }
-dragToReorder($('#queue-list'), (id, index) => control('move', id, index));
+dragToReorder($('#queue-list'), (id, index) => {
+  const ids = pb().ids.filter(i => i !== id);
+  ids.splice(index, 0, id);
+  data.playback = {...pb(), ids};  // where it was dropped, until the Mac says so too
+  control('move', id, index);
+});
 
 // ---------- Adding pieces ----------
 // Search YouTube for piano versions (or paste a link), watch one on YouTube, download it (the same queue she uses by
 // voice), then play it: download, the ring while it is made, play.
 let cands = [], query = '', searching = false, searchRun = 0;  // searchRun: the latest search, whose results show
+let searchOff = false;  // a name asked for with online search off: it says so
 // No search shown: one still on its way is let go of, and shows nothing when it comes back.
 function forgetSearch() {
   searchRun++;
   searching = false;
+  searchOff = false;
   query = '';
 }
 async function findCands(q) {
+  searchOff = false;
   query = q;
   cands = [];
   const run = ++searchRun;
@@ -1548,6 +1596,7 @@ async function findCands(q) {
 const jobFor = c => data.jobs.find(j => j.source === c.url);
 function renderCands() {
   const body = $('#add-body');
+  if (searchOff) { body.innerHTML = `<div class="empty">${esc(T.searchOff)}</div>`; return; }
   if (!query) { body.innerHTML = ''; return; }
   if (searching) { body.innerHTML = `<div class="loading">${SPINNER}</div>`; return; }
   if (!cands.length) { body.innerHTML = `<div class="empty">${esc(T.nothing)}</div>`; return; }
@@ -1604,7 +1653,8 @@ function searchOnline(q) {
   $('#add-scroll').scrollTop = 0;
   if (data.features.search || /^https?:/i.test(q)) return findCands(q);
   forgetSearch();
-  $('#add-body').innerHTML = `<div class="empty">${esc(T.searchOff)}</div>`;
+  searchOff = true;
+  renderCands();
 }
 $('#lib-add').innerHTML = ICON_ADD;
 $('#lib-add').addEventListener('click', addPieces);
@@ -1887,10 +1937,15 @@ function enterVoice(id) {
     hint.style.setProperty('--pull', Math.min(1, px / ARM));
     hint.classList.toggle('armed', px >= ARM);
   };
-  const begin = (y, target) => { y0 = atEnd() && state.view === 'session' && !target.closest('.compose') ? y : null; };
-  const move = (y, e) => {
+  let x0 = 0, sure = false;  // sure: it went up before it went sideways
+  const begin = (x, y, target) => { x0 = x; sure = false; y0 = atEnd() && state.view === 'session' && !target.closest('.compose') ? y : null; };
+  const move = (x, y, e) => {
     if (y0 === null) return;
     const up = y0 - y;
+    if (!sure) {
+      if (Math.abs(x - x0) > 10 && Math.abs(x - x0) > Math.abs(up)) { y0 = null; return; }
+      sure = up > 10;
+    }
     if (up <= 0) { if (pull) set(0); return; }
     if (e && e.cancelable) e.preventDefault();
     set(Math.min(140, up * .55));
@@ -1902,12 +1957,12 @@ function enterVoice(id) {
     if (go) enterVoice(state.session);
     set(0, true);
   };
-  view.addEventListener('touchstart', e => begin(e.touches[0].clientY, e.target), {passive: true});
-  view.addEventListener('touchmove', e => move(e.touches[0].clientY, e), {passive: false});
+  view.addEventListener('touchstart', e => begin(e.touches[0].clientX, e.touches[0].clientY, e.target), {passive: true});
+  view.addEventListener('touchmove', e => move(e.touches[0].clientX, e.touches[0].clientY, e), {passive: false});
   view.addEventListener('touchend', end);
   view.addEventListener('touchcancel', end);
-  view.addEventListener('mousedown', e => begin(e.clientY, e.target));
-  addEventListener('mousemove', e => { if (e.buttons) move(e.clientY); });
+  view.addEventListener('mousedown', e => begin(e.clientX, e.clientY, e.target));
+  addEventListener('mousemove', e => { if (e.buttons) move(e.clientX, e.clientY); });
   addEventListener('mouseup', end);
 })();
 // 新对话: she forgets, and you are back at the orb, talking.
@@ -1974,7 +2029,7 @@ $('#help-list').addEventListener('click', e => {
 
 // ---------- Overlays ----------
 let openSheet = null;
-// A full sheet pushes the screen behind it back, as on iOS; a half sheet (播放列表) leaves it where it is.
+// A full sheet pushes the screen behind it back, as on iOS; a half sheet (播放列表, 添加到歌单) leaves it where it is.
 function showSheet(sheet) {
   openSheet = sheet;
   app.classList.toggle('sheeted', !sheet.classList.contains('half'));
@@ -1996,6 +2051,7 @@ $('#confirm-yes').addEventListener('click', () => {
 });
 $('#confirm-no').addEventListener('click', closeOverlays);
 function closeOverlays() {
+  if (crop) endCrop(false);  // the sheet it was choosing for goes
   openSheet?.classList.remove('show');
   openSheet = null;
   naming = confirmed = null;
@@ -2033,8 +2089,8 @@ $('#piano-hide').innerHTML = ICON.close;
 $('#piano-hide').addEventListener('click', () => { pianoHidden = data.piano.name; renderPiano(); });
 $('#dim').addEventListener('click', dismiss);
 
-// Long-press menu, for a piece and for a conversation: the row lifts and its actions show by it. With html null it is
-// a pull-down menu instead (a setting's choices), opening from the right of its row.
+// Long-press menu, for a piece, a playlist or a conversation: the row lifts and its actions show by it. With html null
+// it is a pull-down menu instead (a setting's choices, a page's …), opening from the right of what was tapped.
 // items: [label, icon, action, danger]; falsy items are left out, and the danger ones go last.
 let ctxActions = [];
 function showCtx(row, html, items) {
@@ -2101,20 +2157,26 @@ function deleteConversation(id) {
 }
 
 // A name in a text field, as iOS asks for one; over a sheet (新建歌单 from 添加到歌单), the sheet stays under it.
-let naming = null;
-function askName(title, value, save) {
+// needed: saved only with a name (a playlist's), else an empty one is a name too (a conversation's: its own again).
+let naming = null, nameNeeded = false;
+function askName(title, value, save, needed = false) {
   naming = save;
+  nameNeeded = needed;
   $('#rename-title').textContent = title;
   const input = $('#rename-input');
   input.value = value;
+  fitSave();
   $('#dim').classList.add('show');
   $('#dim').classList.toggle('over', !!openSheet);
   $('#rename').classList.add('show');
   input.focus();
   input.select();
 }
+const fitSave = () => { $('#rename-save').disabled = nameNeeded && !$('#rename-input').value.trim(); };
+$('#rename-input').addEventListener('input', fitSave);
 function saveName() {
   const save = naming, value = $('#rename-input').value.trim();
+  if (nameNeeded && !value) return;
   closeOverlays();
   save?.(value);
 }
@@ -2127,6 +2189,42 @@ function closeAlert() {
 $('#rename-cancel').addEventListener('click', dismiss);
 $('#rename-save').addEventListener('click', saveName);
 $('#rename-input').addEventListener('keydown', e => { if (isEnter(e)) saveName(); });
+
+// A sheet goes down with the finger from its top (the grabber and the header), and away past a third of its height or
+// with a flick, as on iOS (away is as 取消: nothing kept); short of that it goes back up.
+(function sheetDrag() {
+  let g = null;
+  for (const sheet of document.querySelectorAll('.sheet')) {
+    sheet.addEventListener('pointerdown', e => {
+      if (e.button > 0 || !e.isPrimary || !e.target.closest('.grabber, .sheet-head') || e.target.closest('button, input')) return;
+      g = {id: e.pointerId, y0: e.clientY, dy: 0, v: 0, t: performance.now(), on: false};
+    });
+    sheet.addEventListener('pointermove', e => {
+      if (!g || e.pointerId !== g.id) return;
+      const dy = Math.max(0, e.clientY - g.y0), now = performance.now();
+      if (!g.on) {
+        if (dy < 6) return;
+        g.on = true;
+        sheet.setPointerCapture(e.pointerId);
+        sheet.style.transition = 'none';
+      }
+      g.v = (dy - g.dy) / Math.max(1, now - g.t);
+      Object.assign(g, {dy, t: now});
+      sheet.style.transform = `translateY(${dy}px)`;
+    });
+    const end = e => {
+      if (!g || e.pointerId !== g.id) return;
+      const {on, dy} = g, v = performance.now() - g.t > 80 ? 0 : g.v;
+      g = null;
+      if (!on) return;
+      sheet.style.transition = sheet.style.transform = '';  // from where it is, away or back
+      if (dy > sheet.offsetHeight / 3 || (dy > FLICK_PX && v > .5)) closeOverlays();
+      guardUntil = performance.now() + 300;
+    };
+    sheet.addEventListener('pointerup', end);
+    sheet.addEventListener('pointercancel', end);
+  }
+})();
 
 // ---------- Going around: the sidebar, the pages, the player ----------
 // No buttons for going around. Home is the orb: a right swipe opens the sidebar beside it (a left swipe closes it
@@ -2147,9 +2245,9 @@ function setOpen(open) {
 }
 let drag = null;
 app.addEventListener('pointerdown', e => {
-  if (e.button > 0 || overlayOpen() || $('#ctx').classList.contains('show') || e.target.closest('.swipe.open, .scrub, textarea, #orb, .grip')) return;
+  if (e.button > 0 || !e.isPrimary || overlayOpen() || $('#ctx').classList.contains('show') || e.target.closest('.swipe.open, .scrub, textarea, #orb, .grip')) return;
   drag = {id: e.pointerId, x0: e.clientX, y0: e.clientY, p0: state.open ? 1 : 0, p: state.open ? 1 : 0, v: 0, t: performance.now(), lx: e.clientX,
-          active: false, page: stack.length ? $('#view-' + stack.at(-1).view) : null, player: null, dx: 0,
+          active: false, page: null, player: null, dx: 0,
           row: !!e.target.closest('#main .swipe')};  // at the library home, a left swipe on a row is the row's
 });
 app.addEventListener('pointermove', e => {
@@ -2159,6 +2257,7 @@ app.addEventListener('pointermove', e => {
   if (!drag.active) {
     if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { drag = null; return; }
     if (Math.abs(dx) < 10) return;
+    drag.page = stack.length ? $('#view-' + stack.at(-1).view) : null;  // the top page as the drag starts (one may come in after the press)
     const goes = drag.page ? dx > 0 : drag.p0 ? dx < 0 : dx > 0 || (!!nowPiece() && !drag.row);
     if (!goes) { drag = null; return; }
     drag.active = true;
@@ -2185,15 +2284,17 @@ const endDrag = e => {
   if (!drag || e.pointerId !== drag.id) return;
   if (drag.active) {
     app.classList.remove('dragging');
+    const v = performance.now() - drag.t > 80 ? 0 : drag.v;  // a finger that stopped before letting go did not flick
+    const top = stack.length ? $('#view-' + stack.at(-1).view) : null;
     if (drag.player) {
-      if (drag.dx < -90 || flicked(drag.v, drag.dx)) push('player', null, drag.player);
+      if (drag.dx < -90 || flicked(v, drag.dx)) push('player', null, drag.player);
       else slideOut(drag.player);
     } else if (drag.page) {
-      if (drag.dx > 90 || flicked(drag.v, drag.dx)) pop();
-      else { moveAside(drag.page, null); $('#mini').style.transform = ''; }
+      if (drag.page === top && (drag.dx > 90 || flicked(v, drag.dx))) pop();
+      else { moveAside(drag.page, null); $('#mini').style.transform = ''; }  // back (another page came in meanwhile: it stays)
     } else {
       const moved = (drag.p - drag.p0) * sidebarWidth();
-      setOpen(flicked(drag.v, moved) ? drag.v > 0 : drag.p > .5);
+      setOpen(flicked(v, moved) ? v > 0 : drag.p > .5);
     }
     guardUntil = performance.now() + 300;
   }
@@ -2208,7 +2309,8 @@ function onHold(list, selector, open) {
   const cancel = () => { if (h) clearTimeout(h.timer); h = null; };
   list.addEventListener('pointerdown', e => {
     const row = e.target.closest(selector);
-    if (!row || e.button > 0 || state.selecting || e.target.closest('.grip')) return;
+    if (!row || e.button > 0 || !e.isPrimary || state.selecting || e.target.closest('.grip')) return;
+    cancel();
     const held = {x: e.clientX, y: e.clientY};
     held.timer = setTimeout(() => {
       // The list may have been redrawn during the press (a download moving on), so the row is the one under the finger now.
@@ -2238,7 +2340,8 @@ function rowGestures(list, {tap, remove, hold, ask}) {
   let s = null;
   list.addEventListener('pointerdown', e => {
     const row = e.target.closest('.swipe:not(.fixed)');
-    if (!row || e.button > 0 || state.selecting || e.target.closest('.grip')) return;
+    if (!row || e.button > 0 || !e.isPrimary || state.selecting || e.target.closest('.grip')) return;
+    rowFinger = e.pointerId;
     s = {id: e.pointerId, row, x0: e.clientX, y0: e.clientY, base: row.classList.contains('open') ? -DEL : 0, x: 0, active: false};
   });
   list.addEventListener('pointermove', e => {
@@ -2346,7 +2449,7 @@ onHold($('#recent'), '.sb-row', row => conversationMenu(row.dataset.target, row)
 (function peekTimes() {
   const list = $('#recent');
   let s = null;
-  list.addEventListener('pointerdown', e => { if (!e.button) s = {id: e.pointerId, x0: e.clientX, y0: e.clientY, on: false}; });
+  list.addEventListener('pointerdown', e => { if (!e.button && e.isPrimary) s = {id: e.pointerId, x0: e.clientX, y0: e.clientY, on: false}; });
   list.addEventListener('pointermove', e => {
     if (!s || e.pointerId !== s.id) return;
     if ($('#ctx').classList.contains('show')) { s = null; return; }

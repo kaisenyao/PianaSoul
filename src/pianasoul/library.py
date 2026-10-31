@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS playlists (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+-- What the user wrote about an artist (简介), by name: 原作者 and 演奏者 of one name share it, as their picture.
+CREATE TABLE IF NOT EXISTS artists (
+    name TEXT PRIMARY KEY,
+    description TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS playlist_items (
     playlist_id INTEGER NOT NULL REFERENCES playlists(id),
     recording_id INTEGER NOT NULL REFERENCES recordings(id),
@@ -133,7 +138,7 @@ def _version(path: Path) -> int | None:
     """When a picture was last kept (the page asks for it again once this changes), or None when there is none."""
     try:
         return path.stat().st_mtime_ns
-    except OSError:  # none, or none that could be (a name too long)
+    except OSError:  # none
         return None
 
 
@@ -148,15 +153,25 @@ def _keep_picture(path: Path, jpeg: bytes | None) -> None:
     part.replace(path)
 
 
+NAME_LIMIT = 100  # characters in a playlist's name: each is in what she is told with every request
 PLAYLIST_TIME = "microseconds"  # which of two playlists changed last, even within a second (her choice by name)
-DESCRIPTION_LIMIT = 1000  # characters in a playlist's description (简介)
+DESCRIPTION_LIMIT = 1000  # characters in a playlist's or an artist's description (简介)
 
 
 def _playlist_name(name: str) -> str:
     name = str(name).strip()
     if not name:
         raise ValueError("a playlist needs a name")
+    if len(name) > NAME_LIMIT:
+        raise ValueError("a playlist's name is too long")
     return name
+
+
+def _description(text: str) -> str:
+    text = str(text).strip()
+    if len(text) > DESCRIPTION_LIMIT:
+        raise ValueError("a description is too long")
+    return text
 
 
 def _now(timespec: str = "seconds") -> str:
@@ -350,27 +365,32 @@ class Library:
 
     def add(self, midi_path: Path, title: str, *, composer: str = "", performer: str = "",
             aliases: str = "", tags: str = "", source_type: str = "local", source_url: str = "") -> dict:
-        """Add or update a recording."""
+        """Add or update a recording. One already known by its path takes its new content along, its artwork too (as
+        refresh)."""
         midi_path = Path(midi_path).resolve()
-        stats = midi_stats(midi_path)
-        self.execute(
-            """INSERT INTO recordings (title, composer, performer, aliases, tags, source_type, source_url,
-                   midi_path, notes, velocity_min, velocity_max, pedal_presses, duration_s, added_at, fingerprint,
-                   stamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(midi_path) DO UPDATE SET title = excluded.title,
-                   composer = COALESCE(NULLIF(excluded.composer, ''), composer),
-                   performer = COALESCE(NULLIF(excluded.performer, ''), performer),
-                   aliases = COALESCE(NULLIF(excluded.aliases, ''), aliases),
-                   tags = COALESCE(NULLIF(excluded.tags, ''), tags),
-                   source_type = excluded.source_type,
-                   source_url = COALESCE(NULLIF(excluded.source_url, ''), source_url),
-                   notes = excluded.notes, velocity_min = excluded.velocity_min,
-                   velocity_max = excluded.velocity_max, pedal_presses = excluded.pedal_presses,
-                   duration_s = excluded.duration_s, fingerprint = excluded.fingerprint, stamp = excluded.stamp""",
-            (title, composer, performer, aliases, tags, source_type, source_url, str(midi_path),
-             stats["notes"], stats["velocity_min"], stats["velocity_max"], stats["pedal_presses"],
-             stats["duration_s"], _now(), fingerprint(midi_path), stamp(midi_path)))
+        stats, content = midi_stats(midi_path), fingerprint(midi_path)
+        with self.lock:
+            known = self.execute("SELECT fingerprint FROM recordings WHERE midi_path = ?", (str(midi_path),))
+            if known and known[0][0] and known[0][0] != content:
+                self._artwork_follows(known[0][0], content)
+            self.execute(
+                """INSERT INTO recordings (title, composer, performer, aliases, tags, source_type, source_url,
+                       midi_path, notes, velocity_min, velocity_max, pedal_presses, duration_s, added_at, fingerprint,
+                       stamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(midi_path) DO UPDATE SET title = excluded.title,
+                       composer = COALESCE(NULLIF(excluded.composer, ''), composer),
+                       performer = COALESCE(NULLIF(excluded.performer, ''), performer),
+                       aliases = COALESCE(NULLIF(excluded.aliases, ''), aliases),
+                       tags = COALESCE(NULLIF(excluded.tags, ''), tags),
+                       source_type = excluded.source_type,
+                       source_url = COALESCE(NULLIF(excluded.source_url, ''), source_url),
+                       notes = excluded.notes, velocity_min = excluded.velocity_min,
+                       velocity_max = excluded.velocity_max, pedal_presses = excluded.pedal_presses,
+                       duration_s = excluded.duration_s, fingerprint = excluded.fingerprint, stamp = excluded.stamp""",
+                (title, composer, performer, aliases, tags, source_type, source_url, str(midi_path),
+                 stats["notes"], stats["velocity_min"], stats["velocity_max"], stats["pedal_presses"],
+                 stats["duration_s"], _now(), content, stamp(midi_path)))
         return self._public(self.execute("SELECT * FROM recordings WHERE midi_path = ?", (str(midi_path),))[0])
 
     def refresh(self, rec_id: int) -> None:
@@ -395,7 +415,7 @@ class Library:
         shared = len(self.execute("SELECT id FROM recordings WHERE fingerprint = ?", (old,))) > 1
         if target.exists():
             if not shared:
-                source.unlink()
+                send2trash(str(source))  # the new content has its own: this one is not lost, it can be put back
         elif shared:
             shutil.copy2(source, target)
         else:
@@ -515,16 +535,16 @@ class Library:
     def delete(self, rec_id: int) -> bool:
         """Take a recording out of the library, its file to the Trash (yours as well as one in Transcribed/). The
         recording it was transcribed from stays, to be transcribed again."""
-        rec = self.get(rec_id)
-        if rec is None:
-            return False
-        if rec["file_exists"]:
-            send2trash(rec["midi_path"])
-        artwork = self.piece_artwork(rec) if rec["fingerprint"] else None
-        sharing = self.execute("SELECT id FROM recordings WHERE fingerprint = ?", (rec["fingerprint"],))
-        if artwork and artwork.exists() and len(sharing) == 1:
-            send2trash(str(artwork))  # with its file: put back together, they belong together again
-        with self.lock:
+        with self.lock:  # its artwork neither moved by a refresh nor counted by another delete meanwhile
+            rec = self.get(rec_id)
+            if rec is None:
+                return False
+            if rec["file_exists"]:
+                send2trash(rec["midi_path"])
+            artwork = self.piece_artwork(rec) if rec["fingerprint"] else None
+            sharing = self.execute("SELECT id FROM recordings WHERE fingerprint = ?", (rec["fingerprint"],))
+            if artwork and artwork.exists() and len(sharing) == 1:
+                send2trash(str(artwork))  # with its file: put back together, they belong together again
             self.db.execute("DELETE FROM recordings WHERE id = ?", (rec_id,))
             self.db.execute("UPDATE audio SET recording_id = NULL WHERE recording_id = ?", (rec_id,))
             for row in self.db.execute("SELECT playlist_id FROM playlist_items WHERE recording_id = ?", (rec_id,)).fetchall():
@@ -559,9 +579,7 @@ class Library:
     def edit_playlist(self, playlist_id: int, name: str, description: str) -> dict | None:
         """Its name and its description (简介), as edited together. ValueError for an empty name or a description
         over DESCRIPTION_LIMIT; None when there is no such playlist."""
-        name, description = _playlist_name(name), str(description).strip()
-        if len(description) > DESCRIPTION_LIMIT:
-            raise ValueError("a playlist's description is too long")
+        name, description = _playlist_name(name), _description(description)
         with self.lock:
             if not self._touch(playlist_id, "name = ?, description = ?", (name, description)):
                 return None
@@ -574,7 +592,7 @@ class Library:
             self.db.execute("DELETE FROM playlist_items WHERE playlist_id = ?", (playlist_id,))
             deleted = self.db.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,)).rowcount > 0
             self.db.commit()
-        self.playlist_cover(playlist_id).unlink(missing_ok=True)
+            self.playlist_cover(playlist_id).unlink(missing_ok=True)  # before a new playlist can take its id
         return deleted
 
     def add_to_playlist(self, playlist_id: int, ids) -> list[int] | None:
@@ -582,6 +600,8 @@ class Library:
         with self.lock:
             have = self._playlist_ids(playlist_id)
             added = [i for i in self._known(ids) if i not in have]
+            if not added:  # nothing changes, and it is not changed last
+                return [] if self.db.execute("SELECT 1 FROM playlists WHERE id = ?", (playlist_id,)).fetchone() else None
             if not self._touch(playlist_id):
                 return None
             self._renumber(playlist_id, have + added)
@@ -649,6 +669,26 @@ class Library:
     def pictures(self, names) -> dict[str, int]:
         """Of these artists, those with a picture, and its version."""
         return {name: version for name in set(names) if (version := _version(self.artist_picture(name)))}
+
+    # ---- what the user wrote about artists ------------------------------------------------------------
+    def set_artist_description(self, name: str, description: str) -> None:
+        """An artist's description (简介), by name; an empty one takes it away. ValueError for one over
+        DESCRIPTION_LIMIT."""
+        description = _description(description)
+        with self.lock:
+            if description:
+                self.db.execute("INSERT INTO artists (name, description) VALUES (?, ?) "
+                                "ON CONFLICT (name) DO UPDATE SET description = excluded.description", (name, description))
+            else:
+                self.db.execute("DELETE FROM artists WHERE name = ?", (name,))
+            self.db.commit()
+
+    def descriptions(self, names) -> dict[str, str]:
+        """Of these artists, those with a description, and it."""
+        names = set(names)
+        with self.lock:
+            rows = self.db.execute("SELECT name, description FROM artists").fetchall()
+        return {name: text for name, text in rows if name in names}
 
     def _playlist_ids(self, playlist_id: int) -> list[int]:
         return [r[0] for r in self.db.execute(

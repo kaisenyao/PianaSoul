@@ -434,7 +434,7 @@ class Assistant:
     def play_playlist(self, name: str, shuffle: bool = False) -> dict:
         """One of the user's playlists, by name (whatever its case and spaces; of two with that name, the one changed
         last): from its first piece in its order, or shuffled. Its pieces whose files are not there are left out."""
-        wanted = str(name).strip().casefold()
+        wanted, shuffle = str(name).strip().casefold(), shuffle is True  # only a true true: not "false"
         playlists = self.lib.playlists()
         found = max((p for p in playlists if p["name"].casefold() == wanted), key=lambda p: p["updated_at"], default=None)
         if found is None:

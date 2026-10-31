@@ -208,14 +208,16 @@ class Core:
     def recordings(self) -> list[dict]:
         return [recording(r) for r in self.lib.all() if r["file_exists"]]
 
-    def pictures(self, recordings: list[dict] | None = None) -> dict[str, int]:
-        """The artists' own pictures (原作者 and 演奏者 alike), by name: their versions."""
-        return self.lib.pictures(n for r in recordings or self.recordings() for n in (r["artist"], r["performer"]) if n)
+    def artists(self, recordings: list[dict] | None = None) -> dict:
+        """What the user gave the artists (原作者 and 演奏者 alike), by name: their pictures (versions) and their
+        descriptions (简介)."""
+        names = {n for r in recordings or self.recordings() for n in (r["artist"], r["performer"]) if n}
+        return {"pictures": self.lib.pictures(names), "descriptions": self.lib.descriptions(names)}
 
     def library_changed(self) -> None:
-        """The app hears the library changed (and reads it again), with the artists' pictures as they are now: a new
-        piece may be by an artist who has one."""
-        self.emit({"type": "library", "pictures": self.pictures()})
+        """The app hears the library changed (and reads it again), with the artists' pictures and descriptions as
+        they are now: a new piece may be by an artist who has them."""
+        self.emit({"type": "library", **self.artists()})
 
     def audio(self) -> list[dict]:
         """The recordings in the library folder that are not pieces (yet, or any more): waiting for this Mac to

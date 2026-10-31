@@ -172,6 +172,10 @@ svg { display: block; }
 #pages > #mini, #pages > #selbar { pointer-events: auto; }
 .dragging #pages > .view, .dragging #mini { transition: none; }
 .view { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* What scrolls scrolls up and down only. Sideways is always the page's (back, the sidebar, a row's swipe): the browser,
+   for which touch-action starts afresh at each scroll container, would otherwise take a sideways swipe a few pixels
+   in (a pointercancel), and it would stop there. */
+.view, .sb-scroll, #search-results, .chat-scroll, .sheet-body, .pinfo { touch-action: pan-y; }
 .view header {
   position: sticky; top: 0; z-index: 10; height: calc(var(--safe-top) + var(--bar) + 54px);
   padding: calc(var(--safe-top) + var(--bar)) 90px 0;
@@ -221,7 +225,6 @@ svg { display: block; }
 #app.instant, #app.instant * { transition: none !important; }
 
 /* ---------- Lists: tap, swipe left to delete, long-press for more ---------- */
-.list { touch-action: pan-y; }
 .swipe { position: relative; overflow: hidden; }
 .swipe .del { position: absolute; top: 0; bottom: 0; right: 0; width: 88px; background: var(--red); color: #fff; font-size: 16px; font-weight: 500; text-align: center; }
 .swipe .content {
@@ -415,9 +418,8 @@ svg { display: block; }
 .frow .val { flex: 1; text-align: right; color: var(--text2); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ghead.fold { display: flex; align-items: center; justify-content: space-between; width: calc(100% - 32px); min-height: 32px; }
 
-/* A picture being edited, at the top of its sheet, as Contacts and Apple Music edit one: the picture (round for an
-   artist), or what shows without one, with a camera on it; tapped for a photo as 选取照片 is, and 移除 beside that
-   while there is one. Below it, the fields in groups under their headings, as Edit Info has them. */
+/* A picture being edited, at the top of its sheet, as Contacts edits one: the picture (round for an artist), or what
+   shows without one; tapped for a photo as 选取照片 is, and 移除 beside that while there is one. Below it, the fields in groups under their headings, as Edit Info has them. */
 .art-edit { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px 16px 2px; }
 .art-edit .pick { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .art-edit .tile { position: relative; width: 168px; height: 168px; border-radius: 14px; background: var(--card2); cursor: pointer; }
@@ -428,12 +430,6 @@ svg { display: block; }
 .art-edit .tile img { width: 100%; height: 100%; object-fit: cover; }
 .art-edit .fallback > * { width: 100%; height: 100%; margin: 0; border-radius: 0; }
 .art-edit .fallback .mono { font-size: 68px; }
-.art-edit .badge {
-  position: absolute; right: -7px; bottom: -7px; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
-  background: var(--accent); color: #fff; box-shadow: 0 0 0 3px var(--sheet);
-}
-.art-edit.round .badge { right: 5px; bottom: 5px; }
-.art-edit .badge svg { width: 20px; height: 20px; }
 .art-links { display: flex; gap: 32px; }
 .art-edit .link { padding: 4px 0; font-size: 16px; color: var(--accent); cursor: pointer; }
 .art-edit .link.danger { color: var(--red); }
@@ -485,6 +481,7 @@ svg { display: block; }
 .abtns { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--menu-line); }
 .abtns button { height: 44px; text-align: center; font-size: 17px; color: var(--accent); }
 .abtns button + button { border-left: 1px solid var(--menu-line); font-weight: 600; }
+.abtns button:disabled { color: var(--disabled); }
 
 /* Long-press menu: the row lifts, its actions show beside it. No preview: tapping the row already opens it. */
 #ctx { position: absolute; inset: 0; z-index: 48; display: none; }
@@ -528,7 +525,7 @@ svg { display: block; }
 .me { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 10px 12px 4px; }
 .me .orb { width: 76px; height: 76px; }
 .me p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text2); text-align: center; }
-.ghead { margin: 22px 16px 8px; font-size: 13px; font-weight: 600; color: var(--text2); }
+.ghead { display: block; margin: 22px 16px 8px; font-size: 13px; font-weight: 600; color: var(--text2); }
 .gcard { border-radius: 14px; background: var(--card); overflow: hidden; }
 .grow { position: relative; display: flex; align-items: center; gap: 14px; width: 100%; min-height: 50px; padding: 0 16px; font-size: 16px; }
 .grow + .grow::before { content: ""; position: absolute; left: 52px; right: 0; top: 0; border-top: 1px solid var(--sep-card); }
@@ -563,22 +560,25 @@ button.grow:active { background: var(--press); }
 :root[data-theme=light] .seg button.on { background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
 .hero { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 16px 18px; }
 .hero .mono { width: 120px; height: 120px; font-size: 48px; margin-bottom: 10px; }
-.hero .mono.square { border-radius: 18px; }
+.hero .mono.square { width: 168px; height: 168px; border-radius: 14px; }  /* 收藏: a collection, as big as a playlist's cover */
 .hero .mono svg { width: 54px; height: 54px; }
+.hero .mono.square svg { width: 72px; height: 72px; }
 .t1 .fav { display: inline-block; width: 11px; height: 11px; margin-left: 6px; color: var(--pink); }
 .t1 .fav svg { width: 11px; height: 11px; }
 .side.when { font-size: 13px; }
 .hero b { font-size: 22px; font-weight: 600; }
 .hero b + span { font-size: 13px; color: var(--text2); }
-.hero .desc { max-width: 520px; margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: var(--text2); text-align: center; white-space: pre-line; overflow-wrap: anywhere; }  /* a playlist's 简介, as written */
+.hero .desc { max-width: 520px; margin: 6px 0 0; font-size: 14px; line-height: 1.45; color: var(--text2); text-align: center; white-space: pre-line; overflow-wrap: anywhere; }  /* a playlist's or an artist's 简介, as written */
 
-/* 歌单: a cover of its first four pieces' colors (or of the first, with fewer), as Apple Music makes one */
-.cover { flex: none; display: grid; place-items: center; overflow: hidden; border-radius: 6px; color: rgba(255, 255, 255, .9); }
+/* 歌单: a cover of its first four pieces' colors (or of the first, with fewer), as Apple Music makes one. A playlist's
+   row is the same wherever it is (歌单, 添加到歌单, its long-press card): its cover, then its name, the line under
+   the name. */
+.cover { flex: none; display: grid; place-items: center; width: 52px; height: 52px; overflow: hidden; border-radius: 6px; color: rgba(255, 255, 255, .9); }
 .cover, .cover.four i { background: linear-gradient(135deg, hsl(var(--h) 45% 46%), hsl(calc(var(--h) + 35) 45% 26%)); }
 .cover.four { grid-template-columns: 1fr 1fr; place-items: stretch; background: none; }
 .cover svg { width: 46%; height: 46%; }
-#playlist-list .cover { width: 52px; height: 52px; margin: 6px 0; }
-#playlist-list .content { gap: 14px; }
+#playlist-list .content, #addto-list .arow { height: 68px; }
+#playlist-list .content::after, #addto-list .arow::after { left: 84px; }
 .hero .cover { width: 168px; height: 168px; border-radius: 14px; margin-bottom: 10px; }
 .hero-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 360px; margin-top: 14px; }
 .hero-acts button {
@@ -586,11 +586,8 @@ button.grow:active { background: var(--press); }
   background: var(--card); color: var(--accent); font-size: 16px; font-weight: 600;
 }
 .hero-acts svg { width: 18px; height: 18px; }
-#group-foot .online svg { width: 22px; height: 22px; flex: none; }
-#addto-list .arow { height: 66px; }
-#addto-list .arow::after { left: 80px; }
-#addto-list .cover { width: 48px; height: 48px; }
-.cover.new { background: var(--card); color: var(--accent); }
+.cover.new { background: var(--card2); color: var(--accent); }
+:root[data-theme=light] .cover.new { background: var(--card); }
 .cover.new svg { width: 40%; height: 40%; }
 #addto-list .in { flex: none; margin-left: auto; color: var(--accent); }
 #addto-list .in svg { width: 22px; height: 22px; }
@@ -718,7 +715,7 @@ button.grow:active { background: var(--press); }
 .facts b { display: block; margin-top: 3px; font-size: 16px; font-weight: 400; word-break: keep-all; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
-  #main, #sidebar, #scrim, .swipe .content, .sheet, .action, .alert, #pages > .view, .art, .compose, #mini { transition: none; }
+  #main, #sidebar, #scrim, .swipe .content, .sheet, .action, .action.show, .alert, #pages > .view, .art, .art .flip, .compose, #mini { transition: none; }
   .eq i, .orb-fallback::before, .ring.waiting .dial, .typing i { animation: none; }
 }
 

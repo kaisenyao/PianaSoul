@@ -24,6 +24,9 @@ class LibraryPlaylistTests(Base):
         self.assertEqual((made['name'], made['ids']), ('睡前', [b, a]), 'Trimmed; each piece once; only pieces there are')
         pid = made['id']
         self.assertEqual(self.lib.add_to_playlist(pid, [a, c, c]), [c], 'Only what is not there yet')
+        changed = self.lib.playlist(pid)['updated_at']
+        self.assertEqual(self.lib.add_to_playlist(pid, [a, 9999]), [])
+        self.assertEqual(self.lib.playlist(pid)['updated_at'], changed, 'Nothing added: not changed (her choice by name)')
         self.assertEqual(self.lib.playlist(pid)['ids'], [b, a, c])
         self.assertTrue(self.lib.move_in_playlist(pid, c, 0))
         self.assertEqual(self.lib.playlist(pid)['ids'], [c, b, a])
@@ -48,6 +51,8 @@ class LibraryPlaylistTests(Base):
                 self.lib.edit_playlist(first['id'], bad, '')
         with self.assertRaises(ValueError):
             self.lib.edit_playlist(first['id'], '晚上', 'x' * 1001)
+        with self.assertRaises(ValueError):
+            self.lib.new_playlist('x' * 101)  # each name is in what she is told
         again = Library(self.root / 'library.db', self.root / 'Music')
         self.addCleanup(again.close)
         self.assertEqual([(p['name'], p['description']) for p in again.playlists()],
@@ -137,6 +142,7 @@ class PlaylistApiTests(Base):
         snap = self.client.post('/api/play', json={'id': c, 'ids': [c, a, b], 'scope': scope, 'mode': 'order'}).json()
         self.assertEqual((snap['mode'], snap['ids']), ('order', [c, a, b]))
         self.assertEqual(self.client.post('/api/play', json={'id': c, 'mode': 'loud'}).status_code, 400)
+        self.assertEqual(self.client.post('/api/play', json={'id': 999}).status_code, 404)
         with patch.object(self.core.playback, 'select', wraps=self.core.playback.select) as select:
             self.client.post('/api/play', json={'id': c, 'ids': [c, a, b], 'scope': scope})
             select.assert_not_called()  # tapped while it plays: it goes on
@@ -178,6 +184,8 @@ class HerPlaylistTests(Base):
     def test_shuffled_when_asked_and_found_whatever_the_case_or_spaces(self):
         a, b, c = self.ids
         self.lib.new_playlist('Morning Calm', [a, b, c])
+        self.ask('play morning calm', [self.call('play_playlist', name='Morning Calm', shuffle='false')], 'OK.')
+        self.assertEqual(self.p.mode, 'order', 'Only a true true shuffles')
         self.ask('shuffle morning calm', [self.call('play_playlist', name=' morning calm ', shuffle=True)], 'OK.')
         self.assertEqual((self.p.mode, sorted(self.p.ids)), ('shuffle', sorted(self.ids)))
         self.assertEqual(self.p.ids[0], self.p.current_id)

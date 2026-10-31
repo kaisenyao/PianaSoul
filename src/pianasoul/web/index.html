@@ -237,7 +237,7 @@
     <div class="sheet-body">
       <div class="art-edit" id="edit-art">
         <input type="file" accept="image/*" id="edit-art-file" class="pick">
-        <label class="tile" for="edit-art-file"><span class="fallback"></span><img alt="" hidden><span class="badge"><i data-icon="camera"></i></span></label>
+        <label class="tile" for="edit-art-file"><span class="fallback"></span><img alt="" hidden></label>
         <div class="art-links"><label class="link" for="edit-art-file" data-t="choosePhoto"></label><button class="link danger" data-t="removeArtwork"></button></div>
       </div>
       <div class="ghead" data-t="pieceInfo"></div>
@@ -266,27 +266,29 @@
     <div class="sheet-body">
       <div class="art-edit" id="plist-art">
         <input type="file" accept="image/*" id="plist-art-file" class="pick">
-        <label class="tile" for="plist-art-file"><span class="fallback"></span><img alt="" hidden><span class="badge"><i data-icon="camera"></i></span></label>
+        <label class="tile" for="plist-art-file"><span class="fallback"></span><img alt="" hidden></label>
         <div class="art-links"><label class="link" for="plist-art-file" data-t="choosePhoto"></label><button class="link danger" data-t="removeArtwork"></button></div>
       </div>
-      <div class="ghead" data-t="nameHead"></div>
-      <div class="form"><input class="fline" id="plist-name" data-t-placeholder="playlistName" autocomplete="off" enterkeyhint="done"></div>
-      <div class="ghead" data-t="description"></div>
-      <div class="form"><textarea class="fline" id="plist-desc" rows="3" maxlength="1000" data-t-placeholder="descriptionHint"></textarea></div>
+      <label class="ghead" for="plist-name" data-t="nameHead"></label>
+      <div class="form"><input class="fline" id="plist-name" data-t-placeholder="playlistName" maxlength="100" autocomplete="off" enterkeyhint="done"></div>
+      <label class="ghead" for="plist-desc" data-t="description"></label>
+      <div class="form"><textarea class="fline" id="plist-desc" rows="3" maxlength="1000" data-t-placeholder="playlistDescriptionHint"></textarea></div>
     </div>
   </section>
 
-  <!-- Editing an artist's picture, kept with 完成 -->
-  <section class="sheet" id="sheet-person">
+  <!-- Editing an artist: their picture and what is said of them, kept with 完成 -->
+  <section class="sheet" id="sheet-artist">
     <div class="grabber"></div>
-    <div class="sheet-head"><button class="l" id="person-cancel" data-t="cancel"></button><h3 data-t="editPicture"></h3><button class="r" id="person-save" data-t="done"></button></div>
+    <div class="sheet-head"><button class="l" id="artist-cancel" data-t="cancel"></button><h3 data-t="editArtist"></h3><button class="r" id="artist-save" data-t="done"></button></div>
     <div class="sheet-body">
-      <div class="art-edit round" id="person-art">
-        <input type="file" accept="image/*" id="person-art-file" class="pick">
-        <label class="tile" for="person-art-file"><span class="fallback"></span><img alt="" hidden><span class="badge"><i data-icon="camera"></i></span></label>
-        <div class="art-links"><label class="link" for="person-art-file" data-t="choosePhoto"></label><button class="link danger" data-t="removePicture"></button></div>
+      <div class="art-edit round" id="artist-art">
+        <input type="file" accept="image/*" id="artist-art-file" class="pick">
+        <label class="tile" for="artist-art-file"><span class="fallback"></span><img alt="" hidden></label>
+        <div class="art-links"><label class="link" for="artist-art-file" data-t="choosePhoto"></label><button class="link danger" data-t="removePicture"></button></div>
       </div>
-      <p class="art-title" id="person-name"></p>
+      <p class="art-title" id="artist-name"></p>
+      <label class="ghead" for="artist-desc" data-t="description"></label>
+      <div class="form"><textarea class="fline" id="artist-desc" rows="3" maxlength="1000" data-t-placeholder="artistDescriptionHint"></textarea></div>
     </div>
   </section>
 
@@ -301,16 +303,14 @@
   <section class="sheet" id="sheet-pick">
     <div class="grabber"></div>
     <div class="sheet-head"><span class="l"></span><h3 data-t="addMusic"></h3><button class="r" id="pick-done" data-t="done"></button></div>
-    <div class="lsearch">
-      <label class="field">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
-        <input id="pick-q" type="search" data-t-placeholder="libraryHint" autocomplete="off" enterkeyhint="search">
-      </label>
-    </div>
+    <label class="field">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
+      <input id="pick-q" type="search" data-t-placeholder="libraryHint" autocomplete="off" enterkeyhint="search">
+    </label>
     <div class="sheet-body" id="pick-pieces"></div>
   </section>
 
-  <!-- A word that something was done, for a moment -->
+  <!-- A word, for a moment: something done, or that could not be -->
   <div id="hud" role="status" aria-live="polite"></div>
   <!-- Move and Scale: a photo chosen for an artwork or a picture, its square (or circle) picked with the fingers -->
   <div id="crop" hidden>

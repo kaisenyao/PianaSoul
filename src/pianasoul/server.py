@@ -32,10 +32,11 @@ import time
 from urllib.parse import urlsplit
 
 import numpy as np
-from fastapi import Body, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 
 from .chat import Worker
+from .playback import MODES
 from .voice import VOICE_NOTE, Conversation, VoiceParts
 
 WEB = Path(__file__).with_name('web')
@@ -218,7 +219,7 @@ def state():
             'playback': core.playback.snapshot(), 'conversations': core.conversations.all() if her else [],
             'current': her.conversation_id if her else None, 'busy': core.busy, 'settings': core.settings(),
             'devices': core.devices(), 'piano': core.piano, 'version': version, 'features': core.features(),
-            'audio': core.audio(), 'playlists': core.lib.playlists(), 'pictures': core.pictures(recordings)}
+            'audio': core.audio(), 'playlists': core.lib.playlists(), **core.artists(recordings)}
 
 
 @app.get('/api/recordings')
@@ -303,13 +304,13 @@ def play(id: int = Body(), ids: list[int] = Body(default=[]), scope: dict = Body
     """A piece tapped in a list: it plays (unless it is the one already playing), and that list plays on. With a mode,
     the list is played as a whole (a playlist's 播放: order, its 随机播放: shuffle), from its start."""
     playback = core.playback
+    if mode is not None and mode not in MODES:
+        raise HTTPException(400)
     try:
         if mode is None and id == playback.current_id and not playback.ended and playback.state != 'stopped':
             playback.show(id, ids, scope)
         else:
             playback.select(id, ids, scope, mode=mode)
-    except ValueError:
-        raise HTTPException(400) from None
     except FileNotFoundError:
         raise HTTPException(404) from None
     except LookupError as exc:
@@ -384,7 +385,8 @@ PICTURE_LIMIT = 4 * 1024 * 1024  # what a phone makes, a square JPEG of about 10
 
 async def _picture(request: Request) -> bytes | None:
     """The JPEG of a PUT, as the phone makes it; None for a DELETE (taken away). Read as it comes, and stopped as
-    soon as it is too large (413); 400 for what is not a JPEG."""
+    soon as it is too large (413); 400 for what is not a JPEG. A dependency: the endpoints that keep it are plain
+    functions, run beside the event loop (the library may be busy), as the others are."""
     if request.method == 'DELETE':
         return None
     body = bytearray()
@@ -410,11 +412,11 @@ def piece_artwork(rec_id: int):
 
 
 @app.api_route('/api/recordings/{rec_id}/artwork', methods=['PUT', 'DELETE'])
-async def keep_piece_artwork(rec_id: int, request: Request):
+def keep_piece_artwork(rec_id: int, jpeg: bytes | None = Depends(_picture)):
     """A piece's artwork from the phone (PUT), or taken away (DELETE). 409 while its file is not wholly here (in
     iCloud only): the artwork is kept by the file's content."""
     _recording(rec_id)
-    if not core.lib.set_piece_artwork(rec_id, await _picture(request)):
+    if not core.lib.set_piece_artwork(rec_id, jpeg):
         raise HTTPException(409)
     core.library_changed()
     return {'ok': True}
@@ -426,9 +428,9 @@ def playlist_artwork(playlist_id: int):
 
 
 @app.api_route('/api/playlists/{playlist_id}/artwork', methods=['PUT', 'DELETE'])
-async def keep_playlist_artwork(playlist_id: int, request: Request):
+def keep_playlist_artwork(playlist_id: int, jpeg: bytes | None = Depends(_picture)):
     """A playlist's artwork (PUT), or its cover of its pieces again (DELETE)."""
-    if not core.lib.set_playlist_cover(playlist_id, await _picture(request)):
+    if not core.lib.set_playlist_cover(playlist_id, jpeg):
         raise HTTPException(404)
     core.playlists_changed()
     return {'ok': True}
@@ -440,11 +442,24 @@ def artist_picture(name: str):
 
 
 @app.api_route('/api/pictures', methods=['PUT', 'DELETE'])
-async def keep_artist_picture(name: str, request: Request):
+def keep_artist_picture(name: str, jpeg: bytes | None = Depends(_picture)):
     """An artist's picture, by name (PUT), or taken away (DELETE)."""
     if not name.strip():
         raise HTTPException(400)
-    core.lib.set_artist_picture(name, await _picture(request))
+    core.lib.set_artist_picture(name, jpeg)
+    core.library_changed()
+    return {'ok': True}
+
+
+@app.patch('/api/artists')
+def describe_artist(name: str = Body(), description: str = Body()):
+    """What the user wrote about an artist (简介), by name; an empty one takes it away."""
+    if not name.strip():
+        raise HTTPException(400)
+    try:
+        core.lib.set_artist_description(name, description)
+    except ValueError:
+        raise HTTPException(400) from None
     core.library_changed()
     return {'ok': True}
 
