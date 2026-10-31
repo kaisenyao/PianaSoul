@@ -376,6 +376,7 @@ function refresh() {
   if (openSheet === $('#sheet-queue')) renderQueue();
   if (openSheet === $('#sheet-add')) renderCands();
   if (openSheet === $('#sheet-pick')) renderPick();
+  if (openSheet === $('#sheet-addto')) renderAddTo();
   if (openSheet === $('#sheet-edit')) renderEditArtwork();
   renderSessionCards();
   renderNow();
@@ -830,9 +831,31 @@ function playlistMenu(pl, row, html) {
     [T.deletePlaylist, ICON.trash, () => askDeletePlaylist(pl.id), true],
   ]);
 }
-// Which playlist pieces go into: a new one first, then each there is.
-const pickPlaylist = ids => offer(() => [[T.newPlaylist, () => newPlaylist(ids), 'accent'],
-  ...data.playlists.map(pl => [pl.name, () => addToPlaylist(playlistById(pl.id), ids)])]);
+// 添加到歌单, as Apple Music asks: a sheet of the playlists, New Playlist… first, a ✓ by those the pieces are all in
+// already; a tap adds them there.
+let adding = [];
+function pickPlaylist(ids) {
+  adding = ids;
+  renderAddTo();
+  showSheet($('#sheet-addto'));
+  $('#addto-list').scrollTop = 0;
+}
+function renderAddTo() {
+  const holds = pl => adding.every(id => pl.ids.includes(id));
+  $('#addto-list').innerHTML = `<button class="arow" data-new-playlist><span class="cover new">${ICON_ADD}</span>
+      <div class="text"><div class="t1">${esc(T.newPlaylist)}</div></div></button>`
+    + data.playlists.map(pl => `<button class="arow" data-playlist="${pl.id}">${cover(pl)}${playlistText(pl)}
+      ${holds(pl) ? `<span class="in">${CHECK}</span>` : ''}</button>`).join('');
+}
+$('#addto-list').addEventListener('click', e => {
+  const row = e.target.closest('.arow');
+  if (!row) return;
+  const ids = adding;
+  closeOverlays();
+  if ('newPlaylist' in row.dataset) newPlaylist(ids);
+  else addToPlaylist(playlistById(row.dataset.playlist), ids);
+});
+$('#addto-cancel').addEventListener('click', closeOverlays);
 // 添加曲目: the library, searchable, a + by each piece (a ✓ once it is in the playlist).
 let pickFor = null;
 function openPick(id) {
