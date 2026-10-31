@@ -186,7 +186,7 @@ svg { display: block; }
 .selecting #sel-cancel, .selecting #sel-all { display: block; }
 
 /* The orb at home, as it always was: one transparent native switch over it, so iOS gives its tap haptic */
-#view-orb { display: grid; place-items: center; overflow: clip; background: var(--bg); }
+#view-orb { display: grid; place-items: center; overflow: clip; background: var(--bg); padding-bottom: calc(2 * var(--lift, 0px)); }
 #orb {
   position: relative; width: clamp(180px, 46vmin, 300px); aspect-ratio: 1; border-radius: 50%; overflow: hidden;
   isolation: isolate; transform: scale(var(--scale, 1)); background: #333; -webkit-tap-highlight-color: transparent;
@@ -198,12 +198,12 @@ svg { display: block; }
 #orb canvas, .orb canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
 /* Without WebGL: a gradient in its place, gray in the same measure the shader would be */
 .orb-fallback { filter: grayscale(var(--quiet, 0)) contrast(calc(1 - .25 * var(--quiet, 0))) brightness(calc(1 + .2 * var(--quiet, 0))); }
-[data-theme=light] .orb-fallback { filter: grayscale(var(--quiet, 0)) contrast(calc(.7 - .2 * var(--quiet, 0))) brightness(calc(1.35 + .15 * var(--quiet, 0))); }
+[data-theme=light] .orb-fallback { filter: grayscale(var(--quiet, 0)) contrast(calc(.9 - .2 * var(--quiet, 0))) brightness(calc(1.05 + .1 * var(--quiet, 0))); }
 .orb-fallback canvas { display: none; }
 .orb-fallback::before {
   content: ""; position: absolute; inset: -30%;
-  background: radial-gradient(ellipse at 30% 25%, rgba(190, 210, 230, .18) 0, transparent 45%),
-    linear-gradient(#1c2a40 0, #253a52 44%, #a7c2d2 56%, #86a3b8 100%);
+  background: radial-gradient(ellipse at 30% 25%, rgba(220, 235, 255, .22) 0, transparent 45%),
+    linear-gradient(#336bcc 0, #6aa8f0 44%, #d4e8fa 56%, #b9d6f2 100%);
   animation: flow 7s ease-in-out infinite alternate; pointer-events: none;
 }
 @keyframes flow { from { transform: rotate(-20deg) translate(-8%, 2%); } to { transform: rotate(20deg) translate(8%, -6%); } }

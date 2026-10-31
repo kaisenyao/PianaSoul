@@ -1,8 +1,8 @@
 // The orb is her, wherever it shows: at home, in the pull at the end of a conversation, flying home, and in
 // Settings. Every one draws the same picture on one clock; the orb at home sets the pace, faster while she thinks
-// or speaks and with your voice. The picture is moonlight: a night sky over a slow tide of light, with a fine grain,
-// its edge melting into the page, dark or light; on a light page it is lighter, as is its gray. Gray and color share
-// the same motion, and one turns into the other gently.
+// or speaks and with your voice. The picture is a bright sky over a slow tide of light, with a fine grain, glowing on
+// a dark page and keeping its blue on a light one; its gray is lighter on a dark page and deeper on a light one, so
+// that it stands out from either. Gray and color share the same motion, and one turns into the other gently.
 const vertex = `attribute vec2 position; varying vec2 p;
 void main() { p = position; gl_Position = vec4(position, 0., 1.); }`;
 const fragment = `
@@ -16,24 +16,24 @@ const fragment = `
           float swell=.10*sin(2.12*p.x+.19*t+.15*sin(t*.13))+.033*sin(4.15*p.x-.14*t)+.045*cos(1.22*p.x+.10*t)+.016*sin(5.8*p.x+.24*t);
           float face=-p.y-.045+swell+energy*(.06+.055*sin(3.2*p.x+.9*t)+.025*sin(7.3*p.x-1.4*t));
           float near=smoothstep(-.105,.105,face);
-          vec3 sky=mix(vec3(.098,.148,.235),vec3(.145,.233,.323),smoothstep(.94,-.35,p.y));
-          sky+=vec3(.012,.020,.026)*sin(2.6*p.x+1.5*p.y+t*.10);
-          vec3 tide=mix(vec3(.56,.69,.77),vec3(.76,.84,.88),smoothstep(.02,1.75,face)*.82);
+          vec3 sky=mix(vec3(.20,.42,.80),vec3(.42,.66,.94),smoothstep(.94,-.35,p.y));
+          sky+=vec3(.025,.035,.040)*sin(2.6*p.x+1.5*p.y+t*.10);
+          vec3 tide=mix(vec3(.78,.89,.98),vec3(.95,.98,1.),smoothstep(.02,1.75,face)*.82);
           tide+=vec3(.022,.028,.034)*(sin(p.x*2.9-p.y*1.2-t*.14)*sin(p.y*2.15+p.x*.65+t*.11)*.55+cos(p.x*1.35+p.y*3.6+t*.095)*.32);
           vec3 color=mix(sky,tide,near);
           float under=face-.44+.075*sin(1.95*p.x-.09*t+.3);
-          color=mix(color,vec3(.34,.48,.60),smoothstep(-.13,.14,under)*.47*near);
-          color+=vec3(.045,.075,.09)*exp(-pow(face/(.1525+.06*energy),2.))*mix(near,1.,energy)*(.45+1.4*energy);
+          color=mix(color,vec3(.56,.74,.95),smoothstep(-.13,.14,under)*.47*near);
+          color+=vec3(.07,.09,.10)*exp(-pow(face/(.1525+.06*energy),2.))*mix(near,1.,energy)*(.45+1.4*energy);
           return clamp(color*(1.-.035*smoothstep(.6,1.,length(p))),0.,1.);
         }
         void main(){
           float r=length(p);
-          vec3 base=pow(moonlight(p,time*1.6,level),vec3(.86));
-          vec3 dark=base*(1.-.16*pow(smoothstep(.55,1.,r),2.));
-          vec3 light=mix(pow(base,vec3(.6)),vec3(1.),pow(smoothstep(.5,1.,r),2.)*.34);
+          vec3 base=moonlight(p,time*1.6,level);
+          vec3 dark=base*(1.-.07*pow(smoothstep(.55,1.,r),2.));
+          vec3 light=mix(base,vec3(1.),pow(smoothstep(.5,1.,r),2.)*.22);
           vec3 color=mix(dark,light,page)+(hash(floor(gl_FragCoord.xy))-.5)*.024;
           float gray=dot(color,vec3(.22,.65,.13));
-          color=mix(color,vec3(mix(gray*.74+.15,gray*.5+.44,page)),quiet);
+          color=mix(color,vec3(mix(gray*.82+.08,gray*.62+.26,page)),quiet);
           gl_FragColor=vec4(clamp(color,0.,1.),1.);
         }`;
 
