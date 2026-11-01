@@ -3,7 +3,7 @@ network MIDI session.
 
     ./run.sh play someone like you        # best match in the library
     ./run.sh play path/to/file.mid
-    ./run.sh play --all                   # the whole playlist, in order
+    ./run.sh play --all                   # every piece in the library, in order
     ./run.sh play --ports                 # list MIDI outputs
 
 The outputs are CoreMIDI's destinations (macOS), each known by its unique ID; a name is only shown. The app plays on
@@ -724,7 +724,7 @@ def resolve(lib: Library, words: list[str]) -> list[tuple[Path, str]]:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pianasoul play", description="Play library MIDI files on a MIDI output.")
     p.add_argument("query", nargs="*", help="words to find in the library, or a MIDI file path")
-    p.add_argument("--all", action="store_true", help="play the whole playlist in order")
+    p.add_argument("--all", action="store_true", help="play every piece in the library, in order")
     p.add_argument("--port", help=f'MIDI output name or part of it (default: PIANASOUL_PORT or "{DEFAULT_PORT}")')
     p.add_argument("--ports", action="store_true", help="list MIDI outputs and exit")
     p.add_argument("--lead", type=float, metavar="SECONDS",

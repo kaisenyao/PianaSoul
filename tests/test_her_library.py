@@ -64,6 +64,7 @@ class HerLibraryTests(Base):
         for rec_id in (b, b, b, c):
             self.lib.heard(rec_id)
         self.lib.execute("UPDATE plays SET played_at = '2020-01-01T00:00:00+00:00' WHERE recording_id = ?", (c,))
+        self.lib.set_setting('plays_since', '2020-01-01T00:00:00+00:00')  # when c's play was the first counted
         seen = self.ask(about='most_played')
         self.assertEqual([(p['id'], p['plays']) for p in seen['all_time']], [(b, 3), (c, 1)])
         self.assertEqual(seen['all_time'][0]['tags'], 'pop, calm', 'With its style, to choose by')

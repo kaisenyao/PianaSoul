@@ -321,6 +321,11 @@ phone, or put in the folder). A recording you put in the folder (mp3, m4a, wav, 
 piece once, when transcription is installed; after that only when you ask. Deleting a piece in the app moves its file
 to the Mac's Trash. A file that disappears is only hidden, and is back as it was when it returns.
 
+The artwork and pictures you choose in the app are kept with the music, in `Artwork/`: a piece's by its file's
+content, so it follows the file wherever it goes, and an artist's by name. A piece deleted in the app takes its
+artwork to the Trash with it. Playlists, their artwork and the descriptions you write are kept with the library's
+index in the data folder.
+
 Files in iCloud Drive that are not downloaded are left out until they are. Another folder can be the library (set
 `PIANASOUL_MUSIC`); files moved there are recognized by their content.
 
@@ -348,8 +353,9 @@ if the piece is new, then a check that the piano is there, and then the notes.
   she says in a ready-made line from `src/pianasoul/lines.py`, recorded once in her voice. Everything else the model
   words.
 
-- **Playing safely.** The model can only play pieces that a library search or a transcription returned in the same
-  request, so it cannot play something it made up. Short requests such as "stop" are done without the model.
+- **Playing safely.** The model can only play pieces that a library search, a look at your library or a
+  transcription returned in the same request, or one of your playlists by its name, so it cannot play something it
+  made up. Short requests such as "stop" are done without the model.
 
 - **Another chat model.** Anthropic can do the chat: set `PIANASOUL_MODEL=anthropic:claude-haiku-5-5` and
   `ANTHROPIC_API_KEY`. Speech recognition still needs `OPENAI_API_KEY`.

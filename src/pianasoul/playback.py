@@ -235,7 +235,7 @@ class Playback(Player):
             if self.state == "playing":
                 self.pause()
             elif self.state == "paused":
-                self._go_on(self._offset)
+                self.go_on(self._offset)
             elif self.current is not None:
                 self.start([self.current], 0.0)
 
@@ -245,20 +245,22 @@ class Playback(Player):
                 return
             seconds = max(0.0, min(seconds, self.duration or seconds))
             if self.state == "playing":
-                self._go_on(seconds)
+                self.go_on(seconds)
                 return
             # Stopped (✕, or the list over), what plays next is heard anew: the listening before it ended there.
             self._from_start = self.state == "stopped"
             self.state, self._offset, self.ended = "paused", seconds, False
         self.changed()
 
-    def _go_on(self, from_s: float) -> None:
-        """The piece on from from_s (0:00 too) as the same listening: a seek, or ▶ after a pause."""
-        self._going_on = True
-        try:
-            self.start([self.current], from_s)
-        finally:
-            self._going_on = False
+    def go_on(self, from_s: float) -> None:
+        """The piece on from from_s (0:00 too) as the same listening: a seek, ▶ after a pause, her resume or retry, the
+        voice going on after her answer."""
+        with self._lock:
+            self._going_on = True
+            try:
+                self.start([self.current], from_s)
+            finally:
+                self._going_on = False
 
     def step(self, direction: int) -> None:
         """⏮ (direction < 0) or ⏭; each plays what it lands on."""
@@ -395,4 +397,5 @@ class Playback(Player):
                 self._end_list()
             except LookupError as exc:  # the piano went away between two pieces: the next one waits
                 self.current, self.state, self._offset, self.lost = item, "paused", 0.0, str(exc)
+                self._from_start = True  # waiting to be heard anew (the next piece, or this one once more)
                 self.changed()

@@ -111,8 +111,11 @@ class LibraryArtworkTests(Base):
         import hashlib
         a = self.ids[0]
         digest = lambda jpeg: hashlib.sha256(jpeg).hexdigest()
+        keep = lambda picture, photo, at: self.lib.keep_picture_original(digest(picture), len(picture), photo, at)
+        with self.assertRaises(LookupError):
+            keep(JPEG, JPEG + b'photo', {'x': 0, 'y': 0, 'side': 1})  # no picture is it (gone while its photo came)
         self.lib.set_piece_artwork(a, JPEG)
-        self.lib.keep_picture_original(digest(JPEG), JPEG + b'photo', {'x': 10, 'y': 20.5, 'side': 300})
+        keep(JPEG, JPEG + b'photo', {'x': 10, 'y': 20.5, 'side': 300})
         path, at = self.lib.picture_original(digest(JPEG))
         self.assertEqual((path.read_bytes(), at), (JPEG + b'photo', {'x': 10, 'y': 20.5, 'side': 300}))
         self.lib.set_piece_artwork(a, JPEG)  # the same picture again: its photo stays
@@ -121,7 +124,7 @@ class LibraryArtworkTests(Base):
         self.assertIsNone(self.lib.picture_original(digest(JPEG)))
         self.assertFalse(path.exists())
         self.lib.set_artist_picture('周杰伦', JPEG)
-        self.lib.keep_picture_original(digest(JPEG), JPEG, {'x': 0, 'y': 0, 'side': 1})
+        keep(JPEG, JPEG, {'x': 0, 'y': 0, 'side': 1})
         self.lib.set_artist_picture('周杰伦', None)
         self.assertIsNone(self.lib.picture_original(digest(JPEG)))
         b, c = self.ids[1:]
@@ -129,7 +132,7 @@ class LibraryArtworkTests(Base):
         self.lib.refresh(c)
         self.lib.set_piece_artwork(b, JPEG + b'same')  # one picture on two pieces of different content
         self.lib.set_piece_artwork(c, JPEG + b'same')
-        self.lib.keep_picture_original(digest(JPEG + b'same'), JPEG, {'x': 0, 'y': 0, 'side': 1})
+        keep(JPEG + b'same', JPEG, {'x': 0, 'y': 0, 'side': 1})
         self.lib.set_piece_artwork(b, JPEG + b'other')
         self.assertIsNotNone(self.lib.picture_original(digest(JPEG + b'same')), 'Still the photo of c\'s picture')
         with patch('pianasoul.library.send2trash'):
@@ -137,13 +140,21 @@ class LibraryArtworkTests(Base):
         self.assertIsNone(self.lib.picture_original(digest(JPEG + b'same')))
         pid = self.lib.new_playlist('一')['id']
         self.lib.set_playlist_cover(pid, JPEG + b'cover')
-        self.lib.keep_picture_original(digest(JPEG + b'cover'), JPEG, {'x': 0, 'y': 0, 'side': 1})
+        keep(JPEG + b'cover', JPEG, {'x': 0, 'y': 0, 'side': 1})
         self.lib.delete_playlist(pid)
         self.assertIsNone(self.lib.picture_original(digest(JPEG + b'cover')), 'With its playlist')
         for bad in (('../x', {'x': 0, 'y': 0, 'side': 1}), (digest(JPEG), {'x': -1, 'y': 0, 'side': 1}),
                     (digest(JPEG), {'x': 0, 'y': 0, 'side': 0})):
             with self.assertRaises(ValueError):
-                self.lib.keep_picture_original(*bad[:1], JPEG, bad[1])
+                self.lib.keep_picture_original(bad[0], len(JPEG), JPEG, bad[1])
+
+    def test_a_file_that_cannot_be_read_among_the_pictures_changes_nothing(self):
+        folder = self.root / 'Music' / 'Artwork' / 'Artists'
+        folder.mkdir(parents=True)
+        (folder / 'ghost.jpg').symlink_to(self.root / 'nowhere.jpg')  # a link to nothing
+        self.lib.set_artist_picture('周杰伦', JPEG)
+        self.lib.set_artist_picture('周杰伦', JPEG + b'2')
+        self.assertEqual(self.lib.artist_picture('周杰伦').read_bytes(), JPEG + b'2')
 
     def test_a_new_playlist_does_not_take_the_artwork_of_one_deleted_with_its_id(self):
         made = self.lib.new_playlist('一')
@@ -195,18 +206,21 @@ class ArtworkApiTests(Base):
         import hashlib
         digest = hashlib.sha256(JPEG).hexdigest()
         self.assertEqual(self.client.get(f'/api/picture-originals/{digest}').status_code, 404)
-        put = lambda d, **square: self.client.put(f'/api/picture-originals/{d}', params=square, content=JPEG + b'photo')
+        put = lambda d, **square: self.client.put(f'/api/picture-originals/{d}', params={'size': len(JPEG), **square},
+                                                  content=JPEG + b'photo')
+        self.assertEqual(put(digest, x=1.5, y=2, side=300).status_code, 409, 'No picture is it yet')
+        self.client.put(f'/api/recordings/{self.ids[0]}/artwork', content=JPEG)
         self.assertEqual(put(digest, x=1.5, y=2, side=300).json(), {'ok': True})
         got = self.client.get(f'/api/picture-originals/{digest}')
         self.assertEqual((got.content, got.headers['x-crop']), (JPEG + b'photo', '1.5,2.0,300.0'))
         big = JPEG + b'x' * (server.PICTURE_LIMIT + 1)  # a whole photo, larger than a picture may be
-        self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'x': 0, 'y': 0, 'side': 1},
+        self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'size': len(JPEG), 'x': 0, 'y': 0, 'side': 1},
                                          content=big).status_code, 200)
-        self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'x': 0, 'y': 0, 'side': 1},
+        self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'size': len(JPEG), 'x': 0, 'y': 0, 'side': 1},
                                          content=big + b'x' * server.PHOTO_LIMIT).status_code, 413)
         self.assertEqual(put('nothex', x=0, y=0, side=1).status_code, 400)
         self.assertEqual(put(digest, x=0, y=0, side=-1).status_code, 400)
-        self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'x': 0, 'y': 0, 'side': 1},
+        self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'size': len(JPEG), 'x': 0, 'y': 0, 'side': 1},
                                          content=b'<svg/>').status_code, 400)
 
     def test_a_playlists_and_an_artists_from_the_phone(self):

@@ -36,7 +36,6 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, We
 from fastapi.responses import FileResponse, JSONResponse
 
 from .chat import Worker
-from .playback import MODES
 from .voice import VOICE_NOTE, Conversation, VoiceParts
 
 WEB = Path(__file__).with_name('web')
@@ -304,13 +303,13 @@ def play(id: int = Body(), ids: list[int] = Body(default=[]), scope: dict = Body
     """A piece tapped in a list: it plays (unless it is the one already playing), and that list plays on. With a mode,
     the list is played as a whole (a playlist's 播放: order, its 随机播放: shuffle), from its start."""
     playback = core.playback
-    if mode is not None and mode not in MODES:
-        raise HTTPException(400)
     try:
         if mode is None and id == playback.current_id and not playback.ended and playback.state != 'stopped':
             playback.show(id, ids, scope)
         else:
             playback.select(id, ids, scope, mode=mode)
+    except ValueError:  # not a mode there is
+        raise HTTPException(400) from None
     except FileNotFoundError:
         raise HTTPException(404) from None
     except LookupError as exc:
@@ -487,11 +486,14 @@ def picture_original(digest: str):
 
 
 @app.put('/api/picture-originals/{digest}')
-def keep_picture_original(digest: str, x: float, y: float, side: float, jpeg: bytes | None = Depends(_photo)):
+def keep_picture_original(digest: str, size: int, x: float, y: float, side: float, jpeg: bytes | None = Depends(_photo)):
+    """The photo of the picture with this content (digest) and size, kept now; 409 when no picture is it any more."""
     try:
-        core.lib.keep_picture_original(digest, jpeg, {'x': x, 'y': y, 'side': side})
+        core.lib.keep_picture_original(digest, size, jpeg, {'x': x, 'y': y, 'side': side})
     except ValueError:
         raise HTTPException(400) from None
+    except LookupError:
+        raise HTTPException(409) from None
     return {'ok': True}
 
 

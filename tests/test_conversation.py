@@ -278,7 +278,7 @@ class ConversationTests(unittest.TestCase):
         self.assistant.ask.side_effect = RuntimeError('model down')
         self.c.respond()
         self.chat.reset.assert_not_called()
-        player.start.assert_called_once()  # at once, not after the follow-up window
+        player.go_on.assert_called_once_with(3.0)  # at once, not after the follow-up window
 
     def test_hushed_she_neither_listens_nor_speaks_and_the_piano_plays_on(self):
         player = self.assistant.player = Mock(state='playing', completed=None, lost=None, current=('p', '传奇'),
@@ -289,7 +289,7 @@ class ConversationTests(unittest.TestCase):
         player.state = 'paused'
         self.c.hushed.set()
         self.c.hush()
-        player.start.assert_called_once()  # the piece goes on: a gray orb does not stop the piano
+        player.go_on.assert_called_once_with(3.0)  # the piece goes on: a gray orb does not stop the piano
         self.assertEqual(self.c.state, 'waiting')
         self.frames(5, speaking=True, name='小茗同学')
         self.assertEqual(self.c.state, 'waiting', 'Nothing is heard while hushed')

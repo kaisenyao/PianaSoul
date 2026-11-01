@@ -509,7 +509,7 @@ def finish_interaction(assistant, speaker, answer: str, was_playing: bool) -> No
             player.look_for_piano()  # a piano that is gone is found before she speaks, and said once
             say(answer)
             if player.state == "paused" and player.current == piece:  # unless something else was chosen meanwhile
-                player.start([piece], from_s=at)
+                player.go_on(at)
         except LookupError as exc:
             speaker.say(assistant.piano_news(assistant.piano_missing(exc)))
         except FileNotFoundError:  # its file was deleted while it waited

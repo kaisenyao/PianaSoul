@@ -78,6 +78,26 @@ class PlayCountTests(Base):
         self.pause_at(1002 + self.p.duration * .2, self.p.duration * .2)
         self.assertEqual(self.lib.play_counts().get(b), 1)
 
+    def test_a_loop_waiting_for_the_piano_is_heard_anew_and_her_resume_goes_on(self):
+        a = self.ids[0]
+        self.at(0, self.p.select, a, [a], {}, 0.0, 'one')
+        length = self.p.duration
+        self.p.state, self.p.completed = 'stopped', True  # it finished on its own
+        with patch.object(self.p, 'check_connection', side_effect=LookupError('no piano')):
+            self.at(length + 1, self.p._next, self.p._run)  # the loop's start finds the piano gone: it waits
+        self.assertEqual((self.p.state, self.lib.play_counts()), ('paused', {a: 1}))
+        self.at(100, self.p.toggle)  # back: ▶
+        self.pause_at(100 + length, length)
+        self.assertEqual(self.lib.play_counts(), {a: 2}, 'The loop heard after the piano came back')
+        self.at(200, self.p.go_on, 0.0)  # her resume from where it was paused (0:00 too): the same listening
+        self.pause_at(200 + length * .3, length * .3)
+        self.assertEqual(self.lib.play_counts(), {a: 2})
+        since = self.lib.first_play()
+        self.lib.heard(self.ids[1])
+        with patch('pianasoul.library.send2trash'):
+            self.lib.delete(a)  # the first play's piece gone, with its plays
+        self.assertEqual(self.lib.first_play(), since, 'Since when plays are counted stays')
+
     def test_the_gap_before_a_piece_is_not_heard(self):
         a = self.ids[0]
         self.at(0, self.p.select, a, [a])

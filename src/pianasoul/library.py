@@ -4,8 +4,8 @@
     python -m pianasoul.library list
     python -m pianasoul.library enrich                     # let the chat model add artists, aliases, tags
 
-The library is a folder of music (MUSIC_DIR): yours, as you put it there, and Transcribed/, where PianaSoul files
-the pieces it makes. Its index and other lasting data are in DATA_DIR, and work files that may go in CACHE_DIR.
+The library is a folder of music (MUSIC_DIR): yours, as you put it there, Transcribed/, where PianaSoul files the
+pieces it makes, Uploaded/, where the phone's files go, and Artwork/, the pictures chosen for pieces and artists. Its index and other lasting data are in DATA_DIR, and work files that may go in CACHE_DIR.
 Each can be moved with an environment variable (PIANASOUL_MUSIC, PIANASOUL_DATA, PIANASOUL_CACHE).
 """
 
@@ -171,6 +171,7 @@ def _keep_picture(path: Path, jpeg: bytes | None) -> None:
 
 NAME_LIMIT = 100  # characters in a playlist's name: each is in what she is told with every request
 PLAYLIST_TIME = "microseconds"  # which of two playlists changed last, even within a second (her choice by name)
+PLAYS_SINCE = "plays_since"  # the setting: when the first play was counted
 DESCRIPTION_LIMIT = 1000  # characters in a playlist's or an artist's description (简介)
 
 
@@ -716,22 +717,39 @@ class Library:
     def _forget_original_of(self, path: Path) -> None:
         """A picture going (replaced, taken away, to the Trash with its piece, its playlist deleted): the photo it was
         made from goes too, unless another picture is the very same one (the same bytes), whose photo it is as well."""
-        if not path.is_file():
+        try:
+            content = path.read_bytes()
+        except OSError:  # none there
             return
-        content = path.read_bytes()
-        others = (other for folder in (self.artwork / "Pieces", self.artwork / "Artists", self.playlist_artwork)
-                  for other in folder.glob("*.jpg") if other.stat().st_size == len(content) and not other.samefile(path))
-        if not any(other.read_bytes() == content for other in others):
-            self.forget_picture_original(hashlib.sha256(content).hexdigest())
+        digest = hashlib.sha256(content).hexdigest()
+        if not self._picture_kept(digest, len(content), besides=path):
+            self.forget_picture_original(digest)
+
+    def _picture_kept(self, digest: str, size: int, besides: Path | None = None) -> bool:
+        """Whether a picture kept now (a piece's artwork, an artist's picture, a playlist's cover), besides the one at
+        besides, has this content. One that cannot be read is taken to have it: nothing it may be made from is lost."""
+        for folder in (self.artwork / "Pieces", self.artwork / "Artists", self.playlist_artwork):
+            for other in folder.glob("*.jpg"):
+                try:
+                    if besides is not None and other.samefile(besides):
+                        continue
+                    if other.stat().st_size == size and hashlib.sha256(other.read_bytes()).hexdigest() == digest:
+                        return True
+                except OSError:
+                    return True
+        return False
 
     # ---- the photos pictures were made from ----------------------------------------------------------
-    def keep_picture_original(self, digest: str, jpeg: bytes, at: dict) -> None:
-        """The photo the picture with this content (digest: its SHA-256, in hex) was made from, and the square of it the
-        picture is (at: x, y, side in the photo's pixels). ValueError for a digest or a square that is not one."""
+    def keep_picture_original(self, digest: str, size: int, jpeg: bytes, at: dict) -> None:
+        """The photo the picture with this content (digest: its SHA-256, in hex; size: its bytes) was made from, and the
+        square of it the picture is (at: x, y, side in the photo's pixels). ValueError for a digest or a square that is
+        not one; LookupError when no picture kept now is that one (replaced or gone while its photo was on its way)."""
         x, y, side = (float(at[k]) for k in ("x", "y", "side"))
         if not re.fullmatch(r"[0-9a-f]{64}", digest) or not (x >= 0 and y >= 0 and 0 < side < 1e5):
             raise ValueError("not a picture's digest and square")
         with self.lock:
+            if not self._picture_kept(digest, size):
+                raise LookupError("no picture is made from it")
             _keep_picture(self.picture_originals / f"{digest}.jpg", jpeg)
             self.db.execute("INSERT INTO picture_originals (digest, x, y, side) VALUES (?, ?, ?, ?) ON CONFLICT (digest) "
                             "DO UPDATE SET x = excluded.x, y = excluded.y, side = excluded.side", (digest, x, y, side))
@@ -797,7 +815,8 @@ class Library:
     def _take_spelling(self, other: str, kept: str) -> None:
         """Each piece of other's is kept's: its composer and performer, and its title where the title is made of its
         names (one that does not come apart into them and back, as make_title writes it, is left as it is). other's
-        picture goes to kept where kept has none, and its description after kept's (as much as one holds)."""
+        picture goes to kept where kept has none (else to the Trash), and its description after kept's (as much as one
+        holds)."""
         swap = lambda name: kept if name == other else name
         with self.lock:
             for row in self.execute("SELECT id, title, composer, performer FROM recordings"):
@@ -809,6 +828,9 @@ class Library:
             picture, theirs = self.artist_picture(other), self.artist_picture(kept)
             if picture.is_file() and not theirs.exists():
                 picture.rename(theirs)
+            elif picture.is_file() and not picture.samefile(theirs):  # kept has its own: this one to the Trash
+                self._forget_original_of(picture)
+                send2trash(str(picture))
             said = dict(self.db.execute("SELECT name, description FROM artists WHERE name IN (?, ?)", (other, kept)).fetchall())
             if other in said:
                 both = "\n\n".join(dict.fromkeys(t for t in (said.get(kept), said[other]) if t))[:DESCRIPTION_LIMIT]
@@ -861,8 +883,11 @@ class Library:
         self.execute("UPDATE recordings SET favorited_at = ? WHERE id = ?", (_now() if on else None, rec_id))
 
     def heard(self, rec_id: int) -> None:
-        """A piece heard once more (a play): counted, with when."""
-        self.execute("INSERT INTO plays (recording_id, played_at) VALUES (?, ?)", (rec_id, _now()))
+        """A piece heard once more (a play): counted, with when; the first one also says since when plays are counted."""
+        now = _now()
+        self.execute("INSERT INTO plays (recording_id, played_at) VALUES (?, ?)", (rec_id, now))
+        if not self.setting(PLAYS_SINCE):
+            self.set_setting(PLAYS_SINCE, now)
 
     def play_counts(self, since: str = "") -> dict[int, int]:
         """How often each piece was heard, since then (an ISO time) if given; pieces never heard are left out."""
@@ -874,8 +899,8 @@ class Library:
         return dict(self.execute("SELECT recording_id, MAX(played_at) FROM plays GROUP BY recording_id"))
 
     def first_play(self) -> str | None:
-        """When plays were first counted."""
-        return self.execute("SELECT MIN(played_at) FROM plays")[0][0]
+        """Since when plays are counted: kept on its own, so that deleting a piece (and its plays) does not move it."""
+        return self.setting(PLAYS_SINCE) or None
 
     def played(self, rec_id: int, on: bool = True) -> None:
         """When a recording last played (on=False takes it out of 最近播放)."""

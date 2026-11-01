@@ -436,9 +436,13 @@ class Assistant:
                 self.tell(line(how, self.chinese(), request.playlist or spoken_title(request.title)))
                 announced = True
             if request.recording_id is None or (request.recording_id == player.current_id and request.scope is None):
-                # the piece already in the player, from its file as the library has it now
-                player.start([player.current if request.recording_id is not None else (request.path, request.title)],
-                             from_s=request.from_s)
+                # the piece already in the player, from its file as the library has it now: on from where it was (a
+                # resume, a retry: the same listening), or again from its start
+                if request.recording_id is not None and not from_start:
+                    player.go_on(request.from_s)
+                else:
+                    player.start([player.current if request.recording_id is not None else (request.path, request.title)],
+                                 from_s=request.from_s)
             else:
                 ids, scope = (list(request.ids), request.scope) if request.scope is not None else (
                     [*self.conversations.pieces(self.conversation_id or 0), *(i for i, _ in self.played_now)],

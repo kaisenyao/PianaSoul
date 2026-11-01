@@ -315,20 +315,22 @@ function applyFeatures() {
 function ready(view, id = null) {
   const el = $('#view-' + view);
   el.dataset.gen = +(el.dataset.gen || 0) + 1;
-  const under = stack.findLast(e => e.view === view);  // a page of this kind lower down: its place in it, for later
-  if (under && !el.hidden) under.scroll = el.scrollTop;
+  // A page of this kind lower down, showing in it (not sliding out): its place in it, for when it is back.
+  const under = stack.findLast(e => e.view === view);
+  if (under && !el.hidden && !el.classList.contains('off')) under.scroll = el.scrollTop;
   el.hidden = false;
   el.style.zIndex = layer(view, stack);
   moveAside(el, null);
-  el.style.transition = 'none';  // to the side at once (it may be on screen, under the player), then in from there
-  el.classList.add('off');
-  el.offsetWidth;
-  el.style.transition = '';
   if (view === 'session') toLatest();  // a conversation opens at its latest message, or at a line search found
   renderEntry({view, id});
   if (view === 'player') showScreen(0);
   else if (view !== 'session') el.scrollTop = 0;
   if (view === 'settings') loadDevices();
+  // Drawn as it opens, then to the side at once (it may be on screen, under the player), to come in from there.
+  el.style.transition = 'none';
+  el.classList.add('off');
+  el.offsetWidth;
+  el.style.transition = '';
   return el;
 }
 function push(view, id = null, el = ready(view, id)) {
@@ -585,8 +587,8 @@ function pieceSide(p, label) {
   if (isPlaying(p.id)) return `<span class="eq${pb().state === 'paused' ? ' paused' : ''}"><i></i><i></i><i></i></span>`;
   return label ? `<span class="side when">${esc(label)}</span>` : `<span class="side">${mmss(p.duration_s)}</span>`;
 }
-// remove: what a left swipe does here. It moves the piece to the Mac's Trash in 曲库 and on an artist's page; in 收藏
-// and 最近播放 it only takes the piece out of that list.
+// remove: what a left swipe does here. It moves the piece to the Mac's Trash in 曲库 and on an artist's page; in 收藏,
+// 最近播放 and a playlist it only takes the piece out of that list.
 // grip: a handle to drag it by (in a playlist).
 const pieceRow = (p, label, remove = T.trash, grip = false) => `<div class="swipe${p.job ? ' busy' : ''}${selected.has(p.id) ? ' selected' : ''}" data-id="${p.job ? p.key : p.id}">
     <button class="del" tabindex="-1">${esc(remove)}</button>
@@ -831,9 +833,14 @@ function pictureEditor(id, current, fallback) {
     if (busy) return;
     if (photo) return adjust(photo, at);
     busy = true;
-    const mine = turn, kept = await fetch(src).then(r => r.ok ? r.blob() : null, () => null);
-    const original = kept && await originalOf(kept);
-    busy = false;
+    const mine = turn;
+    let kept = null, original = null;
+    try {
+      kept = await fetch(src).then(r => r.ok ? r.blob() : null);
+      original = await originalOf(kept);
+    } catch {} finally {  // the Mac or the network gone halfway: as far as it got
+      busy = false;
+    }
     if (mine !== turn || openSheet !== ed.sheet) return;  // the sheet closed meanwhile, or opened for another
     if (original) adjust(original.photo, original.at);
     else if (kept) adjust(kept);  // kept before photos were: what there is of it
@@ -856,6 +863,7 @@ async function keepPicture(path, jpeg, from = null) {
 // SHA-256), at most ORIGINAL_PX on its longer side, or larger where its square needs it to make the same picture
 // again (a small square of a large photo).
 const ORIGINAL_PX = 1600, PHOTO_BYTES = 12e6;  // larger than PHOTO_BYTES, a whole photo is made a JPEG again (the Mac takes 16 MB)
+const CANVAS_PX = 16e6;  // what iOS Safari draws on one canvas at most (4096 × 4096)
 const digestOf = async blob => crypto.subtle && [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))]
   .map(b => b.toString(16).padStart(2, '0')).join('');
 async function keepOriginal(jpeg, {photo, at}) {
@@ -863,10 +871,11 @@ async function keepOriginal(jpeg, {photo, at}) {
   const scaleFor = longer => Math.min(1, Math.max(ORIGINAL_PX / longer, Math.min(1000, at.side) / at.side));
   const [digest, small] = await Promise.all([digestOf(jpeg), shrunk(photo, scaleFor)]);
   if (!digest || !small) return;
-  const square = new URLSearchParams({x: at.x * small.scale, y: at.y * small.scale, side: at.side * small.scale});
+  const square = new URLSearchParams({size: jpeg.size, x: at.x * small.scale, y: at.y * small.scale, side: at.side * small.scale});
   await fetch(`/api/picture-originals/${digest}?${square}`, {method: 'PUT', body: small.jpeg, headers: {'Content-Type': 'image/jpeg'}});
 }
 async function originalOf(picture) {
+  if (!picture) return null;
   const digest = await digestOf(picture), found = digest && await fetch(`/api/picture-originals/${digest}`).catch(() => null);
   if (!found?.ok) return null;
   const [x, y, side] = (found.headers.get('X-Crop') || '').split(',').map(Number);
@@ -879,8 +888,9 @@ async function shrunk(photo, scaleFor) {
   try {
     img.src = url;
     await img.decode();
-    const scale = scaleFor(Math.max(img.naturalWidth, img.naturalHeight));
+    let scale = scaleFor(Math.max(img.naturalWidth, img.naturalHeight));
     if (scale === 1 && photo.type === 'image/jpeg' && photo.size <= PHOTO_BYTES) return {jpeg: photo, scale};
+    scale = Math.min(scale, Math.sqrt(CANVAS_PX / (img.naturalWidth * img.naturalHeight)));  // as large as iOS can draw
     const canvas = Object.assign(document.createElement('canvas'), {width: Math.round(img.naturalWidth * scale), height: Math.round(img.naturalHeight * scale)});
     const g = canvas.getContext('2d');
     g.fillStyle = '#fff';
@@ -1168,10 +1178,10 @@ $('#pick-q').addEventListener('input', renderPick);
 $('#pick-pieces').addEventListener('click', e => {
   const b = e.target.closest('[data-add-piece]'), pl = playlistById(pickFor), id = +b?.dataset.addPiece;
   if (!b || !pl) return;
-  const there = pl.ids.includes(id);
-  pl.ids = there ? pl.ids.filter(i => i !== id) : [...pl.ids, id];
+  if (pl.ids.includes(id)) return removeFromPlaylist(pl, id);
+  pl.ids = [...pl.ids, id];  // added quietly (no word for each), as Apple Music does here
   refresh();
-  changePlaylist(pl.id, there ? {remove: id} : {add: [id]});
+  changePlaylist(pl.id, {add: [id]});
 });
 $('#pick-done').addEventListener('click', closeOverlays);
 $('#new-playlist').innerHTML = ICON_ADD;
@@ -1658,8 +1668,10 @@ function renderQueue() {
       </div>`;
   }).join('');
 }
-// Hold a piece by its handle and drag it up or down; the pieces it passes make room. moved(id, index), let go.
-function dragToReorder(list, moved) {
+// Hold a piece by its handle and drag it up or down; the pieces it passes make room. Let go, moved(id, at, ids): at,
+// its place in the whole list (all(); null: nothing to move in), ids, that list with it there. Only pieces whose files
+// are there show, so one dropped before the next one shown goes there.
+function dragToReorder(list, all, moved) {
   let r = null;
   list.addEventListener('pointerdown', e => {
     const grip = e.target.closest('.grip');
@@ -1686,17 +1698,19 @@ function dragToReorder(list, moved) {
     const id = +r.row.dataset.id, changed = r.i !== r.i0, index = r.i;
     guardUntil = performance.now() + 200;
     r = null;
-    if (changed) moved(id, index);
+    const ids = changed && all();
+    if (ids) {
+      const next = listIds(list)[index + 1], rest = ids.filter(i => i !== id);
+      const at = next === undefined ? rest.length : rest.indexOf(next);
+      moved(id, at, [...rest.slice(0, at), id, ...rest.slice(at)]);
+    }
     refresh();  // as it is now (drawn once the finger is gone: flushRows)
   };
   list.addEventListener('pointerup', end);
   list.addEventListener('pointercancel', end);
 }
-// Only pieces whose files are there show: one dropped before the next one shown goes there (as in a playlist).
-dragToReorder($('#queue-list'), (id, index) => {
-  const next = listIds($('#queue-list'))[index + 1], rest = pb().ids.filter(i => i !== id);
-  const at = next === undefined ? rest.length : rest.indexOf(next);
-  data.playback = {...pb(), ids: [...rest.slice(0, at), id, ...rest.slice(at)]};  // where it was dropped, until the Mac says so too
+dragToReorder($('#queue-list'), () => pb().ids, (id, at, ids) => {
+  data.playback = {...pb(), ids};  // where it was dropped, until the Mac says so too
   control('move', id, at);
 });
 
@@ -2557,13 +2571,10 @@ rowGestures($('#playlist-list'), {
     if (pl) playlistMenu(pl, row, cover(pl) + playlistText(pl));
   },
 });
-// In a playlist only its pieces whose files are there show: one dropped before the next one shown goes there.
-dragToReorder($('#group-list'), (id, index) => {
-  const pl = state.session?.kind === 'playlist' && playlistById(state.session.id);
-  if (!pl) return;
-  const next = listIds($('#group-list'))[index + 1], rest = pl.ids.filter(i => i !== id);
-  const at = next === undefined ? rest.length : rest.indexOf(next);
-  pl.ids = [...rest.slice(0, at), id, ...rest.slice(at)];
+const shownPlaylist = () => state.session?.kind === 'playlist' && playlistById(state.session.id);
+dragToReorder($('#group-list'), () => shownPlaylist()?.ids, (id, at, ids) => {
+  const pl = shownPlaylist();
+  pl.ids = ids;
   changePlaylist(pl.id, {move: id, index: at});
 });
 rowGestures($('#queue-list'), {

@@ -68,6 +68,17 @@ class ArtistNameTests(Base):
         self.assertEqual(again.descriptions(['MappleZS', 'mapplezs']), {'MappleZS': '钢琴博主\n\n弹得很温柔'}, 'Nothing lost')
         self.assertEqual(len(again.descriptions(['Chopin'])['Chopin']), 1000, 'As much as one holds')
 
+    def test_of_two_spellings_with_pictures_the_one_merged_away_goes_to_the_trash(self):
+        self.lib.add(make_midi(self.root / 'Music' / 'y.mid', note=71), 'mapplezs - 稻香')
+        self.lib.set_artist_picture('MappleZS', JPEG)
+        self.lib.set_artist_picture('Mapple-ZS', JPEG + b'theirs')  # another spelling, its own picture file
+        self.lib.add(make_midi(self.root / 'Music' / 'z.mid', note=72), 'Mapple-ZS - 晴天')
+        with patch('pianasoul.library.send2trash') as trash:
+            again = Library(self.root / 'library.db', self.root / 'Music')
+        self.addCleanup(again.close)
+        self.assertEqual(again.artist_picture('MappleZS').read_bytes(), JPEG, 'The kept spelling keeps its own')
+        self.assertIn(str(again.artist_picture('Mapple-ZS')), [c.args[0] for c in trash.call_args_list])
+
 
 class NewPieceTests(Base):
     def test_a_new_piece_takes_the_librarys_name_for_its_artist(self):
