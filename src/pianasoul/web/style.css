@@ -14,6 +14,9 @@
   --line: #2a2a2c; --sep: #1d1d1f; --press: #262628; --press-row: #0e0e10; --held: #161618;
   --card: #1c1c1e; --card2: #2c2c2e; --card-press: #232325; --chip: #3a3a3c; --sep-card: #2c2c2e; --sep-form: #3a3a3c;
   --bubble: #26262a; --header: rgba(0, 0, 0, .82); --scrim: #232326; --scrim-on: .78;
+  /* The scrim as a filter, for a page: brightness b, then contrast c, take every color x to x·b·c + (1 − c)/2, that is
+     to x blended with the scrim's gray g at a = --scrim-on when c = 1 − 2ga and b = (1 − a) / c. */
+  --veil-b: .28; --veil-c: .786;
   --menu: rgba(44, 44, 46, .96); --menu-line: #3a3a3c; --menu-press: #3a3a3c; --menu-gap: rgba(0, 0, 0, .16); --sheet-dim: .55;
   --mini: rgba(40, 40, 44, .92); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .55); --selbar: rgba(22, 22, 24, .9);
   --page-shadow: -14px 0 36px rgba(0, 0, 0, .55);
@@ -27,6 +30,7 @@
   --line: #d8d8dc; --sep: #e5e5ea; --press: #e5e5ea; --press-row: #f2f2f7; --held: #f2f2f7;
   --card: #f2f2f7; --card2: #e5e5ea; --card-press: #e8e8ed; --chip: #e5e5ea; --sep-card: #dcdce0; --sep-form: #d1d1d6;
   --bubble: #e9e9eb; --header: rgba(255, 255, 255, .85); --scrim: #000; --scrim-on: .22;
+  --veil-b: .78; --veil-c: 1;
   --menu: rgba(249, 249, 249, .96); --menu-line: #dcdce0; --menu-press: #e5e5ea; --menu-gap: rgba(0, 0, 0, .05); --sheet-dim: .3;
   --mini: rgba(247, 247, 249, .94); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .14); --selbar: rgba(249, 249, 249, .92);
   --page-shadow: -14px 0 36px rgba(0, 0, 0, .12);
@@ -155,15 +159,15 @@ svg { display: block; }
 .sheeted #main, .sheeted #pages { transform: translateY(var(--card-top)) scale(.92); border-radius: 14px; }
 .sheeted #main { transition-duration: .45s; }
 #pages { position: absolute; inset: 0; z-index: 35; pointer-events: none; transform-origin: 50% 0; transition: transform .45s var(--ease); }
-/* A page that moves aside is a card, its corners rounded as it goes, as home is beside the sidebar. --off: how far it
-   is from its place, 0 to 1, as the finger takes it or as it slides. What it uncovers is dimmed as home is under the
-   sidebar, the more the more of it the page still covers (1 - --off), and not at all once it is away, nor at rest,
-   where it covers all (the last factor: 0 at 0, 1 as soon as it moves). */
+/* A page that moves aside is a card, its corners rounded as it goes, as home is beside the sidebar; and as home does
+   there, it grays as it goes, the more the farther: the page going away grays, the one it uncovers stays as it is, and
+   one coming in brightens as it settles. --off: how far it is from its place, 0 to 1, as the finger takes it or as it
+   slides. The gray is the sidebar's (--veil-b, --veil-c: its scrim put as a filter, which a page that scrolls carries
+   whole). */
 @property --off { syntax: '<number>'; inherits: false; initial-value: 0; }
 #pages > .view {
-  pointer-events: auto; background: var(--bg); border-radius: clamp(0px, var(--off) * 176px, 44px);
-  box-shadow: var(--page-shadow),
-    0 0 0 100vmax color-mix(in srgb, var(--scrim) calc((1 - var(--off)) * clamp(0, var(--off) * 1000, 1) * var(--scrim-on) * 100%), transparent);
+  pointer-events: auto; background: var(--bg); border-radius: clamp(0px, var(--off) * 176px, 44px); box-shadow: var(--page-shadow);
+  filter: brightness(calc(1 - var(--off) * (1 - var(--veil-b)))) contrast(calc(1 - var(--off) * (1 - var(--veil-c))));
   transition: transform .38s var(--ease), --off .38s var(--ease), padding-bottom .3s var(--kb-ease);
 }
 /* What sits under a page's content: nothing, the mini player, or while typing the keyboard. It changes on the iOS
