@@ -335,10 +335,24 @@ function ready(view, id = null) {
 }
 function push(view, id = null, el = ready(view, id)) {
   stack.push({view, id});
+  motion(el, 'coming');
   el.offsetWidth;
   el.classList.remove('off');
   moveAside(el, null);
+  atRest(el);
   settle();
+}
+// Which way a page moves, for what grays (style.css): where it goes stays bright, what it leaves grays. Coming in,
+// it grays what it covers; going back, itself. At rest (in its place, or away), neither. dataset.motion: the latest
+// way, so that a rest that comes after another move began does nothing.
+function motion(el, how) {
+  el.dataset.motion = +(el.dataset.motion || 0) + 1;
+  el.classList.toggle('coming', how === 'coming');
+  el.classList.toggle('going', how === 'going');
+}
+function atRest(el) {
+  const latest = el.dataset.motion;
+  setTimeout(() => { if (el.dataset.motion === latest) motion(el, null); }, 420);
 }
 function pop() {
   const e = stack.pop();
@@ -355,10 +369,12 @@ function moveAside(el, x) {
 }
 function slideOut(el) {
   const gen = el.dataset.gen;
+  motion(el, el.classList.contains('coming') ? 'coming' : 'going');  // one coming in (let go half-way) goes back as it came
   moveAside(el, null);
   el.classList.add('off');
   setTimeout(() => {
     if (el.dataset.gen !== gen) return;
+    motion(el, null);
     el.classList.remove('off');
     const i = stack.findLastIndex(e => 'view-' + e.view === el.id);  // a page of this kind under it: its again
     if (i < 0) return void (el.hidden = true);
@@ -638,7 +654,6 @@ function renderLibrary() {
   const ready = [...data.recordings].sort(byNewest), recordings = audioItems();
   const shown = q ? ready.filter(p => matches(p, q)) : ready;
   const audio = recordings.filter(a => !q || a.name.toLowerCase().includes(q));
-  $('#library-list').classList.toggle('selecting', state.selecting);
   $('#library-list').innerHTML = (q ? [] : jobPieces()).map(p => pieceRow(p)).join('')
     + audio.map(audioRow).join('') + shown.map(p => pieceRow(p)).join('');
   // When the library has nothing for the words: the same two ways as its +, the search with these words. (Another
@@ -649,7 +664,8 @@ function renderLibrary() {
   $('#library-count').textContent = q ? (shown.length ? T.found(shown.length) : T.notFound)
     : [T.pieces(ready.length), totalTime(ready), data.jobs.length ? T.preparing(data.jobs.length) : '',
        recordings.length ? T.toTranscribe(recordings.length) : ''].filter(Boolean).join(' · ');
-  renderSelectionBar();
+  $('#library-title').textContent = T.library;
+  renderSelectionBar();  // its title while choosing
 }
 $('#lib-q').addEventListener('input', e => { libQ = e.target.value; renderLibrary(); });
 $('#lib-online').addEventListener('click', e => {
@@ -659,47 +675,72 @@ $('#lib-online').addEventListener('click', e => {
   openAdd(how, libQ.trim());
 });
 
-// Choosing several pieces, in 曲库: a check circle slides in on the left of each.
+// Choosing several pieces, in any list of them (曲库, a playlist, an artist's, 收藏, 最近播放): a check circle slides
+// in on the left of each; the bar below adds them to a playlist, or does to them all what a left swipe does there.
+// selectionPage: the list chosen from, its title, how it is drawn, and which page it is (left: chosen no more).
+let selectionPage = null;
+const listPage = () => state.view === 'group'
+  ? {view: 'group', session: state.session, list: $('#group-list'), title: $('#group-title'), draw: () => renderGroup(state.session)}
+  : {view: state.view, session: state.session, list: $('#library-list'), title: $('#library-title'), draw: renderLibrary};
 function setSelecting(on, firstId) {
+  if (!on && !state.selecting) return;
+  const page = on ? listPage() : selectionPage;
   state.selecting = on;
+  selectionPage = on ? page : null;
   selected.clear();
   if (on && firstId != null) selected.add(firstId);
   app.classList.toggle('selecting', on);
-  document.querySelectorAll('#library-list .swipe.open').forEach(r => r.classList.remove('open'));
-  if (stack.some(e => e.view === 'library') || !herOn()) renderLibrary();
+  $('#selbar').style.zIndex = on ? Math.max(25, +page.list.closest('.view').style.zIndex + 1) : '';  // over its page
+  page.list.querySelectorAll('.swipe.open, .swipe.selected').forEach(r => r.classList.remove('open', 'selected'));
+  if (page.view === state.view && page.session === state.session) page.draw();
+  else if (page.title === $('#library-title')) page.title.textContent = T.library;  // left for another page: as it was
+}
+// What the bar's red button does: a left swipe's work in this list, to all of them; only the Trash is asked first.
+function selectionRemoval() {
+  const g = selectionPage?.view === 'group' ? selectionPage.session : null;
+  if (g?.kind === 'playlist') return {label: T.removeFromPlaylist, count: T.removeN, act: ids => removeFromPlaylist(playlistById(g.id), ids)};
+  if (g?.kind === 'favorites') return {label: T.unfavorite, count: T.unfavoriteN, act: ids => favorite(ids, false)};
+  if (g?.kind === 'recent') return {label: T.forgetPlay, count: T.forgetN, act: forgetPlay};
+  return {label: T.delete, count: T.deleteN, ask: T.trashN, act: deletePieces};  // 曲库, an artist's
 }
 function renderSelectionBar() {
+  if (!state.selecting) return;
+  const shown = listIds(selectionPage.list), removal = selectionRemoval();
+  for (const id of selected) if (!shown.includes(id)) selected.delete(id);  // gone from the list: chosen no more
   const n = selected.size;
-  $('#library-title').textContent = state.selecting ? (n ? T.selected(n) : T.choose) : T.library;
-  const shown = listIds($('#library-list'));
-  $('#sel-all').textContent = n && shown.every(id => selected.has(id)) ? T.none : T.all;
+  selectionPage.title.textContent = n ? T.selected(n) : T.choose;
+  for (const b of document.querySelectorAll('.sel-all')) b.textContent = n && shown.every(id => selected.has(id)) ? T.none : T.all;
   $('#sel-delete').disabled = $('#sel-playlist').disabled = !n;
-  $('#sel-delete').textContent = n ? T.deleteN(n) : T.delete;
+  $('#sel-delete').textContent = n ? removal.count(n) : removal.label;
 }
 function toggleSelect(id) {
   selected.has(id) ? selected.delete(id) : selected.add(id);
-  document.querySelector(`#library-list [data-id="${id}"]`)?.classList.toggle('selected', selected.has(id));
+  selectionPage.list.querySelector(`:scope > .swipe[data-id="${id}"]`)?.classList.toggle('selected', selected.has(id));
   renderSelectionBar();
 }
-$('#sel-cancel').addEventListener('click', () => setSelecting(false));
+for (const b of document.querySelectorAll('.sel-cancel')) b.addEventListener('click', () => setSelecting(false));
+for (const b of document.querySelectorAll('.sel-all')) {
+  b.addEventListener('click', () => {  // the pieces shown: with words in the library's search, only those
+    const shown = listIds(selectionPage.list), all = shown.length && shown.every(id => selected.has(id));
+    selected.clear();
+    if (!all) shown.forEach(id => selected.add(id));
+    selectionPage.draw();
+  });
+}
 $('#sel-playlist').addEventListener('click', () => {
   const ids = [...selected];
   setSelecting(false);
   pickPlaylist(ids);
 });
-$('#sel-all').addEventListener('click', () => {  // the pieces shown: with words in the search, only those
-  const shown = listIds($('#library-list')), all = shown.length && shown.every(id => selected.has(id));
-  selected.clear();
-  if (!all) shown.forEach(id => selected.add(id));
-  renderLibrary();
-});
-$('#sel-delete').addEventListener('click', () => openAction(T.trashN(selected.size), () => {
-  const ids = [...selected];
-  collapse(ids.map(id => document.querySelector(`#library-list [data-id="${id}"]`)).filter(Boolean), () => {
-    deletePieces(ids);
+$('#sel-delete').addEventListener('click', () => {
+  const {list} = selectionPage, removal = selectionRemoval(), ids = [...selected];
+  const go = () => collapse(ids.map(id => list.querySelector(`:scope > .swipe[data-id="${id}"]`)).filter(Boolean), () => {
+    removal.act(ids);
     setSelecting(false);
   });
-}));
+  if (removal.ask) openAction(removal.ask(ids.length), go);
+  else go();
+});
 function deletePieces(ids) {
   data.recordings = data.recordings.filter(r => !ids.includes(r.id));
   for (const id of ids) rolls.delete(id);  // its number may be given to the next new piece
@@ -771,12 +812,20 @@ function renderGroup(g) {
   const remove = {favorites: T.unfavorite, recent: T.forgetPlay}[g.kind];
   $('#group-list').innerHTML = ps.map(p => pieceRow(p, g.kind === 'recent' ? agoLabel(p.last_played_at) : '', remove)).join('')
     || `<p class="empty">${esc({favorites: T.noFavorites, recent: T.noPlays}[g.kind] || T.noArtistPieces)}</p>`;
+  renderSelectionBar();
 }
-async function favorite(id, on) {
-  const p = pieceById(id);
-  if (p) p.favorited_at = on ? new Date().toISOString() : null;
+// Out of 最近播放 (their plays still counted).
+function forgetPlay(ids) {
+  for (const id of ids) { const p = pieceById(id); if (p) p.last_played_at = null; }
   refresh();
-  await api(`/api/recordings/${id}`, 'PATCH', {favorite: on}).catch(() => {});
+  for (const id of ids) api(`/api/recordings/${id}`, 'PATCH', {played: false}).catch(() => {});
+}
+// Into 收藏, or out of it: shown at once, all of them, then told to the Mac.
+function favorite(ids, on) {
+  const stamp = on ? new Date().toISOString() : null;
+  for (const id of ids) { const p = pieceById(id); if (p) p.favorited_at = stamp; }
+  refresh();
+  for (const id of ids) api(`/api/recordings/${id}`, 'PATCH', {favorite: on}).catch(() => {});
 }
 
 // ---------- Pictures: artwork, and artists' own ----------
@@ -1034,6 +1083,7 @@ function renderPlaylist(id) {
   $('#group-list').innerHTML = ps.map(p => pieceRow(p, '', T.removeFromPlaylist, true)).join('') || `<p class="empty">${esc(T.noPlaylistPieces)}</p>`;
   // Empty, it asks for its pieces where they would be; with them, 添加曲目 is in its … menu, as in Apple Music.
   $('#group-foot').innerHTML = ps.length ? '' : `<button class="add-first" id="group-add">${ICON_ADD}<span>${esc(T.addMusic)}</span></button>`;
+  renderSelectionBar();
 }
 // The playlists as the Mac has them, from its events or its answers: the pages of one gone close.
 function setPlaylists(playlists) {
@@ -1087,11 +1137,11 @@ function addToPlaylist(pl, ids) {
   refresh();
   changePlaylist(pl.id, {add: fresh}).then(changed => changed && hud(T.addedTo(pl.name)));
 }
-function removeFromPlaylist(pl, id) {
+function removeFromPlaylist(pl, ids) {
   if (!pl) return;
-  pl.ids = pl.ids.filter(i => i !== id);
+  pl.ids = pl.ids.filter(i => !ids.includes(i));
   refresh();
-  changePlaylist(pl.id, {remove: id});
+  for (const id of ids) changePlaylist(pl.id, {remove: id});
 }
 function deletePlaylist(id) {
   setPlaylists(data.playlists.filter(pl => pl.id !== id));
@@ -1178,7 +1228,7 @@ $('#pick-q').addEventListener('input', renderPick);
 $('#pick-pieces').addEventListener('click', e => {
   const b = e.target.closest('[data-add-piece]'), pl = playlistById(pickFor), id = +b?.dataset.addPiece;
   if (!b || !pl) return;
-  if (pl.ids.includes(id)) return removeFromPlaylist(pl, id);
+  if (pl.ids.includes(id)) return removeFromPlaylist(pl, [id]);
   pl.ids = [...pl.ids, id];  // added quietly (no word for each), as Apple Music does here
   refresh();
   changePlaylist(pl.id, {add: [id]});
@@ -1256,14 +1306,17 @@ function pieceMenu(key, row) {
   ]);
   const id = +key, p = pieceById(id);
   if (!p) return;
-  // In 收藏, 最近播放 and a playlist a swipe only takes a piece out of the list; the menu says plainly where the file goes.
+  // Keeping it first (收藏, a playlist), then sending it out, changing it, choosing several; what cannot be undone apart,
+  // last. In 收藏, 最近播放 and a playlist a swipe only takes a piece out of the list; the menu says plainly where the
+  // file goes.
   const pl = state.session?.kind === 'playlist' && playlistById(state.session.id);
   showCtx(row, pieceText(p) + pieceSide(p), [
-    [p.favorited_at ? T.unfavorite : T.favorite, ICON.heart, () => favorite(id, !p.favorited_at)],
+    [p.favorited_at ? T.unfavorite : T.favorite, ICON.heart, () => favorite([id], !p.favorited_at)],
     [T.addToPlaylist, ICON.addTo, () => pickPlaylist([id])],
+    canShareMidi && [T.shareMidi, ICON.share, () => shareMidi(p).then(shared => shared || hud(T.shareFailed))],
     [T.edit, ICON.edit, () => openEdit(id)],
-    state.view === 'library' && [T.selectSeveral, ICON.select, () => setSelecting(true, id)],
-    pl && [T.removeFromPlaylistLong, ICON.trash, () => foldAway(list, key, () => removeFromPlaylist(playlistById(pl.id), id)), true],
+    [T.selectSeveral, ICON.select, () => setSelecting(true, id)],
+    pl && [T.removeFromPlaylistLong, ICON.trash, () => foldAway(list, key, () => removeFromPlaylist(playlistById(pl.id), [id])), true],
     [T.moveToTrash, ICON.trash, () => foldAway(list, key, () => deletePieces([id])), true],
   ]);
 }
@@ -1621,7 +1674,7 @@ $('#p-info').addEventListener('click', e => {
   el.addEventListener('pointercancel', end);
 })();
 $('#p-toggle').addEventListener('click', e => control('toggle', null, null, e.currentTarget));
-$('#p-fav').addEventListener('click', () => { const p = nowPiece(); if (p) favorite(p.id, !p.favorited_at); });
+$('#p-fav').addEventListener('click', () => { const p = nowPiece(); if (p) favorite([p.id], !p.favorited_at); });
 $('#p-add').innerHTML = ICON.addTo;
 $('#p-add').addEventListener('click', () => { const p = nowPiece(); if (p) pickPlaylist([p.id]); });
 $('#p-prev').addEventListener('click', e => control('prev', null, null, e.currentTarget));
@@ -1638,15 +1691,26 @@ $('#p-close').addEventListener('click', () => openAction(T.stop, () => {
   pop();
   control('stop');
 }));
-// Sharing hands the piece's .mid file to the phone's share sheet (AirDrop, Messages, Files, GarageBand…).
-$('#p-share').addEventListener('click', async e => {
-  const p = nowPiece(), button = e.currentTarget;
-  if (!p) return;
+// Sharing hands the piece's .mid file to the phone's share sheet (AirDrop, Messages, Files, GarageBand…): from the
+// player, or a piece's menu. False when it could not go (not when the sheet was closed).
+async function shareMidi(p) {
   const name = p.title.replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_') + '.mid';  // as the library names its files
   try {
-    const blob = await (await fetch(`/api/recordings/${p.id}/midi`)).blob();
+    const got = await fetch(`/api/recordings/${p.id}/midi`);
+    if (!got.ok) return false;
+    const blob = await got.blob();
     await navigator.share({files: [new File([blob], name, {type: 'audio/midi'})], title: p.piece});
-  } catch (error) { if (error?.name !== 'AbortError') shake(button); }
+    return true;
+  } catch (error) {
+    return error?.name === 'AbortError';
+  }
+}
+// Android's Chrome shares no .mid: there, sharing is not offered at all.
+const canShareMidi = !!navigator.canShare?.({files: [new File([''], 'piece.mid', {type: 'audio/midi'})]});
+$('#p-share').hidden = !canShareMidi;
+$('#p-share').addEventListener('click', async e => {
+  const p = nowPiece(), button = e.currentTarget;
+  if (p && !await shareMidi(p)) shake(button);
 });
 $('#mini').addEventListener('click', openPlayer);
 $('#mini-toggle').addEventListener('click', e => { e.stopPropagation(); control('toggle', null, null, e.currentTarget); });
@@ -1675,7 +1739,7 @@ function dragToReorder(list, all, moved) {
   let r = null;
   list.addEventListener('pointerdown', e => {
     const grip = e.target.closest('.grip');
-    if (!grip || e.button > 0 || !e.isPrimary) return;
+    if (!grip || e.button > 0 || !e.isPrimary || state.selecting) return;
     rowFinger = e.pointerId;
     const row = grip.closest('.swipe');
     const i = [...list.children].indexOf(row);
@@ -2385,8 +2449,10 @@ function setOpen(open) {
   app.classList.remove('dragging');
   app.classList.toggle('open', open);
   app.style.setProperty('--p', open ? 1 : 0);
-  if (open) document.querySelectorAll('.swipe.open').forEach(r => r.classList.remove('open'));
-  else stopSearch();
+  if (open) {
+    setSelecting(false);  // the sidebar is somewhere else
+    document.querySelectorAll('.swipe.open').forEach(r => r.classList.remove('open'));
+  } else stopSearch();
   renderNow();
 }
 let drag = null;
@@ -2407,7 +2473,8 @@ app.addEventListener('pointermove', e => {
     const goes = drag.page ? dx > 0 : drag.p0 ? dx < 0 : dx > 0 || (!!nowPiece() && !drag.row);
     if (!goes) { drag = null; return; }
     drag.active = true;
-    if (!drag.page && !drag.p0 && dx < 0) drag.player = ready('player');
+    if (!drag.page && !drag.p0 && dx < 0) motion(drag.player = ready('player'), 'coming');
+    if (drag.page) motion(drag.page, 'going');
     app.setPointerCapture(e.pointerId);
     app.classList.add('dragging');
   }
@@ -2437,7 +2504,7 @@ const endDrag = e => {
       else slideOut(drag.player);
     } else if (drag.page) {
       if (drag.page === top && (drag.dx > 90 || flicked(v, drag.dx))) pop();
-      else { moveAside(drag.page, null); $('#mini').style.transform = ''; }  // back (another page came in meanwhile: it stays)
+      else { moveAside(drag.page, null); atRest(drag.page); $('#mini').style.transform = ''; }  // back (another page came in meanwhile: it stays)
     } else {
       const moved = (drag.p - drag.p0) * sidebarWidth();
       setOpen(flicked(v, moved) ? v > 0 : drag.p > .5);
@@ -2486,8 +2553,9 @@ function rowGestures(list, {tap, remove, hold, ask}) {
   let s = null;
   list.addEventListener('pointerdown', e => {
     const row = e.target.closest('.swipe:not(.fixed)');
-    if (!row || e.button > 0 || !e.isPrimary || state.selecting || e.target.closest('.grip')) return;
-    rowFinger = e.pointerId;
+    if (!row || e.button > 0 || !e.isPrimary || e.target.closest('.grip')) return;
+    rowFinger = e.pointerId;  // choosing too: the row tapped stays the row tapped
+    if (state.selecting) return;
     s = {id: e.pointerId, row, x0: e.clientX, y0: e.clientY, base: row.classList.contains('open') ? -DEL : 0, x: 0, active: false};
   });
   list.addEventListener('pointermove', e => {
@@ -2548,17 +2616,13 @@ $('#library-list').addEventListener('click', e => {
   if (b) { e.stopPropagation(); b.outerHTML = SPINNER; transcribeAudio(+b.dataset.transcribe); }
 }, true);
 rowGestures($('#group-list'), {
-  tap: (id, row) => play(+id, listIds($('#group-list')), state.session, row),
+  tap: (id, row) => state.selecting ? toggleSelect(+id) : play(+id, listIds($('#group-list')), state.session, row),
   remove: id => {
     const kind = state.session.kind;
-    if (kind === 'favorites') favorite(+id, false);
-    else if (kind === 'playlist') removeFromPlaylist(playlistById(state.session.id), +id);
-    else if (kind === 'recent') {
-      const p = pieceById(+id);
-      if (p) p.last_played_at = null;
-      refresh();
-      api(`/api/recordings/${id}`, 'PATCH', {played: false}).catch(() => {});
-    } else deletePieces([+id]);
+    if (kind === 'favorites') favorite([+id], false);
+    else if (kind === 'playlist') removeFromPlaylist(playlistById(state.session.id), [+id]);
+    else if (kind === 'recent') forgetPlay([+id]);
+    else deletePieces([+id]);
   },
   hold: (id, row) => pieceMenu(id, row),
 });
@@ -2701,6 +2765,7 @@ addEventListener('keydown', e => {
   if (crop) endCrop(false);
   else if ($('#ctx').classList.contains('show')) closeCtx();
   else if (overlayOpen()) dismiss();
+  else if (state.selecting) setSelecting(false);
   else if (stack.length) pop();
   else if (state.open) setOpen(false);
 });

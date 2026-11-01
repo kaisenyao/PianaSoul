@@ -19,7 +19,6 @@
   --veil-b: .28; --veil-c: .786;
   --menu: rgba(44, 44, 46, .96); --menu-line: #3a3a3c; --menu-press: #3a3a3c; --menu-gap: rgba(0, 0, 0, .16); --sheet-dim: .55;
   --mini: rgba(40, 40, 44, .92); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .55); --selbar: rgba(22, 22, 24, .9);
-  --page-shadow: -14px 0 36px rgba(0, 0, 0, .55);
   --grabber: #48484a; --ring-track: rgba(255, 255, 255, .16); --input-line: #3a3a3c; --check-line: #636366;
   --card-bar: rgba(255, 255, 255, .18); --card-fill: rgba(255, 255, 255, .85); --disabled: #48484a;
   --sheet: #1c1c1e; --sheet-field: #2c2c2e;
@@ -33,7 +32,6 @@
   --veil-b: .78; --veil-c: 1;
   --menu: rgba(249, 249, 249, .96); --menu-line: #dcdce0; --menu-press: #e5e5ea; --menu-gap: rgba(0, 0, 0, .05); --sheet-dim: .3;
   --mini: rgba(247, 247, 249, .94); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .14); --selbar: rgba(249, 249, 249, .92);
-  --page-shadow: -14px 0 36px rgba(0, 0, 0, .12);
   --grabber: #c7c7cc; --ring-track: rgba(0, 0, 0, .12); --input-line: #c7c7cc; --check-line: #c7c7cc;
   --card-bar: rgba(0, 0, 0, .12); --card-fill: rgba(0, 0, 0, .55); --disabled: #c7c7cc;
   --sheet: #fff; --sheet-field: #f2f2f7;
@@ -158,25 +156,32 @@ svg { display: block; }
    little below the top of the page when the status bar is not over it (a Home Screen app). */
 .sheeted #main, .sheeted #pages { transform: translateY(var(--card-top)) scale(.92); border-radius: 14px; }
 .sheeted #main { transition-duration: .45s; }
-#pages { position: absolute; inset: 0; z-index: 35; pointer-events: none; transform-origin: 50% 0; transition: transform .45s var(--ease); }
-/* A page that moves aside is a card, its corners rounded as it goes, as home is beside the sidebar; and as home does
-   there, it grays as it goes, the more the farther: the page going away grays, the one it uncovers stays as it is, and
-   one coming in brightens as it settles. --off: how far it is from its place, 0 to 1, as the finger takes it or as it
-   slides. The gray is the sidebar's (--veil-b, --veil-c: its scrim put as a filter, which a page that scrolls carries
-   whole). */
+#pages { position: absolute; inset: 0; z-index: 35; overflow: clip; pointer-events: none; transform-origin: 50% 0; transition: transform .45s var(--ease), border-radius .45s var(--ease); }
+/* A page that moves aside is a card exactly as home is beside the sidebar: its corners rounded and a hairline round
+   it, both as far as it has gone (--off: how far it is from its place, 0 to 1, as the finger takes it or as it slides).
+   And as with the sidebar, where it goes stays bright and what it leaves grays: a page coming in (.coming) grays what
+   it covers, the more of it it covers; a page going back (.going) grays itself, the farther it goes. The gray is the
+   sidebar's: its scrim, and for a page that scrolls the same put as a filter (--veil-b, --veil-c). */
 @property --off { syntax: '<number>'; inherits: false; initial-value: 0; }
 #pages > .view {
-  pointer-events: auto; background: var(--bg); border-radius: clamp(0px, var(--off) * 176px, 44px); box-shadow: var(--page-shadow);
-  filter: brightness(calc(1 - var(--off) * (1 - var(--veil-b)))) contrast(calc(1 - var(--off) * (1 - var(--veil-c))));
+  pointer-events: auto; background: var(--bg); --gray: 0;
+  border-radius: calc(var(--off) * 44px); box-shadow: 0 0 0 1px rgba(127, 127, 127, calc(var(--off) * .2));
+  filter: brightness(calc(1 - var(--off) * var(--gray) * (1 - var(--veil-b)))) contrast(calc(1 - var(--off) * var(--gray) * (1 - var(--veil-c))));
   transition: transform .38s var(--ease), --off .38s var(--ease), padding-bottom .3s var(--kb-ease);
 }
 /* What sits under a page's content: nothing, the mini player, or while typing the keyboard. It changes on the iOS
    keyboard's own curve, so the field rides up with the keyboard and settles back when it (or the mini player) goes. */
 #pages { --below: 0px; }
 #pages.has-mini { --below: calc(var(--safe-bottom) + 76px); }
+.selecting #pages { --below: calc(var(--safe-bottom) + 52px); }  /* the selection bar, in place of the mini player */
 #pages.kb-up { --below: var(--kb); }
 #pages > .view:not(#view-player) { padding-bottom: var(--below); }
 #pages > .view.off { transform: translateX(100%); --off: 1; }
+#pages > .view.coming {
+  box-shadow: 0 0 0 1px rgba(127, 127, 127, calc(var(--off) * .2)),
+    0 0 0 100vmax color-mix(in srgb, var(--scrim) calc((1 - var(--off)) * var(--scrim-on) * 100%), transparent);
+}
+#pages > .view.going { --gray: 1; }  /* the filter is always there (switching it on and off may make iOS redraw the page) */
 #pages > #mini, #pages > #selbar { pointer-events: auto; }
 .dragging #pages > .view, .dragging #mini { transition: none; }
 .view { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; }
@@ -201,8 +206,9 @@ svg { display: block; }
 .online { display: flex; align-items: center; gap: 12px; width: 100%; height: 56px; padding: 0 20px; color: var(--accent); font-size: 16px; }
 .online svg { width: 24px; height: 24px; flex: none; }
 .online span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#sel-cancel, #sel-all { display: none; }
-.selecting #sel-cancel, .selecting #sel-all { display: block; }
+.sel-cancel, .sel-all { display: none; }
+.selecting .sel-cancel, .selecting .sel-all { display: block; }
+.selecting #group-more, .selecting .grip { display: none; }  /* choosing is not ordering */
 
 /* The orb at home, as it always was: one transparent native switch over it, so iOS gives its tap haptic */
 #view-orb { display: grid; place-items: center; overflow: clip; background: var(--bg); padding-bottom: calc(2 * var(--lift, 0px)); }

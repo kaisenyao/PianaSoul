@@ -66,9 +66,9 @@
   <section id="pages">
     <div class="view" id="view-library" hidden>
       <header>
-        <button class="htext hbtn left" id="sel-cancel" data-t="cancel"></button>
+        <button class="htext hbtn left sel-cancel" data-t="cancel"></button>
         <h2 id="library-title"></h2>
-        <button class="htext strong hbtn right" id="sel-all"></button>
+        <button class="htext strong hbtn right sel-all"></button>
         <button class="hbtn right" id="lib-add" data-t-label="addPieces"></button>
       </header>
       <div class="lsearch">
@@ -91,7 +91,12 @@
       <div class="list" id="playlist-list"></div>
     </div>
     <div class="view" id="view-group" hidden>
-      <header><h2 id="group-title"></h2><button class="hbtn right" id="group-more" data-t-label="more" hidden></button></header>
+      <header>
+        <button class="htext hbtn left sel-cancel" data-t="cancel"></button>
+        <h2 id="group-title"></h2>
+        <button class="htext strong hbtn right sel-all"></button>
+        <button class="hbtn right" id="group-more" data-t-label="more" hidden></button>
+      </header>
       <div class="hero" id="group-hero"></div>
       <div class="list" id="group-list"></div>
       <div id="group-foot"></div>
