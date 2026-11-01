@@ -140,7 +140,7 @@ def _merge(db: sqlite3.Connection, paths: dict[int, str]) -> int:
             fields["source_type"] = next((o["source_type"] for o in others if o["source_type"] in MADE),
                                          keep["source_type"])
         for other in others:
-            for table in ("messages", "requests"):
+            for table in ("messages", "requests", "plays"):
                 db.execute(f"UPDATE {table} SET recording_id = ? WHERE recording_id = ?", (keep["id"], other["id"]))
             db.execute("DELETE FROM recordings WHERE id = ?", (other["id"],))
             merged += 1

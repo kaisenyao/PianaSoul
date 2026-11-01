@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -30,6 +31,7 @@ log = logging.getLogger(__spec__.name)
 MODES = ("order", "one", "shuffle")
 RESTART_AFTER_S = 3.0  # ⏮ past this point starts the piece over
 DEFAULT_VOLUME = 80  # percent, until one is chosen: about where MIDI's own default (100 of 127) is
+PLAY_S = 30.0  # heard this long, a piece of unknown length counts as played
 
 
 def _check_mode(mode: str | None) -> None:
@@ -52,6 +54,11 @@ class Playback(Player):
         self.listeners: list = []  # called after every change, on whichever thread made it
         self._lock = threading.RLock()
         self._run = 0  # counts the pieces started, so a finish that comes too late does nothing
+        self._listening: dict | None = None  # the piece being heard: how long, so far (hear)
+        self._hearing = threading.Lock()
+        self._from_start = False  # the last start was from its beginning (not a seek): another listening of the piece
+        self._seeking = False  # a start that is a seek: the same listening
+        self._sounds_at = 0.0  # when the last start is first heard: after the gap before a new piece, and the lead
         saved = lib.setting("volume", "")
         self.volume = min(100, int(saved)) if saved.isdigit() else DEFAULT_VOLUME  # kept from one run to the next
 
@@ -123,8 +130,31 @@ class Playback(Player):
                     "mode": self.mode, "ids": list(self.ids), "scope": dict(self.scope), "volume": self.volume}
 
     def changed(self) -> None:
+        self._hear()
         for listener in list(self.listeners):
             listener()
+
+    def _hear(self) -> None:
+        """With every change: how long the piece has been heard while it played. Heard for half its length (30 s
+        when its length is not known) it is a play, counted once in the library (heard). Another piece, or this one
+        again from its start, is another listening; a pause, a seek or a lost connection is not."""
+        with self._hearing:
+            now, h = time.monotonic(), self._listening
+            if h and h["since"] is not None:
+                h["heard"] += max(0.0, now - h["since"])
+            if h and not h["counted"] and h["heard"] >= (h["length"] / 2 if h["length"] else PLAY_S):
+                h["counted"] = True
+                try:
+                    self.lib.heard(h["id"])
+                except sqlite3.Error as exc:  # a play not counted is less than the piano stopping for it
+                    log.warning("a play of %s not counted: %s", h["id"], exc)
+            if self.current_id is None:
+                self._listening = None
+                return
+            if not h or h["id"] != self.current_id or self._from_start:
+                h = self._listening = {"id": self.current_id, "length": self.duration, "heard": 0.0, "counted": False}
+                self._from_start = False
+            h["since"] = max(now, self._sounds_at) if self.state == "playing" else None
 
     # ---- choosing ---------------------------------------------------------------------------------
     def item(self, rec_id: int) -> tuple[Path, str]:
@@ -181,6 +211,9 @@ class Playback(Player):
     def _launch(self, items, from_s: float) -> None:
         self._run += 1
         super()._launch(items, from_s)
+        # From its beginning, or from the gap before it (the next piece, a loop of one), unless it is a seek there.
+        self._from_start, self._seeking = from_s <= 0 and not self._seeking, False
+        self._sounds_at = time.monotonic() + max(0.0, -from_s) + self.lead
         self.ended = False
         if self.current_id is not None:
             self.lib.played(self.current_id)
@@ -210,7 +243,11 @@ class Playback(Player):
                 return
             seconds = max(0.0, min(seconds, self.duration or seconds))
             if self.state == "playing":
-                self.start([self.current], seconds)
+                self._seeking = True  # to 0:00 too: the same listening, from elsewhere in it
+                try:
+                    self.start([self.current], seconds)
+                finally:
+                    self._seeking = False
                 return
             self.state, self._offset, self.ended = "paused", seconds, False
         self.changed()

@@ -85,6 +85,12 @@ CREATE TABLE IF NOT EXISTS requests (
     text TEXT NOT NULL,
     recording_id INTEGER REFERENCES recordings(id)
 );
+-- Each time a piece was heard (half of it at least: Playback): how often, and when, for what is listened to most.
+CREATE TABLE IF NOT EXISTS plays (
+    recording_id INTEGER NOT NULL REFERENCES recordings(id),
+    played_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS plays_recording ON plays(recording_id);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -568,6 +574,7 @@ class Library:
                 send2trash(str(artwork))  # with its file: put back together, they belong together again
             self.db.execute("DELETE FROM recordings WHERE id = ?", (rec_id,))
             self.db.execute("UPDATE audio SET recording_id = NULL WHERE recording_id = ?", (rec_id,))
+            self.db.execute("DELETE FROM plays WHERE recording_id = ?", (rec_id,))
             for row in self.db.execute("SELECT playlist_id FROM playlist_items WHERE recording_id = ?", (rec_id,)).fetchall():
                 self._renumber(row[0], [i for i in self._playlist_ids(row[0]) if i != rec_id])
             self.db.commit()
@@ -797,6 +804,23 @@ class Library:
 
     def favorite(self, rec_id: int, on: bool) -> None:
         self.execute("UPDATE recordings SET favorited_at = ? WHERE id = ?", (_now() if on else None, rec_id))
+
+    def heard(self, rec_id: int) -> None:
+        """A piece heard once more (a play): counted, with when."""
+        self.execute("INSERT INTO plays (recording_id, played_at) VALUES (?, ?)", (rec_id, _now()))
+
+    def play_counts(self, since: str = "") -> dict[int, int]:
+        """How often each piece was heard, since then (an ISO time) if given; pieces never heard are left out."""
+        rows = self.execute("SELECT recording_id, COUNT(*) FROM plays WHERE played_at >= ? GROUP BY recording_id", (since,))
+        return {rec_id: n for rec_id, n in rows}
+
+    def last_plays(self) -> dict[int, str]:
+        """When each piece was last heard (a play, not a start); pieces never heard are left out."""
+        return dict(self.execute("SELECT recording_id, MAX(played_at) FROM plays GROUP BY recording_id"))
+
+    def first_play(self) -> str | None:
+        """When plays were first counted."""
+        return self.execute("SELECT MIN(played_at) FROM plays")[0][0]
 
     def played(self, rec_id: int, on: bool = True) -> None:
         """When a recording last played (on=False takes it out of 最近播放)."""

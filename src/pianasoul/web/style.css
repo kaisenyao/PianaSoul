@@ -586,6 +586,11 @@ button.grow:active { background: var(--press); }
   background: var(--card); color: var(--accent); font-size: 16px; font-weight: 600;
 }
 .hero-acts svg { width: 18px; height: 18px; }
+.add-first {
+  display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; margin: 0 auto; padding: 0 22px;
+  border-radius: 12px; background: var(--card); color: var(--accent); font-size: 16px; font-weight: 600;
+}
+.add-first svg { width: 20px; height: 20px; }
 .cover.new { background: var(--card2); color: var(--accent); }
 :root[data-theme=light] .cover.new { background: var(--card); }
 .cover.new svg { width: 40%; height: 40%; }
@@ -656,6 +661,11 @@ button.grow:active { background: var(--press); }
 .art.has-artwork.flipped .flip { transform: rotateY(180deg); }
 .ptitle { display: flex; align-items: center; gap: 12px; margin-top: 42px; min-width: 0; }
 .ptext { flex: 1; min-width: 0; }
+/* 原作者 · 演奏者, each a way to their page, each cut short on its own when the line is too narrow for both */
+#p-sub { display: flex; min-width: 0; }
+#p-sub .who { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#p-sub .who:active { opacity: .55; }
+#p-sub .sep { flex: none; padding: 0 .3em; }
 #p-add, #p-fav { width: 42px; height: 42px; display: grid; place-items: center; flex: none; border-radius: 50%; color: var(--p-icon); }
 #p-add { margin-right: -8px; }
 #p-add:active, #p-fav:active { background: var(--p-press); }
@@ -674,7 +684,7 @@ button.grow:active { background: var(--press); }
 .pctrl .big { width: 76px; height: 76px; color: var(--p-big-glyph); background: var(--p-big); }
 .pctrl .big:active { background: var(--p-big); opacity: .8; }
 .pctrl .big svg { width: 50px; height: 50px; }
-:root[data-theme=light] .pctrl .big { box-shadow: 0 8px 20px hsl(var(--h, 220) 60% 50% / .3); }
+:root[data-theme=light] .pctrl .big { width: 64px; height: 64px; box-shadow: 0 6px 16px hsl(var(--h, 220) 60% 50% / .3); }  /* the colored disc as big as the others' */
 :root[data-theme=light] .pctrl .big svg { width: 34px; height: 34px; }
 .pctrl .skip svg { width: 38px; height: 38px; }
 /* Beside them: how the list plays (顺序 / 单曲循环 / 随机), and the list itself */

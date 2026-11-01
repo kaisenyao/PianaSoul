@@ -7,6 +7,7 @@ import places  # noqa: F401  (first: the library, data and cache folders are thr
 from pianasoul.chat import TOOLS, Assistant
 from pianasoul.playback import Playback
 from test_app import Base
+from test_library import make_midi
 
 
 class HerLibraryTests(Base):
@@ -56,6 +57,26 @@ class HerLibraryTests(Base):
         seen = self.ask(about='playlist', name=' 睡前 ')
         self.assertEqual((seen['description'], [p['id'] for p in seen['pieces']]), ('慢一点的', self.ids[1:]))
         self.assertEqual(self.ask(about='playlist', name='早晨'), {'error': 'playlist_not_found', 'playlists': ['睡前']})
+
+    def test_what_is_heard_most_and_what_not_for_a_long_while(self):
+        a, b, c = self.ids
+        self.lib.execute("UPDATE recordings SET tags = 'pop, calm' WHERE id = ?", (b,))
+        for rec_id in (b, b, b, c):
+            self.lib.heard(rec_id)
+        self.lib.execute("UPDATE plays SET played_at = '2020-01-01T00:00:00+00:00' WHERE recording_id = ?", (c,))
+        seen = self.ask(about='most_played')
+        self.assertEqual([(p['id'], p['plays']) for p in seen['all_time']], [(b, 3), (c, 1)])
+        self.assertEqual(seen['all_time'][0]['tags'], 'pop, calm', 'With its style, to choose by')
+        self.assertEqual([(p['id'], p['plays_in_30_days']) for p in seen['last_30_days']], [(b, 3)])
+        self.assertTrue(seen['counted_since'].startswith('2020-01-01') or seen['counted_since'].startswith('2019-12-31'))
+        self.lib.played(b, False)  # taken out of 最近播放: its plays stay
+        rarely = self.ask(about='rarely_played')['pieces']
+        self.assertEqual([p['id'] for p in rarely], [c, a, b], 'Heard longest ago first (its last play)')
+        self.assertNotIn('never_played', rarely[2], 'Heard three times, whatever 最近播放 shows')
+        new = self.lib.add(make_midi(self.root / 'Music' / 'new.mid', note=79), 'New')['id']
+        self.assertEqual(self.ask(about='rarely_played')['pieces'][0], {'id': new, 'piece': 'New', 'never_played': True})
+        self.assertEqual(self.ask(about='overview')['most_played'][0]['id'], b)
+        self.assertNotIn('error', json.loads(self.a.run_tool('play_recording', {'id': c})))
 
     def test_she_has_the_tool_and_it_changes_nothing(self):
         self.assertIn('library_info', {t['name'] for t in TOOLS})

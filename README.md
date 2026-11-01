@@ -366,7 +366,7 @@ uv pip install --python .venv/bin/python -e ".[advanced]" httpx
 for test in tests/test_web_*.js; do node "$test"; done
 ```
 
-`.venv/bin/python tests/manual_playback_intents.py` checks 24 spoken requests against the real chat model: playing, finding pieces, and keeping company.
+`.venv/bin/python tests/manual_playback_intents.py` checks 26 spoken requests against the real chat model: playing, finding pieces, and keeping company.
 
 <br>
 

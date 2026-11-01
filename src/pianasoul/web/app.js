@@ -220,6 +220,9 @@ function titleParts(title) {
   return {artist, piece: (found ? rest.slice(0, found.index) : rest).trim() || title, performer: found ? found[1] : ''};
 }
 const subtitle = p => [p.artist, p.performer].filter(Boolean).join(' · ');
+// In the player, each of them a way to their page, as in Apple Music: whose it is (原作者), who plays it (演奏者).
+const whoLinks = p => [['artist', p.artist], ['performer', p.performer]].filter(([, name]) => name)
+  .map(([kind, name]) => `<button class="who" data-kind="${kind}">${esc(name)}</button>`).join('<span class="sep">·</span>');
 // The site a piece came from, as people call it: YouTube, or its address.
 const siteOf = url => {
   const host = new URL(url).hostname.replace(/^(www|m)\./, '');
@@ -282,8 +285,11 @@ const state = {view: 'orb', session: null, open: false, selecting: false};
 const selected = new Set();
 // The pages over home, bottom first: {view, id}. id is a conversation id (or 'now', the empty current one) for
 // 'session', {kind: 'favorites' | 'recent' | 'artist' | 'performer', name} or {kind: 'playlist', id} for 'group'. Empty means home: the orb,
-// or the sidebar beside it. The player is a page too, always the top one.
+// or the sidebar beside it. The player is a page too, and the pages opened from it (an artist's) go over it. Each
+// kind of page has one element: a page of a kind lower in the stack takes it back once the one above goes (slideOut).
 const stack = [];
+// Its layer: over the pages under it; the player over the mini player too, and the pages over the player over both.
+const layer = (view, below) => view === 'player' ? 30 : below.length + 1 + (below.some(e => e.view === 'player') ? 30 : 0);
 function show(view, id = null) {
   for (const e of stack.splice(0)) slideOut($('#view-' + e.view));
   if (view === 'orb' || (view === 'library' && !herOn())) setOpen(false);  // home
@@ -310,7 +316,7 @@ function ready(view, id = null) {
   const el = $('#view-' + view);
   el.dataset.gen = +(el.dataset.gen || 0) + 1;
   el.hidden = false;
-  el.style.zIndex = view === 'player' ? 30 : stack.length + 1;  // the player also covers the mini player
+  el.style.zIndex = layer(view, stack);
   moveAside(el, null);
   el.classList.add('off');
   if (view === 'session') toLatest();  // a conversation opens at its latest message, or at a line search found
@@ -344,7 +350,14 @@ function slideOut(el) {
   const gen = el.dataset.gen;
   moveAside(el, null);
   el.classList.add('off');
-  setTimeout(() => { if (el.dataset.gen === gen) { el.hidden = true; el.classList.remove('off'); } }, 400);
+  setTimeout(() => {
+    if (el.dataset.gen !== gen) return;
+    el.classList.remove('off');
+    const i = stack.findLastIndex(e => 'view-' + e.view === el.id);  // a page of this kind under it: its again
+    if (i < 0) return void (el.hidden = true);
+    el.style.zIndex = layer(stack[i].view, stack.slice(0, i));
+    renderEntry(stack[i]);
+  }, 400);
 }
 // After the stack changes: the top page decides what the rest of the screen shows.
 function settle() {
@@ -749,7 +762,7 @@ function renderGroup(g) {
     + description(g.kind === 'artist' || g.kind === 'performer' ? data.descriptions[name] : '');
   const remove = {favorites: T.unfavorite, recent: T.forgetPlay}[g.kind];
   $('#group-list').innerHTML = ps.map(p => pieceRow(p, g.kind === 'recent' ? agoLabel(p.last_played_at) : '', remove)).join('')
-    || `<p class="empty">${esc(g.kind === 'favorites' ? T.noFavorites : T.noPlays)}</p>`;
+    || `<p class="empty">${esc({favorites: T.noFavorites, recent: T.noPlays}[g.kind] || T.noArtistPieces)}</p>`;
 }
 async function favorite(id, on) {
   const p = pieceById(id);
@@ -761,18 +774,25 @@ async function favorite(id, on) {
 // ---------- Pictures: artwork, and artists' own ----------
 // A picture in an edit sheet: a photo chosen (moved and scaled to its square, or circle) or the picture taken away
 // shows at once, and is kept on the Mac only with 完成; 取消 leaves the one there was. Without one, it shows what
-// shows instead (fallback: a playlist's cover of its pieces, an artist's initial).
+// shows instead (fallback: a playlist's cover of its pieces, an artist's initial). A tap on the picture itself moves
+// and scales it again: the photo chosen here, from where it was left (all of it still there to take), or else the
+// picture as the Mac keeps it; with none, it chooses a photo, as 选取封面 (头像) does.
 const pictureEditors = [];
 function pictureEditor(id, current, fallback) {
   const el = $(id), img = el.querySelector('img'), file = el.querySelector('input'), remove = el.querySelector('.danger');
-  let chosen, shown = '';  // chosen: undefined (as it is), a JPEG, or null (taken away)
+  const tile = el.querySelector('.tile'), round = el.classList.contains('round');
+  // chosen: undefined (as it is), a JPEG, or null (taken away); photo: what it was made from, and where in it (at)
+  let chosen, shown = '', photo = null, at = null;
+  let turn = 0, busy = false;  // turn: this sheet's opening (reset), so that nothing reaches another; busy: adjusting
+  const showing = () => chosen === undefined ? current() : chosen ? shown : '';
   const ed = {
     sheet: el.closest('.sheet'),
     render() {
-      const src = chosen === undefined ? current() : chosen ? shown : '';
+      const src = showing();
       if (src && img.getAttribute('src') !== src) img.src = src;
       img.hidden = remove.hidden = !src;
       el.querySelector('.fallback').innerHTML = src ? '' : fallback();
+      tile.setAttribute('aria-label', src ? T.moveAndScale : el.querySelector('.link').textContent);
     },
     choose(jpeg) {
       URL.revokeObjectURL(shown);
@@ -780,16 +800,36 @@ function pictureEditor(id, current, fallback) {
       shown = jpeg ? URL.createObjectURL(jpeg) : '';
       ed.render();
     },
-    reset: () => ed.choose(undefined),
+    reset() { turn++; photo = at = null; ed.choose(undefined); },
     keep(path) { if (chosen !== undefined) keepPicture(path, chosen); },  // with 完成: what changed
   };
-  file.addEventListener('change', async () => {
-    const photo = file.files[0];
+  async function adjust(from, where = null) {
+    if (busy || !from) return;
+    busy = true;
+    const mine = turn;
+    try {
+      const made = await cropPhoto(from, round, where);
+      if (made && mine === turn) { photo = from; at = made.at; ed.choose(made.jpeg); }
+    } finally {
+      busy = false;
+    }
+  }
+  file.addEventListener('change', () => {
+    const chosenFile = file.files[0];
     file.value = '';
-    const jpeg = photo && await cropPhoto(photo, el.classList.contains('round'));
-    if (jpeg) ed.choose(jpeg);
+    adjust(chosenFile);
   });
-  remove.addEventListener('click', () => ed.choose(null));
+  tile.addEventListener('click', async () => {
+    const src = showing();
+    if (!src) return file.click();  // still in the tap: the phone asks for a photo
+    if (busy) return;
+    if (photo) return adjust(photo, at);
+    const mine = turn, kept = await fetch(src).then(r => r.ok ? r.blob() : null, () => null);
+    if (mine !== turn) return;  // the sheet closed meanwhile, or opened for another
+    if (kept) adjust(kept);
+    else hud(T.photoUnreadable);
+  });
+  remove.addEventListener('click', () => { photo = at = null; ed.choose(null); });
   pictureEditors.push(ed);
   return ed;
 }
@@ -800,10 +840,11 @@ async function keepPicture(path, jpeg) {
   if (!sent?.ok) hud(T.photoFailed);
 }
 // 移动和缩放, as iOS has it: the photo under a square (or a circle), always covering it, moved with one finger and
-// scaled with two. 选取 gives what is in it as the Mac keeps pictures: a JPEG, at most 1000 px, on white (a PNG's
-// clear parts). null with 取消, or when the photo cannot be opened (it says so).
+// scaled with two; from where, a square of the photo, it was left before (or the photo filling it, in the middle).
+// 选取 gives {jpeg, at}: what is in it as the Mac keeps pictures (a JPEG, at most 1000 px, on white for a PNG's clear
+// parts) and where that is in the photo. null with 取消, or when the photo cannot be opened (it says so).
 let crop = null;
-async function cropPhoto(file, round) {
+async function cropPhoto(file, round, at = null) {
   const img = $('#crop img'), url = URL.createObjectURL(file);
   img.src = url;
   try {
@@ -816,18 +857,19 @@ async function cropPhoto(file, round) {
   $('#crop').classList.toggle('round', round);
   $('#crop').hidden = false;
   const done = new Promise(resolve => { crop = {w: img.naturalWidth, h: img.naturalHeight, fingers: new Map(), resolve}; });
-  layCrop();
+  layCrop(at);
   const kept = await done;
   $('#crop').hidden = true;
   URL.revokeObjectURL(url);
   if (kept === undefined) hud(T.photoUnreadable);
   return kept ?? null;
 }
-// The frame as big as the screen allows, the photo filling it, in the middle.
-function layCrop() {
+// The frame as big as the screen allows, over that square of the photo (at), or the photo filling it, in the middle.
+function layCrop(at) {
   const stage = $('#crop .crop-stage'), W = stage.clientWidth, H = stage.clientHeight, F = Math.min(W, H);
-  const least = F / Math.min(crop.w, crop.h);
-  Object.assign(crop, {F, left: (W - F) / 2, top: (H - F) / 2, least, s: least, x: (F - crop.w * least) / 2, y: (F - crop.h * least) / 2});
+  const least = F / Math.min(crop.w, crop.h), s = at ? Math.min(least * 5, Math.max(least, F / at.side)) : least;
+  Object.assign(crop, {F, left: (W - F) / 2, top: (H - F) / 2, least, s,
+                       x: at ? -at.x * s : (F - crop.w * s) / 2, y: at ? -at.y * s : (F - crop.h * s) / 2});
   Object.assign($('#crop .crop-frame').style, {left: crop.left + 'px', top: crop.top + 'px', width: F + 'px', height: F + 'px'});
   placeCrop();
 }
@@ -880,17 +922,19 @@ cropStage.addEventListener('wheel', e => {
   crop.y = cy - (cy - crop.y) * crop.s / was;
   placeCrop();
 }, {passive: false});
-addEventListener('resize', () => { if (crop) { layCrop(); anchorCrop(); } });
+// The square of the photo in the frame, in the photo's own pixels.
+const cropSquare = c => ({x: -c.x / c.s, y: -c.y / c.s, side: c.F / c.s});
+addEventListener('resize', () => { if (crop) { layCrop(cropSquare(crop)); anchorCrop(); } });
 function endCrop(choose) {
   const c = crop;
   crop = null;
   if (!choose) return c.resolve(null);
-  const side = c.F / c.s, size = Math.round(Math.min(1000, side));
+  const at = cropSquare(c), size = Math.round(Math.min(1000, at.side));
   const canvas = Object.assign(document.createElement('canvas'), {width: size, height: size}), g = canvas.getContext('2d');
   g.fillStyle = '#fff';
   g.fillRect(0, 0, size, size);
-  g.drawImage($('#crop img'), -c.x / c.s, -c.y / c.s, side, side, 0, 0, size, size);
-  canvas.toBlob(jpeg => c.resolve(jpeg || undefined), 'image/jpeg', .86);  // undefined: it could not be made
+  g.drawImage($('#crop img'), at.x, at.y, at.side, at.side, 0, 0, size, size);
+  canvas.toBlob(jpeg => c.resolve(jpeg ? {jpeg, at} : undefined), 'image/jpeg', .86);  // undefined: it could not be made
 }
 $('#crop-cancel').addEventListener('click', () => crop && endCrop(false));
 $('#crop-done').addEventListener('click', () => crop && endCrop(true));
@@ -925,7 +969,8 @@ function renderPlaylist(id) {
     + description(pl.description)
     + (ps.length ? `<div class="hero-acts"><button data-act="order">${ICON_PLAY}<span>${esc(T.play)}</span></button><button data-act="shuffle">${ICON.shuffle}<span>${esc(T.shufflePlay)}</span></button></div>` : '');
   $('#group-list').innerHTML = ps.map(p => pieceRow(p, '', T.removeFromPlaylist, true)).join('') || `<p class="empty">${esc(T.noPlaylistPieces)}</p>`;
-  $('#group-foot').innerHTML = `<button class="online" id="group-add">${ICON_ADD}<span>${esc(T.addMusic)}</span></button>`;
+  // Empty, it asks for its pieces where they would be; with them, 添加曲目 is in its … menu, as in Apple Music.
+  $('#group-foot').innerHTML = ps.length ? '' : `<button class="add-first" id="group-add">${ICON_ADD}<span>${esc(T.addMusic)}</span></button>`;
 }
 // The playlists as the Mac has them, from its events or its answers: the pages of one gone close.
 function setPlaylists(playlists) {
@@ -938,10 +983,12 @@ const resyncPlaylists = () => api('/api/playlists').then(playlists => { if (!cha
 // A change, shown at once (by the caller) and then as the Mac has it; null when it failed. Several made quickly (two
 // pieces added, two rows taken out) each show at once: what the Mac says of the playlists meanwhile (its events, its
 // answers) knows only those before it, so it waits for the last answer, and then the playlists are read again.
-let changing = 0;
+// They are sent one after another (playlistChanges), so that an add and its undo reach the Mac in their order.
+let changing = 0, playlistChanges = Promise.resolve();
 async function changePlaylist(id, change) {
   changing++;
-  const changed = await api(`/api/playlists/${id}`, 'PATCH', change).catch(() => null);
+  const sent = playlistChanges = playlistChanges.then(() => api(`/api/playlists/${id}`, 'PATCH', change).catch(() => null));
+  const changed = await sent;
   if (--changing === 0) resyncPlaylists();
   return changed;
 }
@@ -952,7 +999,10 @@ function closeGone() {
   for (let i = stack.length - 1; i >= 0; i--) {
     if (!gone(stack[i])) continue;
     if (i === stack.length - 1) pop();
-    else { $('#view-' + stack[i].view).hidden = true; stack.splice(i, 1); }
+    else {
+      const [e] = stack.splice(i, 1);
+      if (!stack.some(x => x.view === e.view)) $('#view-' + e.view).hidden = true;  // not if a page above has it
+    }
   }
   if ((openSheet === $('#sheet-pick') && !playlistById(pickFor)) || (openSheet === $('#sheet-plist') && !playlistById(plistFor))) closeOverlays();
 }
@@ -1042,7 +1092,7 @@ $('#addto-list').addEventListener('click', e => {
   addToPlaylist(playlistById(row.dataset.playlist), ids);
 });
 $('#addto-cancel').addEventListener('click', closeOverlays);
-// 添加曲目: the library, searchable, a + by each piece (a ✓ once it is in the playlist).
+// 添加曲目: the library, searchable, a + by each piece (a ✓ once it is in the playlist, which takes it out again).
 let pickFor = null;
 function openPick(id) {
   pickFor = +id;
@@ -1057,17 +1107,18 @@ function renderPick() {
   const q = $('#pick-q').value.trim().toLowerCase();
   const ps = [...data.recordings].sort(byNewest).filter(p => !q || matches(p, q));
   $('#pick-pieces').innerHTML = ps.map(p => `<div class="prow">${pieceText(p)}
-      <button class="addbtn" data-add-piece="${p.id}" aria-label="${esc(pl.ids.includes(p.id) ? T.inPlaylist : T.addToPlaylistShort)}">${pl.ids.includes(p.id) ? CHECK : ICON_ADD}</button>
+      <button class="addbtn" data-add-piece="${p.id}" aria-label="${esc(pl.ids.includes(p.id) ? T.removeFromPlaylistLong : T.addToPlaylistShort)}">${pl.ids.includes(p.id) ? CHECK : ICON_ADD}</button>
     </div>`).join('') || `<p class="empty">${esc(T.notFound)}</p>`;
 }
 $('#pick-q').addEventListener('input', renderPick);
+// A tap on + adds the piece; on its ✓, takes it out again (one added by mistake, or one there from before).
 $('#pick-pieces').addEventListener('click', e => {
-  const b = e.target.closest('[data-add-piece]'), pl = playlistById(pickFor);
-  if (b && pl && !pl.ids.includes(+b.dataset.addPiece)) {
-    pl.ids = [...pl.ids, +b.dataset.addPiece];
-    refresh();
-    changePlaylist(pl.id, {add: [+b.dataset.addPiece]});
-  }
+  const b = e.target.closest('[data-add-piece]'), pl = playlistById(pickFor), id = +b?.dataset.addPiece;
+  if (!b || !pl) return;
+  const there = pl.ids.includes(id);
+  pl.ids = there ? pl.ids.filter(i => i !== id) : [...pl.ids, id];
+  refresh();
+  changePlaylist(pl.id, there ? {remove: id} : {add: [id]});
 });
 $('#pick-done').addEventListener('click', closeOverlays);
 $('#new-playlist').innerHTML = ICON_ADD;
@@ -1193,16 +1244,21 @@ $('#edit-save').addEventListener('click', async () => {
 });
 
 // ---------- The player ----------
-// Tapping a piece or the mini player opens it, like a page; a right swipe takes it away.
+// Tapping a piece or the mini player opens it, like a page; a right swipe takes it away. Open already under pages
+// opened from it (an artist's), it is gone back to: those pages go.
 function openPlayer() {
-  if (nowPiece() && state.view !== 'player') push('player');
+  if (!nowPiece() || state.view === 'player') return;
+  const at = stack.findIndex(e => e.view === 'player');
+  if (at < 0) return push('player');
+  for (const e of stack.splice(at + 1)) slideOut($('#view-' + e.view));
+  settle();
 }
 const MODES = ['order', 'one', 'shuffle'];
 function renderNow() {
   const p = nowPiece(), mini = $('#mini');
-  // The mini player is on every page, under the player when it is open; her home (the orb, the sidebar) has none,
+  // The mini player is on every page, but not while the player is open (nor over pages opened from it); her home (the orb, the sidebar) has none,
   // since the player is one left swipe from the orb. The library as home has it, but not with the sidebar out.
-  mini.hidden = !somethingPlaying() || (!stack.length && (herOn() || state.open)) || stack[0]?.view === 'player';
+  mini.hidden = !somethingPlaying() || (!stack.length && (herOn() || state.open)) || stack.some(e => e.view === 'player');
   pages.classList.toggle('has-mini', !mini.hidden);
   const mode = pb().mode || 'order';
   $('#p-mode').innerHTML = ICON[mode];
@@ -1212,7 +1268,9 @@ function renderNow() {
   if (!p) return;
   document.documentElement.style.setProperty('--h', hueOf(p.id));  // its color: the mini player's, the player's, the status bar's
   $('#mini-title').textContent = $('#p-title').textContent = p.piece;
-  $('#mini-sub').textContent = $('#p-sub').textContent = subtitle(p);
+  $('#mini-sub').textContent = subtitle(p);
+  const who = JSON.stringify([p.artist, p.performer]);  // not drawn again under a finger while they stay the same
+  if ($('#p-sub').dataset.who !== who) Object.assign($('#p-sub'), {innerHTML: whoLinks(p)}).dataset.who = who;
   const infoKey = JSON.stringify(p);
   if (infoId !== infoKey) { infoId = infoKey; renderInfo(p); renderArtwork(p); }
   const paused = pb().state !== 'playing';
@@ -1328,6 +1386,10 @@ function renderArtwork(p) {
 $('#view-player .art').addEventListener('click', e => {
   if (e.currentTarget.classList.contains('has-artwork')) e.currentTarget.classList.toggle('flipped');
 });
+$('#p-sub').addEventListener('click', e => {
+  const b = e.target.closest('.who'), p = nowPiece();
+  if (b && p?.[b.dataset.kind]) push('group', {kind: b.dataset.kind, name: p[b.dataset.kind]});
+});
 $('#view-player .art').addEventListener('keydown', e => {
   if (isEnter(e) || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); }
 });
@@ -1366,7 +1428,7 @@ function showScreen(n) {
       view.setPointerCapture(e.pointerId);
       el.classList.add('dragging');
     }
-    g.dy = (playerScreen === 0 ? dy > 0 : dy < 0) ? dy * .3 : dy;  // past either end it resists, like the edge of a scroll view
+    g.dy = playerScreen === 0 ? Math.min(0, dy) : Math.max(0, dy);  // nothing above the player, nor below 详细信息
     el.style.setProperty('--dy', g.dy + 'px');
   });
   // Let go (or the touch ends in a pointercancel, which a browser may still send): to the screen it was swiped

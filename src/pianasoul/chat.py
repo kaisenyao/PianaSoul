@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import Future
 import inspect
 import json
@@ -40,7 +40,7 @@ log = logging.getLogger(__spec__.name)
 MAX_TOOL_ROUNDS = 8
 MATCH_SCORE = 2.0  # a library match on a whole word (two characters or more), not on one character by chance
 VOLUME_STEP = 10  # percent, for "louder" and "softer"
-LIST_MOST, OVERVIEW_MOST = 40, 15  # pieces in one answer of library_info; artists (and pianists) in its overview
+LIST_MOST, OVERVIEW_MOST, MOST_PLAYED = 40, 15, 20  # library_info: pieces in one answer, artists in its overview, most played
 ACTIONS = {"play_recording", "control_playback", "play_playlist", "set_volume"}  # tools that do something she then confirms
 WAITS = {"search_youtube": "searching", "transcribe_url": "preparing", "transcribe_local": "preparing"}  # long steps
 ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "First call search_library with the "
@@ -122,7 +122,9 @@ Company: you are also company. The user may simply want to chat, or ask about th
 library, what they have listened to lately, their favorites, an artist or a playlist of theirs. Talk with them warmly
 and briefly, and ask a little back now and then. For anything about their library or their listening, call
 library_info first and say only what it returns; never guess it. Whether a particular piece is there is
-search_library's to say, not library_info's. What the user wrote about an artist or a playlist
+search_library's to say, not library_info's. To find old pieces they have not heard for a while, see what they
+listen to most (most_played: its artists and tags), and choose from rarely_played what is close to it; offer them,
+and play one only if they want it. What the user wrote about an artist or a playlist
 (its description) is theirs, and you may draw on it. You may also say what you know of composers and pieces in
 general, briefly and only what you are sure of. Do not play anything unless they ask; you may offer to.
 When the user asks for one of their own playlists (歌单; the application state lists their names), call play_playlist
@@ -159,11 +161,15 @@ TOOLS = [
          "required": ["path", "piece"]}},
     {"name": "library_info",
      "description": "What the user's own library holds, to talk about it: overview (how many pieces, the artists and "
-                    "pianists with the most, playlists, favorites, what was played last), recently_played, favorites, "
-                    "artist (by name: their pieces, as artist and as pianist, and what the user wrote about them) or "
-                    "playlist (by name: its pieces and description). Its pieces may then be played with play_recording.",
+                    "pianists with the most, playlists, favorites, what was played last and most), recently_played, "
+                    "most_played (all along and in the last 30 days, with how often, counted since counted_since), "
+                    "rarely_played (never or longest ago first, then the least heard), favorites, artist (by name: "
+                    "their pieces, as artist and as pianist, and what the user wrote about them) or playlist (by name: "
+                    "its pieces and description). Pieces say how often they were heard (plays) and, for choosing by "
+                    "style, their tags. They may then be played with play_recording.",
      "parameters": {"type": "object", "properties": {
-         "about": {"type": "string", "enum": ["overview", "recently_played", "favorites", "artist", "playlist"]},
+         "about": {"type": "string", "enum": ["overview", "recently_played", "most_played", "rarely_played", "favorites",
+                                             "artist", "playlist"]},
          "name": {"type": "string", "description": "the artist's or the playlist's name, for those"}},
          "required": ["about"], "additionalProperties": False}},
     {"name": "play_recording",
@@ -477,11 +483,18 @@ class Assistant:
     def library_info(self, about: str = "overview", name: str = "") -> dict:
         """The user's library, to talk about it (library_info in TOOLS); the pieces it names may be played."""
         recs = [r for r in self.lib.all() if r["file_exists"]]
+        here, heard, heard_last = {r["id"]: r for r in recs}, self.lib.play_counts(), self.lib.last_plays()
         names = {r["id"]: title_parts(r["title"], r["composer"], r["performer"]) for r in recs}
 
-        def piece(r: dict, **more) -> dict:
+        def piece(r: dict, style: bool = False, **more) -> dict:  # style: with its tags, to choose by
             self.selectable_ids.add(r["id"])
-            return {"id": r["id"], **{k: v for k, v in names[r["id"]].items() if v}, **more}
+            return {"id": r["id"], **{k: v for k, v in names[r["id"]].items() if v},
+                    **({"plays": heard[r["id"]]} if r["id"] in heard else {}),
+                    **({"tags": r["tags"]} if style and r["tags"] else {}), **more}
+
+        def most(counts: dict[int, int], top: int = MOST_PLAYED, **more) -> list[dict]:
+            ranked = sorted((i for i in counts if i in here), key=lambda i: -counts[i])[:top]  # only these offered
+            return [piece(here[i], style=True, **{k: f(i) for k, f in more.items()}) for i in ranked]
 
         def when(stamp: str) -> str:  # in the user's own time, as they would say it
             return datetime.fromisoformat(stamp).astimezone().strftime("%Y-%m-%d %H:%M")
@@ -491,6 +504,17 @@ class Assistant:
         if about == "recently_played":
             return {"now": when(datetime.now(timezone.utc).isoformat()),
                     "pieces": [piece(r, played_at=when(r["last_played_at"])) for r in played[:LIST_MOST]]}
+        if about == "most_played":  # counted from when plays were first kept: before that nothing is known
+            month = self.lib.play_counts((datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds"))
+            first = self.lib.first_play()
+            return {"counted_since": when(first) if first else None, "all_time": most(heard),
+                    "last_30_days": most(month, plays_in_30_days=month.get)}
+        if about == "rarely_played":  # never or longest ago first, then the least heard: to find old ones again
+            # Last heard: its last play, or for a piece not heard since plays were counted, its last start then.
+            last = {r["id"]: heard_last.get(r["id"]) or r["last_played_at"] or "" for r in recs}
+            order = sorted(recs, key=lambda r: (last[r["id"]], heard.get(r["id"], 0)))
+            return {"pieces": [piece(r, style=True, **({"played_at": when(last[r["id"]])} if last[r["id"]]
+                                                        else {"never_played": True})) for r in order[:LIST_MOST]]}
         if about == "favorites":
             return {"pieces": [piece(r) for r in liked[:LIST_MOST]], "count": len(liked)}
         if about == "artist":
@@ -506,7 +530,6 @@ class Assistant:
             found, playlists = self._playlist(name)
             if found is None:
                 return {"error": "playlist_not_found", "playlists": [p["name"] for p in playlists]}
-            here = {r["id"]: r for r in recs}
             return {"name": found["name"], "description": found["description"],
                     "pieces": [piece(here[i]) for i in found["ids"] if i in here][:LIST_MOST]}
         counts = lambda part: Counter(n[part] for n in names.values() if n[part]).most_common(OVERVIEW_MOST)
@@ -515,7 +538,8 @@ class Assistant:
                 "pianists": [{"name": n, "pieces": c} for n, c in counts("performer")],
                 "playlists": [{"name": p["name"], "pieces": len(p["ids"])} for p in self.lib.playlists()],
                 "favorites": len(liked),
-                "played_last": [piece(r, played_at=when(r["last_played_at"])) for r in played[:OVERVIEW_MOST // 3]]}
+                "played_last": [piece(r, played_at=when(r["last_played_at"])) for r in played[:OVERVIEW_MOST // 3]],
+                "most_played": most(heard, OVERVIEW_MOST // 3)}
 
     def play_recording(self, id: int) -> dict:
         if id not in self.selectable_ids:

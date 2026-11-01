@@ -39,6 +39,8 @@ CASES = [
     # Company: about the user's own music she looks in the library first; a chat is a chat. Nothing plays.
     ('我最近都听了些什么呀？', 'info'),
     ('我的曲库里有几首贝多芬的曲子？', 'info'),
+    ('我最近什么歌听得最多？', 'info'),
+    ('有些老歌好久没听了，你帮我翻一翻吧。', 'info'),
     ('今天有点累，陪我聊聊天吧。', 'chat'),
 ]
 ENGLISH_TITLES = [expected.split(':', 1)[1] for _, expected in CASES if expected.startswith('library:')]
