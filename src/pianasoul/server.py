@@ -91,13 +91,13 @@ def write_pairing() -> None:
 
 
 def certificate_page(tls: Path, sock: socket.socket) -> None:
-    """Serve, on sock, the page on how to trust this Mac (with the certificate's fingerprint) and the certificate:
-    nothing else, and no token. In a thread of its own, for the server's life."""
+    """Serve, on sock, the page on how to trust this Mac and the certificate: nothing else, and no token. The page
+    does not show the certificate's fingerprint: it would come the same unprotected way as the certificate, so it
+    is shown on the Mac (SPEC 6.6). In a thread of its own, for the server's life."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    from .web_tls import CA_FILE, fingerprint, local_name
+    from .web_tls import CA_FILE, local_name
     page = (WEB / 'certificate.html').read_text(encoding='utf-8')
-    page = page.replace('{{fingerprint}}', fingerprint(tls)).replace(
-        '{{name}}', f'PianaSoul on {local_name().removesuffix(".local")}').encode()
+    page = page.replace('{{name}}', f'PianaSoul on {local_name().removesuffix(".local")}').encode()
 
     class Certificate(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -143,6 +143,24 @@ def listen(port: int) -> socket.socket:
                          f'(./run.sh app) or as the Mac app? Quit it first.') from None
     sock.listen(128)
     return sock
+
+
+def end_with_the_app(stdin=sys.stdin, patience: float = 10) -> None:
+    """--app: stdin is a pipe the Mac app keeps open while it runs. When it closes, the app has ended (quit, crashed
+    or stopped): stop as on SIGTERM, the notes already sent finishing, so that no service is left behind holding the
+    ports (SPEC 8.5); still running after patience seconds (as long as the app would wait), stop at once. Nothing to
+    watch when stdin is not a pipe (a terminal, /dev/null)."""
+    import stat
+    if not stat.S_ISFIFO(os.fstat(stdin.fileno()).st_mode):
+        return
+
+    def watch():
+        while stdin.buffer.read(4096):  # the app writes nothing: this returns empty when the pipe closes
+            pass
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(patience)
+        os._exit(1)
+    threading.Thread(target=watch, name='app', daemon=True).start()
 
 
 def voice_parts() -> VoiceParts:
@@ -955,8 +973,10 @@ def main(argv=None):
     from .chat import startup
     from .core import Core, installed, version as running
     from .library import DATA_DIR, move_old_library
-    from .web_tls import CA_FILE, local_name, prepare_https
+    from .web_tls import CA_FILE, fingerprint, local_name, prepare_https
     sockets = listen(PORT), listen(CERT_PORT)  # first: nothing starts while another PianaSoul runs
+    if args.app:
+        end_with_the_app()
     move_old_library()  # then the library from before, ahead of the phone's token and her voice's files
     TOKEN = saved_token()
     her, why = True, ''
@@ -1001,7 +1021,9 @@ def main(argv=None):
               f'              > turn on "PianaSoul on {local_name().removesuffix(".local")}"\n'
               f'  4. Open     the address above in Safari > Share > Add to Home Screen\n\n'
               f'  The file: {tls / CA_FILE}\n'
-              f'  Or open http://{host}:{CERT_PORT}/ on the phone: it shows how.\n', flush=True)
+              f'  Or open http://{host}:{CERT_PORT}/ on the phone: it shows how.\n'
+              f'  Its SHA-256 fingerprint, the same as in the phone\'s certificate details:\n'
+              f'  {fingerprint(tls)}\n', flush=True)
         if sys.platform == 'darwin':
             subprocess.run(['open', '-R', str(tls / CA_FILE)], check=False)
     if not args.app:

@@ -3,7 +3,9 @@ import base64
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
+import signal
 import tempfile
 import threading
 import time
@@ -574,6 +576,9 @@ class StartTests(unittest.TestCase):
         parts.describe = lambda model, name, **more: voice.VoiceParts.describe(parts, model, name, **more)
         made = MagicMock(label='test')
         made.features.return_value = {'transcribe': her, 'search': her, 'assistant': her}
+        watching = patch.object(server, 'end_with_the_app')  # stdin here is the test runner's
+        watching.start()
+        self.addCleanup(watching.stop)
         with tempfile.TemporaryDirectory() as tmp, \
              patch('pianasoul.library.DATA_DIR', Path(tmp)), \
              patch.dict('os.environ', {'OPENAI_API_KEY': 'test' if her else ''}), \
@@ -583,6 +588,7 @@ class StartTests(unittest.TestCase):
              patch.object(server, 'voice_parts', return_value=parts), \
              patch('pianasoul.web_tls.prepare_https', return_value=('192.168.1.20', new)), \
              patch('pianasoul.web_tls.local_name', return_value='Test-Mac.local'), \
+             patch('pianasoul.web_tls.fingerprint', return_value='AB CD EF'), \
              patch.object(server, 'listen', side_effect=lambda port: Mock(port=port)) as listened, \
              patch.object(server, 'write_pairing'), patch.object(server, 'certificate_page'), \
              patch('uvicorn.Config') as config, patch('uvicorn.Server') as served, \
@@ -605,6 +611,7 @@ class StartTests(unittest.TestCase):
         self.assertIn(f'https://192.168.1.20:8765/#token={self.token}', printed)
         self.assertIn('"PianaSoul on Test-Mac"', printed, 'The certificate to trust, by its name')
         self.assertIn('http://192.168.1.20:8764/', printed)
+        self.assertIn('AB CD EF', printed, 'The fingerprint, where it comes the trusted way: on the Mac itself')
         opened.assert_called_once_with(['open', '-R', str(self.tmp / 'phone-tls' / 'PianaSoul-CA.cer')], check=False)
 
     def test_without_her_the_app_still_starts_and_says_why(self):
@@ -688,13 +695,34 @@ class PairingTests(unittest.TestCase):
         cer = urllib.request.urlopen(base + '/PianaSoul-CA.cer')
         self.assertEqual(cer.headers['Content-Type'], 'application/x-x509-ca-cert')
         digest = hashlib.sha256(cer.read()).hexdigest().upper()
-        self.assertIn(' '.join(digest[i:i + 2] for i in range(0, 64, 2)), page, 'Its fingerprint, to compare')
+        self.assertNotIn(' '.join(digest[i:i + 2] for i in range(0, 64, 2)), page,
+                         'Not its fingerprint: that is on the Mac, not on a page that comes the same way')
         self.assertIn('PianaSoul on Test-Mac', page)
         self.assertNotIn(server.TOKEN, page)
         for other in ('/api/state', '/pairing.json', '/../phone-token', '/ca-key.pem'):
             with self.assertRaises(urllib.error.HTTPError, msg=other) as refused:
                 urllib.request.urlopen(base + other)
             self.assertEqual(refused.exception.code, 404)
+
+    def test_in_the_app_it_stops_when_the_app_is_gone(self):
+        read, write = os.pipe()
+        with os.fdopen(read, 'r') as stdin, patch.object(server.os, 'kill') as killed, \
+                patch.object(server.os, '_exit') as ended:
+            server.end_with_the_app(stdin, patience=0.1)
+            time.sleep(0.2)
+            killed.assert_not_called()  # the app is there: its end of the pipe is open
+            os.close(write)  # the app quits, crashes or is stopped: the system closes its end
+            for _ in range(100):
+                if ended.called:
+                    break
+                time.sleep(0.02)
+        killed.assert_called_once_with(os.getpid(), signal.SIGTERM)
+        ended.assert_called_once_with(1)  # and, should stopping hang, at once after the patience
+
+    def test_from_a_terminal_it_keeps_running_when_stdin_is_not_a_pipe(self):
+        with open(os.devnull) as stdin, patch.object(server.threading, 'Thread') as watcher:
+            server.end_with_the_app(stdin)
+        watcher.assert_not_called()
 
     def test_a_phone_that_goes_mid_request_leaves_nothing_in_the_log(self):
         import socket as sockets

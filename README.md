@@ -172,8 +172,9 @@ its own small certificate authority, which the iPhone trusts once.
 2. The first start shows `PianaSoul-CA.cer` in Finder. AirDrop it to the iPhone and install it in
    Settings > General > VPN & Device Management. Then turn on full trust for it in
    Settings > General > About > Certificate Trust Settings. Or open `http://192.168.1.20:8764/` (the Mac's address,
-   port 8764) on the phone: that page has the certificate and the steps for iPhone and Android, and the certificate's
-   fingerprint to compare with the one in the phone's certificate details.
+   port 8764) on the phone: that page has the certificate and the steps for iPhone and Android. To be sure the
+   certificate is your Mac's, compare the fingerprint the first start prints with the one in the phone's certificate
+   details.
 
 3. Open the printed address in Safari on the iPhone and choose Share > Add to Home Screen. Open the app, tap the orb
    and allow the microphone.

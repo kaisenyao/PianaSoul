@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-os="ios">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,8 +17,12 @@
   li { margin: 6px 0; }
   a.button { display: block; text-align: center; margin: 22px 0 6px; padding: 14px; border-radius: 14px;
              background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; }
-  code { font: 14px/1.6 ui-monospace, Menlo, monospace; display: block; padding: 12px; border: 1px solid var(--line);
-         border-radius: 10px; word-spacing: 2px; overflow-wrap: anywhere; }
+  .switch { display: flex; margin: 22px 0 0; padding: 2px; border-radius: 10px; background: var(--line); }
+  .switch button { flex: 1; padding: 7px 0; border: 0; border-radius: 8px; background: none; color: var(--fg);
+                   font: inherit; font-size: 15px; }
+  [data-os="ios"] .switch [data-os="ios"], [data-os="android"] .switch [data-os="android"] {
+    background: var(--bg); font-weight: 600; }
+  [data-os="ios"] section[data-os="android"], [data-os="android"] section[data-os="ios"] { display: none; }
   [lang="zh"] .en, [lang="en"] .zh { display: none; }
 </style>
 </head>
@@ -28,43 +32,62 @@
   <p class="dim"><span class="en">Once per phone. PianaSoul's page is private to your home network; this certificate
     lets the phone open it safely.</span><span class="zh">每部手机只需一次。PianaSoul 的页面只在你家的网络里；装上这个证书，手机才能安全地打开它。</span></p>
 
+  <div class="switch">
+    <button type="button" data-os="ios">iPhone · iPad</button><button type="button" data-os="android">Android</button>
+  </div>
   <a class="button" href="/PianaSoul-CA.cer"><span class="en">Download the certificate</span><span class="zh">下载证书</span></a>
   <p class="dim"><span class="en">Certificate: “{{name}}”</span><span class="zh">证书名称：“{{name}}”</span></p>
 
-  <h2>iPhone</h2>
+  <section data-os="ios">
   <ol>
     <li class="en">Tap <b>Download the certificate</b>, then <b>Allow</b>.</li>
     <li class="zh">点<b>下载证书</b>，再点<b>允许</b>。</li>
-    <li class="en">Open <b>Settings</b>: tap <b>Profile Downloaded</b> near the top, then <b>Install</b>.</li>
-    <li class="zh">打开<b>设置</b>，点顶部的<b>已下载描述文件</b>，再点<b>安装</b>。</li>
-    <li class="en"><b>Settings › General › About › Certificate Trust Settings</b>: turn on full trust for
-      “{{name}}”.</li>
-    <li class="zh"><b>设置 › 通用 › 关于本机 › 证书信任设置</b>：打开“{{name}}”的完全信任。</li>
+    <li class="en">Open <b>Settings</b>, tap <b>Profile Downloaded</b> near the top, then <b>Install</b>. Not there? Look in
+      <b>General › VPN &amp; Device Management</b>, or download it again.</li>
+    <li class="zh">打开<b>设置</b>，点顶部的<b>已下载描述文件</b>，再点<b>安装</b>。没看到的话，去<b>通用 › VPN 与设备管理</b>里找，或者重新下载。</li>
+    <li class="en"><b>Settings › General › About › Certificate Trust Settings</b>: turn on full trust for “{{name}}”.
+      Installing alone is not enough: this step is needed too.</li>
+    <li class="zh"><b>设置 › 通用 › 关于本机 › 证书信任设置</b>：打开“{{name}}”的完全信任。只安装还不够，这一步必须做。</li>
   </ol>
-  <p class="dim"><span class="en">Easier still: send the certificate from the Mac with AirDrop (PianaSoul's
-    settings, Phone).</span><span class="zh">更省事的办法：在 Mac 上用隔空投送发过来（PianaSoul 设置 › 手机）。</span></p>
-
-  <h2>Android</h2>
+  </section>
+  <section data-os="android">
   <ol>
     <li class="en">Tap <b>Download the certificate</b>.</li>
     <li class="zh">点<b>下载证书</b>。</li>
-    <li class="en">Open <b>Settings › Security › Encryption &amp; credentials › Install a certificate › CA
-      certificate</b>, and choose the file you downloaded. (The way there differs a little from one phone to
-      another: search Settings for “certificate”.)</li>
-    <li class="zh">打开<b>设置 › 安全 › 加密与凭据 › 安装证书 › CA 证书</b>，选刚下载的文件。（各品牌的路径略有不同，可以在设置里搜索“证书”。）</li>
+    <li class="en">Open <b>Settings</b> and search for <b>CA certificate</b> (or <b>Install certificate</b>): the way
+      there differs from one phone to another. Some phones first ask you to set a screen lock.</li>
+    <li class="zh">打开<b>设置</b>，搜索 <b>CA 证书</b>（或<b>安装证书</b>）：各品牌的路径不一样。有的手机会先要求设置锁屏。</li>
+    <li class="en">Choose <b>CA certificate</b>, then the file you downloaded, and confirm. Android warns about
+      installing certificates: install only this one, from your own Mac.</li>
+    <li class="zh">选 <b>CA 证书</b>，再选刚下载的文件，确认安装。安卓会提示安装证书的风险：只安装这一个、来自你自己 Mac 的证书。</li>
   </ol>
-
-  <h2><span class="en">Check it is yours</span><span class="zh">核对是不是你的 Mac</span></h2>
-  <p class="dim"><span class="en">The certificate's SHA-256 fingerprint, also shown on the Mac (PianaSoul's settings,
-    Phone) and in the certificate's details on the phone:</span><span class="zh">证书的 SHA-256 指纹。Mac 上（PianaSoul 设置 › 手机）和手机的证书详情里也能看到，三处应当一致：</span></p>
-  <code>{{fingerprint}}</code>
+  <p class="dim"><span class="en">Open PianaSoul in Chrome: other browsers and apps may not trust a certificate you
+    install yourself.</span><span class="zh">用 Chrome 打开 PianaSoul：别的浏览器和 App 可能不认你自己装的证书。</span></p>
+  </section>
 
   <h2><span class="en">Then</span><span class="zh">然后</span></h2>
-  <p><span class="en">Scan the second code on the Mac to open PianaSoul, and add it to the Home Screen.</span><span
-    class="zh">扫 Mac 上的第二个二维码打开 PianaSoul，再添加到主屏幕。</span></p>
+  <p><span class="en">Scan the second code on the Mac to open PianaSoul. You can add it to the Home Screen.</span><span
+    class="zh">扫 Mac 上的第二个二维码打开 PianaSoul，可以把它添加到主屏幕。</span></p>
+
+  <h2><span class="en">Troubleshooting</span><span class="zh">遇到问题</span></h2>
+  <p class="dim"><span class="en">To be sure the certificate is your Mac's, compare its SHA-256 fingerprint in the
+    phone's certificate details with the one behind the ⓘ in PianaSoul's settings on the Mac (Phone, step&nbsp;1),
+    or the one the terminal printed when PianaSoul first started there.</span><span
+    class="zh">想确认证书来自你的 Mac：把手机证书详细信息里的 SHA-256 指纹，和 Mac 上 PianaSoul 设置（手机，第&nbsp;1&nbsp;步）里 ⓘ 显示的对照；在终端里运行的，和第一次启动时终端打出的对照。</span></p>
   <p class="dim"><span class="en">If your router gives the Mac a new address, the Home Screen app has to be added
-    again. Reserving the Mac's address in the router avoids that.</span><span class="zh">如果路由器给 Mac 换了地址，主屏幕上的 App 就要重新添加。在路由器里给 Mac 保留固定地址可以避免这种情况。</span></p>
+    again: reserving the Mac's address in the router avoids that.</span><span class="zh">路由器给 Mac 换了地址时，主屏幕上的 App 要重新添加；在路由器里给 Mac 保留固定地址可以避免。</span></p>
 </main>
-<script>document.documentElement.lang = /^zh/i.test(navigator.language) ? 'zh' : 'en';</script>
+<script>
+  // The page in the phone's language, with the steps for the phone's system: iPhone and iPad unless it is an
+  // Android phone; the switch shows the other's.
+  const root = document.documentElement, buttons = document.querySelectorAll('.switch button');
+  root.lang = /^zh/i.test(navigator.language) ? 'zh' : 'en';
+  function show(os) {
+    root.dataset.os = os;
+    for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.os === os));
+  }
+  for (const button of buttons) button.addEventListener('click', () => show(button.dataset.os));
+  show(/android/i.test(navigator.userAgent) ? 'android' : 'ios');
+</script>
 </body>
 </html>
