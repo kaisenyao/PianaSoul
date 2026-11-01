@@ -85,6 +85,14 @@ CREATE TABLE IF NOT EXISTS requests (
     text TEXT NOT NULL,
     recording_id INTEGER REFERENCES recordings(id)
 );
+-- The photo a picture (a piece's artwork, a playlist's, an artist's) was moved and scaled from, by the picture's own
+-- content (its SHA-256): so it follows the picture wherever it goes. x, y, side: the square of the photo it is.
+CREATE TABLE IF NOT EXISTS picture_originals (
+    digest TEXT PRIMARY KEY,
+    x REAL NOT NULL,
+    y REAL NOT NULL,
+    side REAL NOT NULL
+);
 -- Each time a piece was heard (half of it at least: Playback): how often, and when, for what is listened to most.
 CREATE TABLE IF NOT EXISTS plays (
     recording_id INTEGER NOT NULL REFERENCES recordings(id),
@@ -345,6 +353,7 @@ class Library:
         self.uploaded = self.music_dir / UPLOADED  # where the phone's files go
         self.artwork = self.music_dir / ARTWORK
         self.playlist_artwork = Path(db_path).parent / "playlist-artwork"
+        self.picture_originals = Path(db_path).parent / "picture-originals"
         self.lock = threading.RLock()  # one statement and its commit at a time
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
@@ -680,19 +689,54 @@ class Library:
             rec = self.get(rec_id)
             if not rec or not rec["file_exists"] or not rec["fingerprint"]:
                 return False
-            _keep_picture(self.piece_artwork(rec), jpeg)
+            self._replace_picture(self.piece_artwork(rec), jpeg)
         return True
 
     def set_artist_picture(self, name: str, jpeg: bytes | None) -> None:
-        _keep_picture(self.artist_picture(name), jpeg)
+        with self.lock:
+            self._replace_picture(self.artist_picture(name), jpeg)
 
     def set_playlist_cover(self, playlist_id: int, jpeg: bytes | None) -> bool:
         with self.lock:  # not for a playlist deleted meanwhile
             if not self._touch(playlist_id):
                 return False
             self.db.commit()
-            _keep_picture(self.playlist_cover(playlist_id), jpeg)
+            self._replace_picture(self.playlist_cover(playlist_id), jpeg)
         return True
+
+    def _replace_picture(self, path: Path, jpeg: bytes | None) -> None:
+        """A picture kept anew, or taken away: the photo the one there was made from goes with it (one kept anew
+        comes with its own, from the phone, once it is kept)."""
+        if path.is_file():
+            was = hashlib.sha256(path.read_bytes()).hexdigest()
+            if jpeg is None or hashlib.sha256(jpeg).hexdigest() != was:
+                self.forget_picture_original(was)
+        _keep_picture(path, jpeg)
+
+    # ---- the photos pictures were made from ----------------------------------------------------------
+    def keep_picture_original(self, digest: str, jpeg: bytes, at: dict) -> None:
+        """The photo the picture with this content (digest: its SHA-256, in hex) was made from, and the square of it the
+        picture is (at: x, y, side in the photo's pixels). ValueError for a digest or a square that is not one."""
+        x, y, side = (float(at[k]) for k in ("x", "y", "side"))
+        if not re.fullmatch(r"[0-9a-f]{64}", digest) or not (x >= 0 and y >= 0 and 0 < side < 1e5):
+            raise ValueError("not a picture's digest and square")
+        with self.lock:
+            _keep_picture(self.picture_originals / f"{digest}.jpg", jpeg)
+            self.db.execute("INSERT INTO picture_originals (digest, x, y, side) VALUES (?, ?, ?, ?) ON CONFLICT (digest) "
+                            "DO UPDATE SET x = excluded.x, y = excluded.y, side = excluded.side", (digest, x, y, side))
+            self.db.commit()
+
+    def picture_original(self, digest: str) -> tuple[Path, dict] | None:
+        """The photo a picture was made from, and where in it, or None (made before photos were kept, or gone)."""
+        path = self.picture_originals / f"{digest}.jpg"
+        rows = self.execute("SELECT x, y, side FROM picture_originals WHERE digest = ?", (digest,))
+        return (path, dict(rows[0])) if rows and path.is_file() else None
+
+    def forget_picture_original(self, digest: str) -> None:
+        with self.lock:
+            self.db.execute("DELETE FROM picture_originals WHERE digest = ?", (digest,))
+            self.db.commit()
+            (self.picture_originals / f"{digest}.jpg").unlink(missing_ok=True)
 
     def pictures(self, names) -> dict[str, int]:
         """Of these artists, those with a picture, and its version."""

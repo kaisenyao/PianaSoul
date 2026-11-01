@@ -107,6 +107,28 @@ class LibraryArtworkTests(Base):
         self.lib.set_artist_description('周杰伦', '  ')
         self.assertEqual(self.lib.descriptions(['周杰伦']), {}, 'Empty: taken away')
 
+    def test_the_photo_a_picture_was_made_from_goes_when_the_picture_is_replaced_or_taken_away(self):
+        import hashlib
+        a = self.ids[0]
+        digest = lambda jpeg: hashlib.sha256(jpeg).hexdigest()
+        self.lib.set_piece_artwork(a, JPEG)
+        self.lib.keep_picture_original(digest(JPEG), JPEG + b'photo', {'x': 10, 'y': 20.5, 'side': 300})
+        path, at = self.lib.picture_original(digest(JPEG))
+        self.assertEqual((path.read_bytes(), at), (JPEG + b'photo', {'x': 10, 'y': 20.5, 'side': 300}))
+        self.lib.set_piece_artwork(a, JPEG)  # the same picture again: its photo stays
+        self.assertIsNotNone(self.lib.picture_original(digest(JPEG)))
+        self.lib.set_piece_artwork(a, JPEG + b'2')  # another: the old one's photo goes
+        self.assertIsNone(self.lib.picture_original(digest(JPEG)))
+        self.assertFalse(path.exists())
+        self.lib.set_artist_picture('周杰伦', JPEG)
+        self.lib.keep_picture_original(digest(JPEG), JPEG, {'x': 0, 'y': 0, 'side': 1})
+        self.lib.set_artist_picture('周杰伦', None)
+        self.assertIsNone(self.lib.picture_original(digest(JPEG)))
+        for bad in (('../x', {'x': 0, 'y': 0, 'side': 1}), (digest(JPEG), {'x': -1, 'y': 0, 'side': 1}),
+                    (digest(JPEG), {'x': 0, 'y': 0, 'side': 0})):
+            with self.assertRaises(ValueError):
+                self.lib.keep_picture_original(*bad[:1], JPEG, bad[1])
+
     def test_a_new_playlist_does_not_take_the_artwork_of_one_deleted_with_its_id(self):
         made = self.lib.new_playlist('一')
         self.lib.set_playlist_cover(made['id'], JPEG)
@@ -152,6 +174,19 @@ class ArtworkApiTests(Base):
         self.assertEqual(self.client.put('/api/pictures', params={'name': ' '}, content=JPEG).status_code, 400)
         self.lib.execute("UPDATE recordings SET fingerprint = '' WHERE id = ?", (a,))  # not yet known (in iCloud)
         self.assertEqual(self.client.put(f'/api/recordings/{a}/artwork', content=JPEG).status_code, 409)
+
+    def test_the_photo_a_picture_was_made_from_from_the_phone(self):
+        import hashlib
+        digest = hashlib.sha256(JPEG).hexdigest()
+        self.assertEqual(self.client.get(f'/api/picture-originals/{digest}').status_code, 404)
+        put = lambda d, **square: self.client.put(f'/api/picture-originals/{d}', params=square, content=JPEG + b'photo')
+        self.assertEqual(put(digest, x=1.5, y=2, side=300).json(), {'ok': True})
+        got = self.client.get(f'/api/picture-originals/{digest}')
+        self.assertEqual((got.content, got.headers['x-crop']), (JPEG + b'photo', '1.5,2.0,300.0'))
+        self.assertEqual(put('nothex', x=0, y=0, side=1).status_code, 400)
+        self.assertEqual(put(digest, x=0, y=0, side=-1).status_code, 400)
+        self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'x': 0, 'y': 0, 'side': 1},
+                                         content=b'<svg/>').status_code, 400)
 
     def test_a_playlists_and_an_artists_from_the_phone(self):
         pid = self.client.post('/api/playlists', json={'name': '睡前'}).json()['id']

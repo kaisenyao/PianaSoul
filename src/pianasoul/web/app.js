@@ -801,7 +801,7 @@ function pictureEditor(id, current, fallback) {
       ed.render();
     },
     reset() { turn++; photo = at = null; ed.choose(undefined); },
-    keep(path) { if (chosen !== undefined) keepPicture(path, chosen); },  // with 完成: what changed
+    keep(path) { if (chosen !== undefined) keepPicture(path, chosen, chosen && {photo, at}); },  // with 完成: what changed
   };
   async function adjust(from, where = null) {
     if (busy || !from) return;
@@ -825,19 +825,61 @@ function pictureEditor(id, current, fallback) {
     if (busy) return;
     if (photo) return adjust(photo, at);
     const mine = turn, kept = await fetch(src).then(r => r.ok ? r.blob() : null, () => null);
+    const original = kept && await originalOf(kept);
     if (mine !== turn) return;  // the sheet closed meanwhile, or opened for another
-    if (kept) adjust(kept);
+    if (original) adjust(original.photo, original.at);
+    else if (kept) adjust(kept);  // kept before photos were: what there is of it
     else hud(T.photoUnreadable);
   });
   remove.addEventListener('click', () => { photo = at = null; ed.choose(null); });
   pictureEditors.push(ed);
   return ed;
 }
-// A picture kept on the Mac (a JPEG), or taken away (null); the Mac then says what changed, and it shows.
-async function keepPicture(path, jpeg) {
+// A picture kept on the Mac (a JPEG), or taken away (null); the Mac then says what changed, and it shows. With it,
+// the photo it was made from (from: {photo, at}), for moving and scaling it again later.
+async function keepPicture(path, jpeg, from = null) {
   const sent = await fetch(path, jpeg ? {method: 'PUT', body: jpeg, headers: {'Content-Type': 'image/jpeg'}} : {method: 'DELETE'})
     .catch(() => null);
-  if (!sent?.ok) hud(T.photoFailed);
+  if (!sent?.ok) return hud(T.photoFailed);
+  if (jpeg && from?.photo) keepOriginal(jpeg, from).catch(() => {});  // only for adjusting later: no word if it fails
+}
+// The photo a picture was made from, as iOS keeps a contact's: the photo and the square of it the picture is, so that
+// all of it is there when the picture is moved and scaled again. Kept on the Mac by the picture's own content (its
+// SHA-256), at most ORIGINAL_PX on its longer side: enough for a picture of 1000 px from any square of it.
+const ORIGINAL_PX = 1600;
+const digestOf = async blob => crypto.subtle && [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))]
+  .map(b => b.toString(16).padStart(2, '0')).join('');
+async function keepOriginal(jpeg, {photo, at}) {
+  const [digest, small] = await Promise.all([digestOf(jpeg), shrunk(photo, ORIGINAL_PX)]);
+  if (!digest || !small) return;
+  const square = new URLSearchParams({x: at.x * small.scale, y: at.y * small.scale, side: at.side * small.scale});
+  await fetch(`/api/picture-originals/${digest}?${square}`, {method: 'PUT', body: small.jpeg, headers: {'Content-Type': 'image/jpeg'}});
+}
+async function originalOf(picture) {
+  const digest = await digestOf(picture), found = digest && await fetch(`/api/picture-originals/${digest}`).catch(() => null);
+  if (!found?.ok) return null;
+  const [x, y, side] = (found.headers.get('X-Crop') || '').split(',').map(Number);
+  return side > 0 ? {photo: await found.blob(), at: {x, y, side}} : null;
+}
+// A photo as a JPEG at most `most` px on its longer side (on white, for a PNG's clear parts), and by how much it was
+// made smaller; one already that small and a JPEG is as it is.
+async function shrunk(photo, most) {
+  const url = URL.createObjectURL(photo), img = new Image();
+  try {
+    img.src = url;
+    await img.decode();
+    const scale = Math.min(1, most / Math.max(img.naturalWidth, img.naturalHeight));
+    if (scale === 1 && photo.type === 'image/jpeg') return {jpeg: photo, scale};
+    const canvas = Object.assign(document.createElement('canvas'), {width: Math.round(img.naturalWidth * scale), height: Math.round(img.naturalHeight * scale)});
+    const g = canvas.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    g.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const jpeg = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', .85));
+    return jpeg && {jpeg, scale};
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 // 移动和缩放, as iOS has it: the photo under a square (or a circle), always covering it, moved with one finger and
 // scaled with two; from where, a square of the photo, it was left before (or the photo filling it, in the middle).

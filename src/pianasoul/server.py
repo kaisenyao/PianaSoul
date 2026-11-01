@@ -464,6 +464,27 @@ def describe_artist(name: str = Body(), description: str = Body()):
     return {'ok': True}
 
 
+# The photo a picture was made from (kept by the picture's content, digest), with the square of it the picture is
+# (X-Crop: x,y,side): to move and scale the picture again from all of the photo.
+@app.get('/api/picture-originals/{digest}')
+def picture_original(digest: str):
+    found = core.lib.picture_original(digest)
+    if found is None:
+        raise HTTPException(404)
+    path, at = found
+    return FileResponse(path, media_type='image/jpeg',
+                        headers={'X-Crop': f"{at['x']},{at['y']},{at['side']}", 'Cache-Control': 'private, no-cache'})
+
+
+@app.put('/api/picture-originals/{digest}')
+def keep_picture_original(digest: str, x: float, y: float, side: float, jpeg: bytes | None = Depends(_picture)):
+    try:
+        core.lib.keep_picture_original(digest, jpeg, {'x': x, 'y': y, 'side': side})
+    except ValueError:
+        raise HTTPException(400) from None
+    return {'ok': True}
+
+
 @app.get('/api/playlists')
 def playlists():
     return core.lib.playlists()
