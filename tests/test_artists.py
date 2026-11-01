@@ -25,23 +25,48 @@ class ArtistNameTests(Base):
         self.assertEqual(self.lib.known_artist('Liszt'), 'Liszt', 'Someone new keeps their name')
         self.assertEqual(self.lib.known_artist('...'), '...')
 
-    def test_an_edit_keeps_the_librarys_spelling_but_not_its_own_old_one(self):
+    def test_an_artist_written_anew_is_so_everywhere_and_another_keeps_the_librarys_name(self):
         a, b, c = self.ids
-        self.assertEqual(self.lib.edit(c, 'Ballade', 'chopin', 'lang lang')['title'], 'chopin - Ballade (lang lang)',
-                         'Only this piece had them: written anew as the user writes them')
-        self.assertEqual(self.lib.edit(a, '晴天', '周杰伦', 'mapplezs')['performer'], 'MappleZS', 'Another piece has it')
+        self.lib.set_artist_description('MappleZS', '钢琴博主')
+        self.assertEqual(self.lib.edit(a, '晴天', '周杰伦', 'Mapple ZS')['title'], '周杰伦 - 晴天 (Mapple ZS)')
+        self.assertEqual(self.lib.get(b)['title'], '周杰伦 - 搁浅 (Mapple ZS)', 'The same pianist, written so on all theirs')
+        self.assertEqual(self.lib.descriptions(['Mapple ZS']), {'Mapple ZS': '钢琴博主'}, 'With what was written of them')
+        self.assertEqual(self.lib.edit(c, 'Nocturne', 'Chopin', 'mapple zs')['performer'], 'Mapple ZS',
+                         'Another artist for this piece: the one the library has')
+
+    def test_a_title_that_does_not_come_apart_into_its_names_is_left_as_it_is(self):
+        odd = self.lib.add(make_midi(self.root / 'Music' / 'y.mid', note=71), 'mapplezs - (Live)')['id']
+        bare = self.lib.add(make_midi(self.root / 'Music' / 'z.mid', note=72), 'Hello', performer='mapplezs')['id']
+        again = Library(self.root / 'library.db', self.root / 'Music')
+        self.addCleanup(again.close)
+        self.assertEqual(again.get(odd)['title'], 'mapplezs - (Live)')
+        self.assertEqual((again.get(bare)['title'], again.get(bare)['performer']), ('Hello', 'MappleZS'), 'Its field only')
+
+    def test_the_model_saying_no_artist_leaves_none(self):
+        from pianasoul.library import enrich
+        lone = self.lib.add(make_midi(self.root / 'Music' / 'w.mid', note=73), 'Gymnopédie')['id']
+        enrich(self.lib, lambda prompt: {str(lone): {'artist': None, 'aliases': None, 'tags': None}})
+        self.assertEqual(self.lib.get(lone)['composer'], '')
+        enrich(self.lib, lambda prompt: {})  # named once: not asked again
+        other = self.lib.add(make_midi(self.root / 'Music' / 'v.mid', note=76), 'Nocturne 2')['id']
+        enrich(self.lib, lambda prompt: {str(other): {'artist': 'chopin'}})
+        self.assertEqual(self.lib.get(other)['composer'], 'Chopin', "The library's name for them")
 
     def test_names_written_differently_before_are_made_one_with_their_picture_and_description(self):
         lower = self.lib.add(make_midi(self.root / 'Music' / 'x.mid', note=70), 'mapplezs - 稻香')['id']
         self.lib.set_artist_picture('mapplezs', JPEG)
         self.lib.set_artist_description('mapplezs', '弹得很温柔')
         self.lib.set_artist_description('MappleZS', '钢琴博主')
+        self.lib.set_artist_description('Chopin', 'x' * 1000)
+        self.lib.set_artist_description('chopin', 'y' * 1000)
+        self.lib.add(make_midi(self.root / 'Music' / 'u.mid', note=77), 'chopin - Ballade')
         again = Library(self.root / 'library.db', self.root / 'Music')
         self.addCleanup(again.close)
         self.assertEqual(again.get(lower)['title'], 'MappleZS - 稻香')
         self.assertNotIn('mapplezs', again.artist_names())
         self.assertEqual(again.artist_picture('MappleZS').read_bytes(), JPEG, 'Its picture goes along')
         self.assertEqual(again.descriptions(['MappleZS', 'mapplezs']), {'MappleZS': '钢琴博主\n\n弹得很温柔'}, 'Nothing lost')
+        self.assertEqual(len(again.descriptions(['Chopin'])['Chopin']), 1000, 'As much as one holds')
 
 
 class NewPieceTests(Base):

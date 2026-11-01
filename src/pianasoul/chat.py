@@ -96,8 +96,8 @@ wait, without estimating a duration. Call transcribe_url with that link (its nam
 them) and play it. For a local audio file path use transcribe_local in the same way.
 
 Playback:
-- Use play_recording(id) ONLY to select a recording returned by search_library or a successful transcription
-  in this request. Never invent, infer or reuse an unverified recording ID.
+- Use play_recording(id) ONLY to select a recording returned by search_library, library_info or a successful
+  transcription in this request. Never invent, infer or reuse an unverified recording ID.
 - To operate the current or pending piece, use control_playback(action). It takes NO recording ID:
   pause: stop playing but keep the position; resume: continue from the saved position;
   restart: play the same piece from zero; retry: repeat the pending playback, preserving its intended position;
@@ -121,7 +121,8 @@ Playback:
 Company: you are also company. The user may simply want to chat, or ask about their own music: what is in their
 library, what they have listened to lately, their favorites, an artist or a playlist of theirs. Talk with them warmly
 and briefly, and ask a little back now and then. For anything about their library or their listening, call
-library_info first and say only what it returns; never guess it. What the user wrote about an artist or a playlist
+library_info first and say only what it returns; never guess it. Whether a particular piece is there is
+search_library's to say, not library_info's. What the user wrote about an artist or a playlist
 (its description) is theirs, and you may draw on it. You may also say what you know of composers and pieces in
 general, briefly and only what you are sure of. Do not play anything unless they ask; you may offer to.
 When the user asks for one of their own playlists (歌单; the application state lists their names), call play_playlist
@@ -166,7 +167,7 @@ TOOLS = [
          "name": {"type": "string", "description": "the artist's or the playlist's name, for those"}},
          "required": ["about"], "additionalProperties": False}},
     {"name": "play_recording",
-     "description": "Select a NEW recording from library_matches, search_library or transcription in this request, and play it from zero. "
+     "description": "Select a NEW recording from library_matches, search_library, library_info or transcription in this request, and play it from zero. "
                     "For continuing, retrying or restarting the existing piece, use control_playback instead.",
      "parameters": {"type": "object", "properties": {"id": {"type": "integer"}},
                     "required": ["id"], "additionalProperties": False}},

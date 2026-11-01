@@ -536,12 +536,22 @@ class Library:
 
     def edit(self, rec_id: int, piece: str, artist: str = "", performer: str = "") -> dict | None:
         """New names from the app (or her): the title becomes "原作者 - 曲名 (演奏者)", and composer and performer
-        follow. An artist the library has under another spelling keeps theirs (known_artist)."""
-        piece = piece.strip()
-        artist, performer = self.known_artist(artist, rec_id), self.known_artist(performer, rec_id)
-        if not piece:
-            return self.get(rec_id)
-        return self.update(rec_id, title=make_title(piece, artist, performer), composer=artist, performer=performer)
+        follow. The piece's own artist written anew (the same artist: artist_key) is written so from now on, on all
+        their pieces (respell); another artist the library has keeps the name it has there (known_artist)."""
+        rec, piece = self.get(rec_id), piece.strip()
+        if rec is None or not piece:
+            return rec
+        was = title_parts(rec["title"], rec["composer"], rec["performer"])
+        names = {}
+        for part, name in (("artist", artist), ("performer", performer)):
+            name = str(name).strip()
+            names[part] = name if artist_key(name) == artist_key(was[part]) else self.known_artist(name, rec_id)
+        self.update(rec_id, title=make_title(piece, names["artist"], names["performer"]),
+                    composer=names["artist"], performer=names["performer"])
+        for part, name in names.items():
+            if name != was[part] and artist_key(name) == artist_key(was[part]):
+                self.respell(name)
+        return self.get(rec_id)
 
     def delete(self, rec_id: int) -> bool:
         """Take a recording out of the library, its file to the Trash (yours as well as one in Transcribed/). The
@@ -692,37 +702,58 @@ class Library:
                 counts.update({name for name in (parts["artist"], parts["performer"]) if name})
         return sorted(counts, key=lambda name: (-counts[name], name))
 
+    def artist_spellings(self, besides: int | None = None) -> dict[str, str]:
+        """Each artist's name as the library has it (the spelling with the most pieces), by artist_key."""
+        spellings: dict[str, str] = {}
+        for name in self.artist_names(besides):
+            spellings.setdefault(artist_key(name), name)
+        spellings.pop("", None)
+        return spellings
+
     def known_artist(self, name: str, besides: int | None = None) -> str:
         """The name the library already has for this artist (artist_key), else the name as given: a new piece by
         Adele, named adele, is Adele's. besides: not counting that piece's own names (being edited)."""
-        name, key = str(name).strip(), artist_key(name)
-        return next((known for known in self.artist_names(besides) if key and artist_key(known) == key), name)
+        name = str(name).strip()
+        return self.artist_spellings(besides).get(artist_key(name), name)
+
+    def respell(self, kept: str) -> None:
+        """An artist's other spellings (artist_key) all become this one."""
+        for other in self.artist_names():
+            if other != kept and artist_key(other) == artist_key(kept):
+                self._take_spelling(other, kept)
 
     def _merge_artists(self) -> None:
         """An artist the library has under several spellings (from before names were matched as they came in) is
-        one artist: each piece takes the spelling with the most pieces, and the others' picture and description go
-        to it (a picture only where it has none, descriptions one after the other). Nothing is taken away."""
+        one artist, with the spelling that has the most pieces."""
         spellings: dict[str, list[str]] = {}
         for name in self.artist_names():
             spellings.setdefault(artist_key(name), []).append(name)
         for key, (kept, *others) in spellings.items():
             for other in others if key else ():
-                own = lambda name: kept if name == other else name
-                for row in self.execute("SELECT id, title, composer, performer FROM recordings"):
-                    parts = title_parts(row["title"], row["composer"], row["performer"])
-                    if other in (parts["artist"], parts["performer"], row["composer"], row["performer"]):
-                        self.update(row["id"], title=make_title(parts["piece"], own(parts["artist"]), own(parts["performer"])),
-                                    composer=own(row["composer"]), performer=own(row["performer"]))
-                picture, theirs = self.artist_picture(other), self.artist_picture(kept)
-                if picture.is_file() and not theirs.exists():
-                    picture.rename(theirs)
-                said = {name: text for name, text in self.execute(
-                    "SELECT name, description FROM artists WHERE name IN (?, ?)", (other, kept))}
-                if other in said:
-                    both = "\n\n".join(dict.fromkeys(t for t in (said.get(kept), said[other]) if t))
-                    self.execute("DELETE FROM artists WHERE name = ?", (other,))
-                    self.execute("INSERT INTO artists (name, description) VALUES (?, ?) ON CONFLICT (name) DO UPDATE "
-                                 "SET description = excluded.description", (kept, both))
+                self._take_spelling(other, kept)
+
+    def _take_spelling(self, other: str, kept: str) -> None:
+        """Each piece of other's is kept's: its composer and performer, and its title where the title is made of its
+        names (one that does not come apart into them and back, as make_title writes it, is left as it is). other's
+        picture goes to kept where kept has none, and its description after kept's (as much as one holds)."""
+        swap = lambda name: kept if name == other else name
+        with self.lock:
+            for row in self.execute("SELECT id, title, composer, performer FROM recordings"):
+                own, title = title_parts(row["title"]), row["title"]
+                if other in (own["artist"], own["performer"]) and make_title(**own) == title:
+                    title = make_title(own["piece"], swap(own["artist"]), swap(own["performer"]))
+                if title != row["title"] or other in (row["composer"], row["performer"]):
+                    self.update(row["id"], title=title, composer=swap(row["composer"]), performer=swap(row["performer"]))
+            picture, theirs = self.artist_picture(other), self.artist_picture(kept)
+            if picture.is_file() and not theirs.exists():
+                picture.rename(theirs)
+            said = dict(self.db.execute("SELECT name, description FROM artists WHERE name IN (?, ?)", (other, kept)).fetchall())
+            if other in said:
+                both = "\n\n".join(dict.fromkeys(t for t in (said.get(kept), said[other]) if t))[:DESCRIPTION_LIMIT]
+                self.db.execute("DELETE FROM artists WHERE name = ?", (other,))
+                self.db.execute("INSERT INTO artists (name, description) VALUES (?, ?) ON CONFLICT (name) DO UPDATE "
+                                "SET description = excluded.description", (kept, both))
+                self.db.commit()
 
     # ---- what the user wrote about artists ------------------------------------------------------------
     def set_artist_description(self, name: str, description: str) -> None:
@@ -870,6 +901,7 @@ def enrich(lib: Library, complete_json) -> int:
     and tags: once for each piece, which the model may not know either."""
     todo = [r for r in lib.all() if not r["named_at"] and (not r["composer"] or not r["aliases"])]
     changed = 0
+    spellings = lib.artist_spellings()  # once: the artists the model names are matched to them
     for i in range(0, len(todo), 30):
         batch = todo[i:i + 30]
         listing = "\n".join(f'{r["id"]}: {r["title"]}' for r in batch)
@@ -886,7 +918,8 @@ def enrich(lib: Library, complete_json) -> int:
             rec = lib.get(int(key))
             if rec is None:
                 continue
-            lib.update(int(key), composer=rec["composer"] or lib.known_artist(info.get("artist", ""), rec["id"]),
+            artist = str(info.get("artist") or "").strip()
+            lib.update(int(key), composer=rec["composer"] or spellings.get(artist_key(artist), artist),
                        aliases=rec["aliases"] or info.get("aliases", ""),
                        tags=rec["tags"] or info.get("tags", ""))
             changed += 1

@@ -36,7 +36,6 @@ const ICON = {
   shuffle: svg('<path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>'),
   playlist: svg('<path d="M21 15V6"/><circle cx="18.5" cy="17.5" r="2.5"/><path d="M12 12H3M16 6H3M12 18H3"/>'),
   queue: svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" fill="currentColor"/><circle cx="4.5" cy="12" r="1.2" fill="currentColor"/><circle cx="4.5" cy="18" r="1.2" fill="currentColor"/>'),
-  photo: svg('<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M20.5 16l-5-5-8 8"/>'),
   addTo: svg('<path d="M4 7h11M4 12h11M4 17h7"/><path d="M18 14v6M15 17h6"/>'),
   more: svg('<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>'),
   grip: svg('<path d="M5 8h14M5 12h14M5 16h14"/>'),
@@ -153,7 +152,11 @@ function listen() {
     try { e = JSON.parse(raw); } catch { return; }
     if (e.type === 'playback') { delete e.type; data.playback = e; heardAt = performance.now(); refresh(); }
     else if (e.type === 'jobs') onJobs(e.jobs);
-    else if (e.type === 'library') { Object.assign(data, {pictures: e.pictures, descriptions: e.descriptions}); recordings(); }  // the artists' with it
+    else if (e.type === 'library') {  // the artists' pictures and descriptions with it (one being saved: as it is here)
+      data.pictures = e.pictures;
+      if (!describing) data.descriptions = e.descriptions;
+      recordings();
+    }
     else if (e.type === 'conversations') conversations();
     else if (e.type === 'message') onMessage(e.message);
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
@@ -383,20 +386,22 @@ function refresh() {
   for (const ed of pictureEditors) if (openSheet === ed.sheet) ed.render();
   renderSessionCards();
   renderNow();
-  for (const [list, id] of open) list.querySelector(`:scope > .swipe[data-id="${CSS.escape(id)}"]`)?.classList.add('open');
+  for (const [list, id] of open) list.querySelector(`:scope > .swipe:not(.fixed)[data-id="${CSS.escape(id)}"]`)?.classList.add('open');
 }
 // The finger on a row (a press, a swipe, a drag by its handle), whose list is not drawn again under it: the row would
-// go, and with it the swipe, or the tap. Once it lets go, and the tap that may follow is done, the list is drawn.
+// go, and with it the swipe, or the tap. A moment after it lets go (the tap that may follow done, a row folded away),
+// the list is drawn.
 let rowFinger = null, missed = false, flushTimer = 0;
 function flushRows() {
   clearTimeout(flushTimer);
   if (rowFinger === null && missed) { missed = false; refresh(); }
 }
-const letRowsGo = () => { rowFinger = null; flushTimer = setTimeout(flushRows, 350); };
+const letRowsGo = () => { rowFinger = null; flushTimer = setTimeout(flushRows, 350); };  // after a tap, and a row's fold
 for (const type of ['pointerup', 'pointercancel']) addEventListener(type, e => { if (e.pointerId === rowFinger) letRowsGo(); });
-addEventListener('click', flushRows);
-// A new touch: the one before has ended, whether or not its end came here.
+// A new touch, or the page put away (the app switcher, a call): the touch before has ended, whether or not its end came.
 addEventListener('pointerdown', e => { if (e.isPrimary && rowFinger !== null) letRowsGo(); }, true);
+addEventListener('pagehide', () => { if (rowFinger !== null) letRowsGo(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && rowFinger !== null) letRowsGo(); });
 
 // ---------- Conversations ----------
 // Named after the pieces she played in it, or else what you said first (without her name), unless renamed.
@@ -929,7 +934,7 @@ function setPlaylists(playlists) {
   refresh();
 }
 // What was shown at once of a change the Mac then refused (or did not get) is set right again from the Mac.
-const resyncPlaylists = () => api('/api/playlists').then(setPlaylists).catch(() => {});
+const resyncPlaylists = () => api('/api/playlists').then(playlists => { if (!changing) setPlaylists(playlists); }).catch(() => {});
 // A change, shown at once (by the caller) and then as the Mac has it; null when it failed. Several made quickly (two
 // pieces added, two rows taken out) each show at once: what the Mac says of the playlists meanwhile (its events, its
 // answers) knows only those before it, so it waits for the last answer, and then the playlists are read again.
@@ -1007,7 +1012,10 @@ $('#plist-save').addEventListener('click', () => {
   closeOverlays();
   if (!pl) return;
   plistArt.keep(`/api/playlists/${pl.id}/artwork`);
-  if (name !== pl.name || description !== pl.description) changePlaylist(pl.id, {name, description});  // with no name, its own
+  if (name === pl.name && description === pl.description) return;
+  Object.assign(pl, {name, description});  // at once (with no name, its own)
+  refresh();
+  changePlaylist(pl.id, {name, description});
 });
 // 添加到歌单, as Apple Music asks: a sheet of the playlists, New Playlist… first, a ✓ by those the pieces are all in
 // already; a tap adds them there.
@@ -1082,6 +1090,7 @@ function editArtist(g) {
   showSheet($('#sheet-artist'));
   fitField($('#artist-desc'));
 }
+let describing = 0;  // descriptions on their way to the Mac: what it says of them meanwhile waits
 $('#artist-cancel').addEventListener('click', closeOverlays);
 $('#artist-save').addEventListener('click', () => {
   const {name} = artistFor, description = $('#artist-desc').value.trim(), was = data.descriptions[name] || '';
@@ -1090,7 +1099,8 @@ $('#artist-save').addEventListener('click', () => {
   if (description === was) return;
   const set = text => { data.descriptions = {...data.descriptions, [name]: text}; if (!text) delete data.descriptions[name]; refresh(); };
   set(description);  // at once; the Mac then says so (the library event), or it is as it was
-  api('/api/artists', 'PATCH', {name, description}).catch(() => set(was));
+  describing++;
+  api('/api/artists', 'PATCH', {name, description}).catch(() => set(was)).finally(() => describing--);
 });
 // A description's field grows with what is written.
 function fitField(field) {
@@ -1122,12 +1132,13 @@ function hud(text) {
 
 // Long-press menus for a piece: what it can do here.
 function pieceMenu(key, row) {
+  const list = row.parentElement;
   const job = data.jobs.find(j => jobKey(j) === key);
-  if (job) return showCtx(row, pieceText({...titleParts(job.title || audioName(job)), job}), [[T.stopDownload, ICON.trash, () => foldAway(row, () => stopJob(job.id)), true]]);
+  if (job) return showCtx(row, pieceText({...titleParts(job.title || audioName(job)), job}), [[T.stopDownload, ICON.trash, () => foldAway(list, key, () => stopJob(job.id)), true]]);
   const a = data.audio.find(x => audioKey(x) === key);
   if (a) return showCtx(row, row.querySelector('.text').outerHTML, [
     data.features.transcribe && a.status !== 'waiting' && [T.transcribe, ICON.sparkle, () => transcribeAudio(a.id)],
-    [T.moveToTrash, ICON.trash, () => foldAway(row, () => trashAudio(a.id)), true],
+    [T.moveToTrash, ICON.trash, () => foldAway(list, key, () => trashAudio(a.id)), true],
   ]);
   const id = +key, p = pieceById(id);
   if (!p) return;
@@ -1138,13 +1149,13 @@ function pieceMenu(key, row) {
     [T.addToPlaylist, ICON.addTo, () => pickPlaylist([id])],
     [T.edit, ICON.edit, () => openEdit(id)],
     state.view === 'library' && [T.selectSeveral, ICON.select, () => setSelecting(true, id)],
-    pl && [T.removeFromPlaylistLong, ICON.trash, () => foldAway(row, () => removeFromPlaylist(pl, id)), true],
-    [T.moveToTrash, ICON.trash, () => foldAway(row, () => deletePieces([id])), true],
+    pl && [T.removeFromPlaylistLong, ICON.trash, () => foldAway(list, key, () => removeFromPlaylist(playlistById(pl.id), id)), true],
+    [T.moveToTrash, ICON.trash, () => foldAway(list, key, () => deletePieces([id])), true],
   ]);
 }
-// The list may have been redrawn while the menu was open, so the row to fold away is looked up again.
-const foldAway = (row, then) => {
-  const found = document.querySelector(`.view:not([hidden]) .swipe[data-id="${row.dataset.id}"]`);
+// The list may have been redrawn while the menu was open, so the row to fold away is looked up again, in its list.
+const foldAway = (list, id, then) => {
+  const found = list.querySelector(`:scope > .swipe[data-id="${CSS.escape(id)}"]`);
   collapse(found ? [found] : [], then);
 };
 
@@ -1358,8 +1369,8 @@ function showScreen(n) {
     g.dy = (playerScreen === 0 ? dy > 0 : dy < 0) ? dy * .3 : dy;  // past either end it resists, like the edge of a scroll view
     el.style.setProperty('--dy', g.dy + 'px');
   });
-  // Let go (or the touch ends in a pointercancel, as iOS sends one over 详细信息, which scrolls): to the screen it
-  // was swiped towards.
+  // Let go (or the touch ends in a pointercancel, which a browser may still send): to the screen it was swiped
+  // towards.
   const end = e => {
     if (!g || e.pointerId !== g.id) return;
     if (g.on) {
@@ -1371,9 +1382,11 @@ function showScreen(n) {
   };
   view.addEventListener('pointerup', end);
   view.addEventListener('pointercancel', end);
-  // ...and kept from the scroll, which would otherwise take the touch (a pointercancel) a few pixels in.
+  // ...and kept from the scroll, which would otherwise take the touch (a pointercancel) a few pixels in. iOS decides
+  // on the first move: only one that goes down, at the top, is kept.
   view.addEventListener('touchmove', e => {
-    if (g && playerScreen === 1 && !scrolls(e.touches[0].clientY - g.y0) && e.cancelable) e.preventDefault();
+    const dy = g ? e.touches[0].clientY - g.y0 : 0;
+    if (playerScreen === 1 && dy > 0 && !scrolls(dy) && e.cancelable) e.preventDefault();
   }, {passive: false});
 })();
 
@@ -1520,7 +1533,6 @@ function openQueue() {
   $('#queue-list').scrollTop = 0;
 }
 function renderQueue() {
-  if ($('#queue-list').classList.contains('reordering')) return;
   const ids = pb().ids.filter(id => pieceById(id));
   $('#queue-sub').textContent = T.from(scopeName(pb().scope || {}), ids.length);
   $('#queue-list').innerHTML = ids.map(id => {
@@ -1543,7 +1555,6 @@ function dragToReorder(list, moved) {
     r = {id: e.pointerId, row, y0: e.clientY, i0: i, i, h: row.offsetHeight};
     list.setPointerCapture(e.pointerId);
     row.classList.add('lifted');
-    list.classList.add('reordering');
   });
   list.addEventListener('pointermove', e => {
     if (!r || e.pointerId !== r.id) return;
@@ -1558,7 +1569,6 @@ function dragToReorder(list, moved) {
     r.row.style.transform = '';
     r.row.classList.remove('lifted');
     const id = +r.row.dataset.id, changed = r.i !== r.i0, index = r.i;
-    list.classList.remove('reordering');
     guardUntil = performance.now() + 200;
     r = null;
     if (changed) moved(id, index);
@@ -1567,11 +1577,12 @@ function dragToReorder(list, moved) {
   list.addEventListener('pointerup', end);
   list.addEventListener('pointercancel', end);
 }
+// Only pieces whose files are there show: one dropped before the next one shown goes there (as in a playlist).
 dragToReorder($('#queue-list'), (id, index) => {
-  const ids = pb().ids.filter(i => i !== id);
-  ids.splice(index, 0, id);
-  data.playback = {...pb(), ids};  // where it was dropped, until the Mac says so too
-  control('move', id, index);
+  const next = listIds($('#queue-list'))[index + 1], rest = pb().ids.filter(i => i !== id);
+  const at = next === undefined ? rest.length : rest.indexOf(next);
+  data.playback = {...pb(), ids: [...rest.slice(0, at), id, ...rest.slice(at)]};  // where it was dropped, until the Mac says so too
+  control('move', id, at);
 });
 
 // ---------- Adding pieces ----------
