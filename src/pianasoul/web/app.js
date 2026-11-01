@@ -98,6 +98,7 @@ function applySettings() {
   $('#search-input').placeholder = herOn() ? T.searchAll : T.searchPieces;
   $('#add-input').placeholder = data.features.search ? T.addHint : T.linkHint;
   voice?.render();
+  renderRecent();  // the sidebar's chats are drawn as they change, and their days are words: drawn again here
   refresh();
 }
 dark.addEventListener('change', () => { if (data.settings.appearance === 'system') applySettings(); });
@@ -1387,7 +1388,7 @@ function renderNow() {
   $('#mini-sub').textContent = subtitle(p);
   const who = JSON.stringify([p.artist, p.performer]);  // not drawn again under a finger while they stay the same
   if ($('#p-sub').dataset.who !== who) Object.assign($('#p-sub'), {innerHTML: whoLinks(p)}).dataset.who = who;
-  const infoKey = JSON.stringify(p);
+  const infoKey = lang + JSON.stringify(p);  // drawn again when the piece changes, or the page's language
   if (infoId !== infoKey) { infoId = infoKey; renderInfo(p); renderArtwork(p); }
   const paused = pb().state !== 'playing';
   for (const b of [$('#mini-toggle'), $('#p-toggle')]) {
