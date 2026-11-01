@@ -57,7 +57,7 @@ class Playback(Player):
         self._listening: dict | None = None  # the piece being heard: how long, so far (hear)
         self._hearing = threading.Lock()
         self._from_start = False  # the last start was from its beginning (not a seek): another listening of the piece
-        self._seeking = False  # a start that is a seek: the same listening
+        self._going_on = False  # a start that goes on with the listening (a seek, ▶ after a pause), from wherever
         self._sounds_at = 0.0  # when the last start is first heard: after the gap before a new piece, and the lead
         saved = lib.setting("volume", "")
         self.volume = min(100, int(saved)) if saved.isdigit() else DEFAULT_VOLUME  # kept from one run to the next
@@ -212,7 +212,7 @@ class Playback(Player):
         self._run += 1
         super()._launch(items, from_s)
         # From its beginning, or from the gap before it (the next piece, a loop of one), unless it is a seek there.
-        self._from_start, self._seeking = from_s <= 0 and not self._seeking, False
+        self._from_start, self._going_on = from_s <= 0 and not self._going_on, False
         self._sounds_at = time.monotonic() + max(0.0, -from_s) + self.lead
         self.ended = False
         if self.current_id is not None:
@@ -234,8 +234,10 @@ class Playback(Player):
         with self._lock:
             if self.state == "playing":
                 self.pause()
+            elif self.state == "paused":
+                self._go_on(self._offset)
             elif self.current is not None:
-                self.start([self.current], self._offset if self.state == "paused" else 0.0)
+                self.start([self.current], 0.0)
 
     def seek(self, seconds: float) -> None:
         with self._lock:
@@ -243,14 +245,20 @@ class Playback(Player):
                 return
             seconds = max(0.0, min(seconds, self.duration or seconds))
             if self.state == "playing":
-                self._seeking = True  # to 0:00 too: the same listening, from elsewhere in it
-                try:
-                    self.start([self.current], seconds)
-                finally:
-                    self._seeking = False
+                self._go_on(seconds)
                 return
+            # Stopped (✕, or the list over), what plays next is heard anew: the listening before it ended there.
+            self._from_start = self.state == "stopped"
             self.state, self._offset, self.ended = "paused", seconds, False
         self.changed()
+
+    def _go_on(self, from_s: float) -> None:
+        """The piece on from from_s (0:00 too) as the same listening: a seek, or ▶ after a pause."""
+        self._going_on = True
+        try:
+            self.start([self.current], from_s)
+        finally:
+            self._going_on = False
 
     def step(self, direction: int) -> None:
         """⏮ (direction < 0) or ⏭; each plays what it lands on."""

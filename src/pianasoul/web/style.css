@@ -156,10 +156,14 @@ svg { display: block; }
 .sheeted #main { transition-duration: .45s; }
 #pages { position: absolute; inset: 0; z-index: 35; pointer-events: none; transform-origin: 50% 0; transition: transform .45s var(--ease); }
 /* A page that moves aside is a card, its corners rounded as it goes, as home is beside the sidebar. --off: how far it
-   is from its place, 0 to 1, as the finger takes it or as it slides. */
+   is from its place, 0 to 1, as the finger takes it or as it slides. What it uncovers is dimmed as home is under the
+   sidebar, the more the more of it the page still covers (1 - --off), and not at all once it is away, nor at rest,
+   where it covers all (the last factor: 0 at 0, 1 as soon as it moves). */
 @property --off { syntax: '<number>'; inherits: false; initial-value: 0; }
 #pages > .view {
-  pointer-events: auto; background: var(--bg); box-shadow: var(--page-shadow); border-radius: clamp(0px, var(--off) * 176px, 44px);
+  pointer-events: auto; background: var(--bg); border-radius: clamp(0px, var(--off) * 176px, 44px);
+  box-shadow: var(--page-shadow),
+    0 0 0 100vmax color-mix(in srgb, var(--scrim) calc((1 - var(--off)) * clamp(0, var(--off) * 1000, 1) * var(--scrim-on) * 100%), transparent);
   transition: transform .38s var(--ease), --off .38s var(--ease), padding-bottom .3s var(--kb-ease);
 }
 /* What sits under a page's content: nothing, the mini player, or while typing the keyboard. It changes on the iOS
@@ -419,7 +423,8 @@ svg { display: block; }
 .ghead.fold { display: flex; align-items: center; justify-content: space-between; width: calc(100% - 32px); min-height: 32px; }
 
 /* A picture being edited, at the top of its sheet, as Contacts edits one: the picture (round for an artist), or what
-   shows without one; tapped for a photo as 选取照片 is, and 移除 beside that while there is one. Below it, the fields in groups under their headings, as Edit Info has them. */
+   shows without one; tapped, it is moved and scaled again (or, with none, a photo is chosen, as 选取封面 does), and
+   移除 shows beside 选取 while there is one. Below it, the fields in groups under their headings, as Edit Info has them. */
 .art-edit { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px 16px 2px; }
 .art-edit .pick { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .art-edit .tile { position: relative; width: 168px; height: 168px; border-radius: 14px; background: var(--card2); cursor: pointer; }

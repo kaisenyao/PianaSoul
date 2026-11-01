@@ -381,18 +381,28 @@ def edit(rec_id: int, change: dict = Body()):
 
 # ---- pictures: a piece's artwork, a playlist's, an artist's (library.py says where they are kept) --------------
 PICTURE_LIMIT = 4 * 1024 * 1024  # what a phone makes, a square JPEG of about 1000 px, is far smaller
+PHOTO_LIMIT = 16 * 1024 * 1024  # the photo a picture was made from: whole when only a small square of it was taken
 
 
 async def _picture(request: Request) -> bytes | None:
     """The JPEG of a PUT, as the phone makes it; None for a DELETE (taken away). Read as it comes, and stopped as
     soon as it is too large (413); 400 for what is not a JPEG. A dependency: the endpoints that keep it are plain
     functions, run beside the event loop (the library may be busy), as the others are."""
+    return await _jpeg(request, PICTURE_LIMIT)
+
+
+async def _photo(request: Request) -> bytes | None:
+    """The photo a picture was made from, as _picture reads a picture."""
+    return await _jpeg(request, PHOTO_LIMIT)
+
+
+async def _jpeg(request: Request, limit: int) -> bytes | None:
     if request.method == 'DELETE':
         return None
     body = bytearray()
     async for chunk in request.stream():
         body += chunk
-        if len(body) > PICTURE_LIMIT:
+        if len(body) > limit:
             raise HTTPException(413)
     if not body.startswith(b'\xff\xd8\xff'):
         raise HTTPException(400)
@@ -477,7 +487,7 @@ def picture_original(digest: str):
 
 
 @app.put('/api/picture-originals/{digest}')
-def keep_picture_original(digest: str, x: float, y: float, side: float, jpeg: bytes | None = Depends(_picture)):
+def keep_picture_original(digest: str, x: float, y: float, side: float, jpeg: bytes | None = Depends(_photo)):
     try:
         core.lib.keep_picture_original(digest, jpeg, {'x': x, 'y': y, 'side': side})
     except ValueError:

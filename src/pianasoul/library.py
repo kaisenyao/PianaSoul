@@ -439,6 +439,7 @@ class Library:
         shared = len(self.execute("SELECT id FROM recordings WHERE fingerprint = ?", (old,))) > 1
         if target.exists():
             if not shared:
+                self._forget_original_of(source)
                 send2trash(str(source))  # the new content has its own: this one is not lost, it can be put back
         elif shared:
             shutil.copy2(source, target)
@@ -580,6 +581,7 @@ class Library:
             artwork = self.piece_artwork(rec) if rec["fingerprint"] else None
             sharing = self.execute("SELECT id FROM recordings WHERE fingerprint = ?", (rec["fingerprint"],))
             if artwork and artwork.exists() and len(sharing) == 1:
+                self._forget_original_of(artwork)
                 send2trash(str(artwork))  # with its file: put back together, they belong together again
             self.db.execute("DELETE FROM recordings WHERE id = ?", (rec_id,))
             self.db.execute("UPDATE audio SET recording_id = NULL WHERE recording_id = ?", (rec_id,))
@@ -610,7 +612,7 @@ class Library:
                                           (name, now, now)).lastrowid
             self._renumber(playlist_id, self._known(ids))
             self.db.commit()
-            self.playlist_cover(playlist_id).unlink(missing_ok=True)  # one deleted before may have had this id
+            self._replace_picture(self.playlist_cover(playlist_id), None)  # one deleted before may have had this id
         return self.playlist(playlist_id)
 
     def edit_playlist(self, playlist_id: int, name: str, description: str) -> dict | None:
@@ -629,7 +631,7 @@ class Library:
             self.db.execute("DELETE FROM playlist_items WHERE playlist_id = ?", (playlist_id,))
             deleted = self.db.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,)).rowcount > 0
             self.db.commit()
-            self.playlist_cover(playlist_id).unlink(missing_ok=True)  # before a new playlist can take its id
+            self._replace_picture(self.playlist_cover(playlist_id), None)  # before a new playlist can take its id
         return deleted
 
     def add_to_playlist(self, playlist_id: int, ids) -> list[int] | None:
@@ -707,11 +709,20 @@ class Library:
     def _replace_picture(self, path: Path, jpeg: bytes | None) -> None:
         """A picture kept anew, or taken away: the photo the one there was made from goes with it (one kept anew
         comes with its own, from the phone, once it is kept)."""
-        if path.is_file():
-            was = hashlib.sha256(path.read_bytes()).hexdigest()
-            if jpeg is None or hashlib.sha256(jpeg).hexdigest() != was:
-                self.forget_picture_original(was)
+        if path.is_file() and path.read_bytes() != jpeg:
+            self._forget_original_of(path)
         _keep_picture(path, jpeg)
+
+    def _forget_original_of(self, path: Path) -> None:
+        """A picture going (replaced, taken away, to the Trash with its piece, its playlist deleted): the photo it was
+        made from goes too, unless another picture is the very same one (the same bytes), whose photo it is as well."""
+        if not path.is_file():
+            return
+        content = path.read_bytes()
+        others = (other for folder in (self.artwork / "Pieces", self.artwork / "Artists", self.playlist_artwork)
+                  for other in folder.glob("*.jpg") if other.stat().st_size == len(content) and not other.samefile(path))
+        if not any(other.read_bytes() == content for other in others):
+            self.forget_picture_original(hashlib.sha256(content).hexdigest())
 
     # ---- the photos pictures were made from ----------------------------------------------------------
     def keep_picture_original(self, digest: str, jpeg: bytes, at: dict) -> None:

@@ -124,6 +124,22 @@ class LibraryArtworkTests(Base):
         self.lib.keep_picture_original(digest(JPEG), JPEG, {'x': 0, 'y': 0, 'side': 1})
         self.lib.set_artist_picture('周杰伦', None)
         self.assertIsNone(self.lib.picture_original(digest(JPEG)))
+        b, c = self.ids[1:]
+        make_midi(Path(self.lib.get(c)['midi_path']), note=77)  # c's content its own, so its artwork its own file
+        self.lib.refresh(c)
+        self.lib.set_piece_artwork(b, JPEG + b'same')  # one picture on two pieces of different content
+        self.lib.set_piece_artwork(c, JPEG + b'same')
+        self.lib.keep_picture_original(digest(JPEG + b'same'), JPEG, {'x': 0, 'y': 0, 'side': 1})
+        self.lib.set_piece_artwork(b, JPEG + b'other')
+        self.assertIsNotNone(self.lib.picture_original(digest(JPEG + b'same')), 'Still the photo of c\'s picture')
+        with patch('pianasoul.library.send2trash'):
+            self.lib.delete(c)  # to the Trash: no picture is made from it any more
+        self.assertIsNone(self.lib.picture_original(digest(JPEG + b'same')))
+        pid = self.lib.new_playlist('一')['id']
+        self.lib.set_playlist_cover(pid, JPEG + b'cover')
+        self.lib.keep_picture_original(digest(JPEG + b'cover'), JPEG, {'x': 0, 'y': 0, 'side': 1})
+        self.lib.delete_playlist(pid)
+        self.assertIsNone(self.lib.picture_original(digest(JPEG + b'cover')), 'With its playlist')
         for bad in (('../x', {'x': 0, 'y': 0, 'side': 1}), (digest(JPEG), {'x': -1, 'y': 0, 'side': 1}),
                     (digest(JPEG), {'x': 0, 'y': 0, 'side': 0})):
             with self.assertRaises(ValueError):
@@ -183,6 +199,11 @@ class ArtworkApiTests(Base):
         self.assertEqual(put(digest, x=1.5, y=2, side=300).json(), {'ok': True})
         got = self.client.get(f'/api/picture-originals/{digest}')
         self.assertEqual((got.content, got.headers['x-crop']), (JPEG + b'photo', '1.5,2.0,300.0'))
+        big = JPEG + b'x' * (server.PICTURE_LIMIT + 1)  # a whole photo, larger than a picture may be
+        self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'x': 0, 'y': 0, 'side': 1},
+                                         content=big).status_code, 200)
+        self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'x': 0, 'y': 0, 'side': 1},
+                                         content=big + b'x' * server.PHOTO_LIMIT).status_code, 413)
         self.assertEqual(put('nothex', x=0, y=0, side=1).status_code, 400)
         self.assertEqual(put(digest, x=0, y=0, side=-1).status_code, 400)
         self.assertEqual(self.client.put(f'/api/picture-originals/{digest}', params={'x': 0, 'y': 0, 'side': 1},

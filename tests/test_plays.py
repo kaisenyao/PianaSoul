@@ -62,6 +62,22 @@ class PlayCountTests(Base):
         self.at(1000 + self.p.duration * .8, self.p.pause)
         self.assertEqual(self.lib.play_counts().get(b), 1)
 
+    def test_after_a_stop_a_seek_starts_a_new_listening_and_after_a_pause_it_goes_on(self):
+        a, b = self.ids[:2]
+        self.at(0, self.p.select, a, [a])
+        length = self.p.duration
+        self.at(length, self.p.stop)  # heard through: one play
+        self.at(length + 1, self.p.seek, 1.0)
+        self.at(length + 2, self.p.toggle)
+        self.pause_at(length * 2 + 2, length)  # all of it again
+        self.assertEqual(self.lib.play_counts(), {a: 2})
+        self.at(1000, self.p.select, b, [b])
+        self.pause_at(1000 + self.p.duration * .4, self.p.duration * .4)
+        self.at(1001, self.p.seek, 0.0)  # back to its start while paused, then on: the same listening
+        self.at(1002, self.p.toggle)
+        self.pause_at(1002 + self.p.duration * .2, self.p.duration * .2)
+        self.assertEqual(self.lib.play_counts().get(b), 1)
+
     def test_the_gap_before_a_piece_is_not_heard(self):
         a = self.ids[0]
         self.at(0, self.p.select, a, [a])

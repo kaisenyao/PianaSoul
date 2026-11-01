@@ -315,10 +315,15 @@ function applyFeatures() {
 function ready(view, id = null) {
   const el = $('#view-' + view);
   el.dataset.gen = +(el.dataset.gen || 0) + 1;
+  const under = stack.findLast(e => e.view === view);  // a page of this kind lower down: its place in it, for later
+  if (under && !el.hidden) under.scroll = el.scrollTop;
   el.hidden = false;
   el.style.zIndex = layer(view, stack);
   moveAside(el, null);
+  el.style.transition = 'none';  // to the side at once (it may be on screen, under the player), then in from there
   el.classList.add('off');
+  el.offsetWidth;
+  el.style.transition = '';
   if (view === 'session') toLatest();  // a conversation opens at its latest message, or at a line search found
   renderEntry({view, id});
   if (view === 'player') showScreen(0);
@@ -357,6 +362,7 @@ function slideOut(el) {
     if (i < 0) return void (el.hidden = true);
     el.style.zIndex = layer(stack[i].view, stack.slice(0, i));
     renderEntry(stack[i]);
+    el.scrollTop = stack[i].scroll ?? 0;
   }, 400);
 }
 // After the stack changes: the top page decides what the rest of the screen shows.
@@ -391,7 +397,7 @@ function refresh() {
   const open = [...document.querySelectorAll('.swipe.open')].map(row => [row.parentElement, row.dataset.id]);
   renderPiano();
   if (!herOn()) renderLibrary();  // home
-  for (const e of stack) if (e.view !== 'session') renderEntry(e);
+  for (const e of stack) if (e.view !== 'session' && !$('#view-' + e.view).classList.contains('off')) renderEntry(e);  // one going: by slideOut
   if (openSheet === $('#sheet-queue')) renderQueue();
   if (openSheet === $('#sheet-add')) renderCands();
   if (openSheet === $('#sheet-pick')) renderPick();
@@ -824,9 +830,11 @@ function pictureEditor(id, current, fallback) {
     if (!src) return file.click();  // still in the tap: the phone asks for a photo
     if (busy) return;
     if (photo) return adjust(photo, at);
+    busy = true;
     const mine = turn, kept = await fetch(src).then(r => r.ok ? r.blob() : null, () => null);
     const original = kept && await originalOf(kept);
-    if (mine !== turn) return;  // the sheet closed meanwhile, or opened for another
+    busy = false;
+    if (mine !== turn || openSheet !== ed.sheet) return;  // the sheet closed meanwhile, or opened for another
     if (original) adjust(original.photo, original.at);
     else if (kept) adjust(kept);  // kept before photos were: what there is of it
     else hud(T.photoUnreadable);
@@ -845,12 +853,15 @@ async function keepPicture(path, jpeg, from = null) {
 }
 // The photo a picture was made from, as iOS keeps a contact's: the photo and the square of it the picture is, so that
 // all of it is there when the picture is moved and scaled again. Kept on the Mac by the picture's own content (its
-// SHA-256), at most ORIGINAL_PX on its longer side: enough for a picture of 1000 px from any square of it.
-const ORIGINAL_PX = 1600;
+// SHA-256), at most ORIGINAL_PX on its longer side, or larger where its square needs it to make the same picture
+// again (a small square of a large photo).
+const ORIGINAL_PX = 1600, PHOTO_BYTES = 12e6;  // larger than PHOTO_BYTES, a whole photo is made a JPEG again (the Mac takes 16 MB)
 const digestOf = async blob => crypto.subtle && [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))]
   .map(b => b.toString(16).padStart(2, '0')).join('');
 async function keepOriginal(jpeg, {photo, at}) {
-  const [digest, small] = await Promise.all([digestOf(jpeg), shrunk(photo, ORIGINAL_PX)]);
+  // At most ORIGINAL_PX on its longer side, but never so small that its square makes a smaller picture than now.
+  const scaleFor = longer => Math.min(1, Math.max(ORIGINAL_PX / longer, Math.min(1000, at.side) / at.side));
+  const [digest, small] = await Promise.all([digestOf(jpeg), shrunk(photo, scaleFor)]);
   if (!digest || !small) return;
   const square = new URLSearchParams({x: at.x * small.scale, y: at.y * small.scale, side: at.side * small.scale});
   await fetch(`/api/picture-originals/${digest}?${square}`, {method: 'PUT', body: small.jpeg, headers: {'Content-Type': 'image/jpeg'}});
@@ -861,15 +872,15 @@ async function originalOf(picture) {
   const [x, y, side] = (found.headers.get('X-Crop') || '').split(',').map(Number);
   return side > 0 ? {photo: await found.blob(), at: {x, y, side}} : null;
 }
-// A photo as a JPEG at most `most` px on its longer side (on white, for a PNG's clear parts), and by how much it was
-// made smaller; one already that small and a JPEG is as it is.
-async function shrunk(photo, most) {
+// A photo as a JPEG made smaller by scaleFor(its longer side) (on white, for a PNG's clear parts), and by how much;
+// a JPEG not made smaller, and not too large to send, is as it is.
+async function shrunk(photo, scaleFor) {
   const url = URL.createObjectURL(photo), img = new Image();
   try {
     img.src = url;
     await img.decode();
-    const scale = Math.min(1, most / Math.max(img.naturalWidth, img.naturalHeight));
-    if (scale === 1 && photo.type === 'image/jpeg') return {jpeg: photo, scale};
+    const scale = scaleFor(Math.max(img.naturalWidth, img.naturalHeight));
+    if (scale === 1 && photo.type === 'image/jpeg' && photo.size <= PHOTO_BYTES) return {jpeg: photo, scale};
     const canvas = Object.assign(document.createElement('canvas'), {width: Math.round(img.naturalWidth * scale), height: Math.round(img.naturalHeight * scale)});
     const g = canvas.getContext('2d');
     g.fillStyle = '#fff';
@@ -1430,7 +1441,7 @@ $('#view-player .art').addEventListener('click', e => {
 });
 $('#p-sub').addEventListener('click', e => {
   const b = e.target.closest('.who'), p = nowPiece();
-  if (b && p?.[b.dataset.kind]) push('group', {kind: b.dataset.kind, name: p[b.dataset.kind]});
+  if (b && state.view === 'player' && p?.[b.dataset.kind]) push('group', {kind: b.dataset.kind, name: p[b.dataset.kind]});
 });
 $('#view-player .art').addEventListener('keydown', e => {
   if (isEnter(e) || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); }

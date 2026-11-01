@@ -510,11 +510,20 @@ class Assistant:
             return {"counted_since": when(first) if first else None, "all_time": most(heard),
                     "last_30_days": most(month, plays_in_30_days=month.get)}
         if about == "rarely_played":  # never or longest ago first, then the least heard: to find old ones again
-            # Last heard: its last play, or for a piece not heard since plays were counted, its last start then.
-            last = {r["id"]: heard_last.get(r["id"]) or r["last_played_at"] or "" for r in recs}
+            # Last heard: its last play; for one not heard since plays were counted, its last start before then (a
+            # start since, a skip as like as not, says nothing). since: no play counted since plays were.
+            first = self.lib.first_play() or ""
+
+            def last_heard(r: dict) -> str:
+                started = r["last_played_at"] or ""
+                return heard_last.get(r["id"]) or (started if not first or started < first else "")
+            last = {r["id"]: last_heard(r) for r in recs}
             order = sorted(recs, key=lambda r: (last[r["id"]], heard.get(r["id"], 0)))
-            return {"pieces": [piece(r, style=True, **({"played_at": when(last[r["id"]])} if last[r["id"]]
-                                                        else {"never_played": True})) for r in order[:LIST_MOST]]}
+            def heard_when(r: dict) -> dict:
+                if last[r["id"]]:
+                    return {"played_at": when(last[r["id"]])}
+                return {"not_heard_since": when(first)} if first and r["last_played_at"] else {"never_played": True}
+            return {"pieces": [piece(r, style=True, **heard_when(r)) for r in order[:LIST_MOST]]}
         if about == "favorites":
             return {"pieces": [piece(r) for r in liked[:LIST_MOST]], "count": len(liked)}
         if about == "artist":

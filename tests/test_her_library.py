@@ -71,7 +71,8 @@ class HerLibraryTests(Base):
         self.assertTrue(seen['counted_since'].startswith('2020-01-01') or seen['counted_since'].startswith('2019-12-31'))
         self.lib.played(b, False)  # taken out of 最近播放: its plays stay
         rarely = self.ask(about='rarely_played')['pieces']
-        self.assertEqual([p['id'] for p in rarely], [c, a, b], 'Heard longest ago first (its last play)')
+        self.assertEqual([p['id'] for p in rarely], [a, c, b], 'Not heard since plays were counted, then the longest ago')
+        self.assertTrue(rarely[0]['not_heard_since'].startswith(('2020-01-01', '2019-12-31')), 'A start since is no play')
         self.assertNotIn('never_played', rarely[2], 'Heard three times, whatever 最近播放 shows')
         new = self.lib.add(make_midi(self.root / 'Music' / 'new.mid', note=79), 'New')['id']
         self.assertEqual(self.ask(about='rarely_played')['pieces'][0], {'id': new, 'piece': 'New', 'never_played': True})
