@@ -52,8 +52,8 @@ const zh = {
   notPairedTitle: '还没有配对', notPaired: '请用手机相机扫 Mac 上 PianaSoul 的二维码打开。',
   connectHow: {
     usb: '确认琴开着，USB 线两头都插好。连上以后会自己恢复，不用刷新。',
-    bluetooth: '确认琴开着、蓝牙 MIDI 打开，再在 Mac 上连接：用 PianaSoul App 的话，点菜单栏的 PianaSoul › 连接琴…；也可以打开“音频 MIDI 设置” › 窗口 › 显示 MIDI 工作室，点蓝牙图标，再点琴旁边的“连接”。连上以后会自己恢复。',
-    network: '在 iPad 上打开发声的 App，再在 Mac 上连接：“音频 MIDI 设置” › 窗口 › 显示 MIDI 网络设置，在“目录”里选中 iPad，点“连接”（用 PianaSoul App 的话，菜单栏的 PianaSoul › 连接琴… 会直接打开“音频 MIDI 设置”）。iPad 断开以后，Mac 有时要将近一分钟才发现。',
+    bluetooth: '确认琴开着、蓝牙 MIDI 打开，再在 Mac 上连接：用 PianaSoul App 的话，点菜单栏的 PianaSoul › 连接钢琴…，再点“连接蓝牙钢琴…”；也可以打开“音频MIDI设置” › 窗口 › 显示MIDI工作室，点蓝牙图标，再点琴旁边的“连接”。连上以后会自己恢复。',
+    network: '在 iPad 上打开发声的 App（它的网络 MIDI 要开着），再在 Mac 上连接：“音频MIDI设置” › 窗口 › 显示MIDI工作室，再选择“MIDI工作室 › 打开MIDI网络设置…”，在“目录”里选中 iPad，点“连接”（用 PianaSoul App 的话，点菜单栏的 PianaSoul › 连接钢琴…，再点“打开音频MIDI设置…”）。iPad 断开以后，Mac 有时要将近一分钟才发现。',
     virtual: '在 Mac 上打开发声的 App。打开以后会自己恢复。',
     other: '确认琴开着、和 Mac 连好；也可以在 Mac 上 PianaSoul 的设置 › 钢琴里换一台琴。',
   },
@@ -218,8 +218,8 @@ const en = {
   notPairedTitle: 'Not Paired Yet', notPaired: 'Scan the code in PianaSoul on the Mac with the phone’s camera to open it.',
   connectHow: {
     usb: 'Check that the piano is on and the USB cable is plugged in at both ends. Once it is connected, this updates by itself.',
-    bluetooth: 'Check that the piano is on with Bluetooth MIDI turned on, then connect it on the Mac: with the PianaSoul app, PianaSoul in the menu bar › Connect Piano…; or Audio MIDI Setup › Window › Show MIDI Studio, click the Bluetooth icon, then Connect next to the piano. Once it is connected, this updates by itself.',
-    network: 'Open the app that makes the sound on the iPad, then connect it on the Mac: Audio MIDI Setup › Window › Show MIDI Network Setup, select the iPad under Directory, and click Connect (with the PianaSoul app, PianaSoul in the menu bar › Connect Piano… opens Audio MIDI Setup). After the iPad leaves, the Mac can take almost a minute to notice.',
+    bluetooth: 'Check that the piano is on with Bluetooth MIDI turned on, then connect it on the Mac: with the PianaSoul app, PianaSoul in the menu bar › Connect Piano…, then Connect Bluetooth Piano…; or Audio MIDI Setup › Window › Show MIDI Studio, click the Bluetooth icon, then Connect next to the piano. Once it is connected, this updates by itself.',
+    network: 'Open the app that makes the sound on the iPad, with its network MIDI on, then connect it on the Mac: Audio MIDI Setup › Window › Show MIDI Studio, then MIDI Studio › Open MIDI Network Setup…, select the iPad under Directory, and click Connect (with the PianaSoul app, PianaSoul in the menu bar › Connect Piano…, then Open Audio MIDI Setup…). After the iPad leaves, the Mac can take almost a minute to notice.',
     virtual: 'Open the app that makes the sound on the Mac. Once it is open, this updates by itself.',
     other: 'Check that the piano is on and connected to the Mac, or choose another in PianaSoul’s settings › Piano on the Mac.',
   },
