@@ -647,7 +647,6 @@ button.grow:active { background: var(--press); }
   --p-big: linear-gradient(135deg, var(--p-accent), var(--p-accent2)); --p-big-glyph: #fff; --p-line: rgba(0, 0, 0, .08);
   --p-art-shadow: 0 18px 40px rgba(0, 0, 0, .16); --p-thumb-shadow: 0 10px 26px rgba(0, 0, 0, .14);
 }
-#view-player.no-piece .pmain > :not(.art), #view-player.no-piece .pinfo { visibility: hidden; }
 .screens { height: 100%; transform: translateY(calc(var(--screen, 0) * -100% + var(--dy, 0px))); transition: transform .45s var(--ease); }
 .screens.dragging { transition: none; }
 /* Under ✕ and share, the artwork, title, bar and controls stay together, with the space left shared evenly above

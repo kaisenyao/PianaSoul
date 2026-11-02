@@ -175,7 +175,6 @@ async function load() {
   try { localStorage.setItem('features', JSON.stringify(data.features)); } catch {}
   applyFeatures();
   applySettings();
-  closeGone();
   renderRecent();
   for (const e of stack) if (e.view === 'session') renderSession(e.id);  // what was said while the Mac was away
 }
@@ -409,10 +408,11 @@ function renderEntry({view, id}) {
   if (view === 'player') renderNow();
 }
 // Redraw every open page, the sheets that show the library (播放列表, 添加到歌单, 添加曲目, an edit's picture), and
-// what is playing. Not under a finger on a row (rowFinger): what comes meanwhile is drawn once it lets go. A row
-// swiped open stays open.
+// what is playing, once the pages whose content is gone have closed. Not under a finger on a row (rowFinger): what
+// comes meanwhile is drawn once it lets go. A row swiped open stays open.
 function refresh() {
   if (rowFinger !== null) { missed = true; return; }
+  closeGone();
   const open = [...document.querySelectorAll('.swipe.open')].map(row => [row.parentElement, row.dataset.id]);
   renderPiano();
   if (!herOn()) renderLibrary();  // home
@@ -1086,10 +1086,9 @@ function renderPlaylist(id) {
   $('#group-foot').innerHTML = ps.length ? '' : `<button class="add-first" id="group-add">${ICON_ADD}<span>${esc(T.addMusic)}</span></button>`;
   renderSelectionBar();
 }
-// The playlists as the Mac has them, from its events or its answers: the pages of one gone close.
+// The playlists as the Mac has them, from its events or its answers: the pages of one gone close (refresh).
 function setPlaylists(playlists) {
   data.playlists = playlists;
-  closeGone();
   refresh();
 }
 // What was shown at once of a change the Mac then refused (or did not get) is set right again from the Mac.
@@ -1106,10 +1105,12 @@ async function changePlaylist(id, change) {
   if (--changing === 0) resyncPlaylists();
   return changed;
 }
-// A playlist gone (deleted here or on another phone): its page closes, wherever it is in the stack, and adding to it
-// or editing it stops.
+// A page whose content is gone closes, wherever it is in the stack: a playlist's (deleted here or on another phone),
+// adding to it or editing it stopping too; the player's once there is no piece (the Mac started again, which plays
+// nothing, or the piece was deleted), as the mini player goes.
 function closeGone() {
-  const gone = e => e.view === 'group' && e.id?.kind === 'playlist' && !playlistById(e.id.id);
+  const gone = e => (e.view === 'group' && e.id?.kind === 'playlist' && !playlistById(e.id.id)) ||
+                    (e.view === 'player' && !nowPiece());
   for (let i = stack.length - 1; i >= 0; i--) {
     if (!gone(stack[i])) continue;
     if (i === stack.length - 1) pop();
@@ -1380,7 +1381,6 @@ function renderNow() {
   const mode = pb().mode || 'order';
   $('#p-mode').innerHTML = ICON[mode];
   $('#p-mode').setAttribute('aria-label', T.modes[mode]);
-  $('#view-player').classList.toggle('no-piece', !p);
   renderVolume();
   if (!p) return;
   document.documentElement.style.setProperty('--h', hueOf(p.id));  // its color: the mini player's, the player's, the status bar's
