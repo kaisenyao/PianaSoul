@@ -53,7 +53,7 @@ const zh = {
   connectHow: {  // [what is wrong, what to do next]: the detailed steps are in the Mac app's Piano settings
     usb: ['USB 钢琴没有连上', '确认琴开着，USB 线两头都插好。'],
     bluetooth: ['蓝牙钢琴没有连上', '确认琴开着，再在 Mac 上的 PianaSoul 里重新连接。'],
-    network: ['网络 MIDI 没有连上', '在 Mac 的“音频MIDI设置”里重新连接你的 iPad。'],
+    network: ['网络 MIDI 没有连上', '在 Mac 的“音频MIDI设置”里重新连接发声的设备。'],
     virtual: ['发声软件没有连上', '在 Mac 上打开发声的 App。'],
     other: ['琴没有连上', '确认琴开着、和 Mac 连好，或者在 Mac 上的 PianaSoul 里换一台。'],
   },
@@ -219,7 +219,7 @@ const en = {
   connectHow: {
     usb: ['USB piano not connected', 'Check that the piano is on and the USB cable is plugged in at both ends.'],
     bluetooth: ['Bluetooth piano not connected', 'Check that the piano is on, then reconnect it in PianaSoul on your Mac.'],
-    network: ['Network MIDI not connected', 'Reconnect your iPad in Audio MIDI Setup on your Mac.'],
+    network: ['Network MIDI not connected', 'Reconnect the device that makes the sound in Audio MIDI Setup on your Mac.'],
     virtual: ['Sound app not connected', 'Open the app that makes the sound on your Mac.'],
     other: ['Piano not connected', 'Check that the piano is on and connected to your Mac, or choose another in PianaSoul on your Mac.'],
   },
