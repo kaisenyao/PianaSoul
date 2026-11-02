@@ -199,10 +199,10 @@ class AppTests(unittest.TestCase):
                          'With few piano versions, the others follow them: here the composer\'s own')
         self.assertNotIn('flags', found[0])
         videos[:] = [(f'{n:011d}', f'江南 Piano Cover {n}', 'Covers') for n in range(5)] + [
-            ('bbbbbbbbbbb', '林俊杰 江南 官方 MV', 'Taihe Music')]
+            ('bbbbbbbbbbb', '林俊杰 江南 官方 MV', 'Taihe Music'), ('ccccccccccc', '江南 簡易鋼琴教學', '簡單鋼琴')]
         with patch.object(online, '_extract', side_effect=extract):
             found = signed_in(self.client).get('/api/online', params={'q': '江南'}).json()
-        self.assertEqual(len(found), 5, 'Enough piano versions: the song\'s own, sung, is not offered')
+        self.assertEqual(len(found), 5, 'Enough piano versions: the song\'s own, sung, is not offered, nor a lesson')
         videos[:] = [('eeeeeeeeeee', 'Adele - Easy On Me (Piano Cover)', 'Pianella Piano'),
                      ('fffffffffff', 'Easy On Me - Easy Piano Tutorial', 'Lessons')]
         with patch.object(online, '_extract', side_effect=extract):

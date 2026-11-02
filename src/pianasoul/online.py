@@ -15,6 +15,8 @@ FLAG_WORDS = {
     "lesson": "tutorial", "easy": "easy", "slow": "easy", "beginner": "easy", "piano tiles": "game",
     "compilation": "compilation", "playlist": "compilation", "1 hour": "compilation", "hours": "compilation",
     "8 bit": "not-piano", "8-bit": "not-piano", "remix": "remix",
+    "教学": "tutorial", "教學": "tutorial", "简易": "easy", "簡易": "easy", "简单": "easy", "簡單": "easy",
+    "慢速": "easy", "入门": "easy", "入門": "easy",
 }
 FLAG_TEXT = {  # each flag as the chat model reads it
     "falling-notes": "falling-notes (Synthesia) video", "midi": "mentions MIDI", "tutorial": "tutorial or lesson",
