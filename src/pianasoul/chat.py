@@ -2,7 +2,7 @@
 
     ./run.sh chat
 
-The assistant looks in the local library first, then searches YouTube (YOUTUBE_API_KEY), gets the chosen video
+The assistant looks in the local library first, then searches online (YouTube, through yt-dlp), gets the chosen video
 ready through the same queue as the app's downloads (download, transcribe, file it in the library folder's
 Transcribed/), and plays it on the piano over MIDI.
 """
@@ -13,6 +13,7 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import Future
+import importlib.util
 import inspect
 import json
 import logging
@@ -28,7 +29,7 @@ from pathlib import Path
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-from . import youtube
+from . import online
 from .conversations import QUIET_S as NEW_CONVERSATION_AFTER_S, Conversations, seconds_since
 from .library import ALIASES, DB_PATH, NAMES, Library, artist_key, enrich, format_row, title_parts
 from .lines import line
@@ -42,7 +43,7 @@ MATCH_SCORE = 2.0  # a library match on a whole word (two characters or more), n
 VOLUME_STEP = 10  # percent, for "louder" and "softer"
 LIST_MOST, OVERVIEW_MOST, MOST_PLAYED = 40, 15, 20  # library_info: pieces in one answer, artists in its overview, most played
 ACTIONS = {"play_recording", "control_playback", "play_playlist", "set_volume"}  # tools that do something she then confirms
-WAITS = {"search_youtube": "searching", "transcribe_url": "preparing", "transcribe_local": "preparing"}  # long steps
+WAITS = {"search_online": "searching", "transcribe_url": "preparing", "transcribe_local": "preparing"}  # long steps
 ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "First call search_library with the "
                               "piece's other names (another language or spelling, the composer's other name); search "
                               "online only if it is not there."})
@@ -75,7 +76,7 @@ When the user wants to hear something:
 2. If it is not there either, write one short, friendly sentence that says you will find it AND explicitly asks the
    listener to wait (for example "I'll find a lovely piano performance for you; please give me a moment.").
    Vary the wording without predicting a duration or promising it will be ready immediately. Include the sentence
-   with your search_youtube call. Search with the composer or singer, piece, catalog number, pianist if named, and "piano".
+   with your search_online call. Search with the composer or singer, piece, catalog number, pianist if named, and "piano".
    Choose the best candidate yourself:
    - prefer recordings where the piano carries the music: solo piano first, piano with voice second, never a band
      mix or a remix; a real human performance by a named pianist, a good recording, and a duration that fits;
@@ -138,10 +139,10 @@ NAME_PROPERTIES = {name: {"type": "string", "description": meaning}
 TOOLS = [
     {"name": "search_library",
      "description": "Search the local MIDI library by piece, artist, performer, alias or tag (any language); "
-                    "the best match first. Always before search_youtube, with the piece's other names.",
+                    "the best match first. Always before search_online, with the piece's other names.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
-    {"name": "search_youtube",
-     "description": "Search YouTube videos. Returns url, title, channel, duration_s, views, description, "
+    {"name": "search_online",
+     "description": "Search videos online (YouTube). Returns url, title, channel, duration_s, views, description, "
                     "warning flags, and in_library when that video was already transcribed.",
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string"},
@@ -235,7 +236,8 @@ def startup(name: str, **jobs: str) -> str:
 
 
 def search_label() -> str:
-    return "YouTube" if youtube.api_key() else "off (set YOUTUBE_API_KEY)"
+    """Online search, which comes with the advanced extra (yt-dlp), needing no key (SPEC 9.4)."""
+    return "online (yt-dlp)" if importlib.util.find_spec("yt_dlp") else "off (the advanced extra is not installed)"
 
 
 def spoken_title(title: str) -> str:
@@ -350,16 +352,16 @@ class Assistant:
         print(f"  · library: {query}", flush=True)
         return {"results": [_brief(r) for r in self.lib.search(query)]}
 
-    def search_youtube(self, query: str, max_results: int = 8) -> dict:
+    def search_online(self, query: str, max_results: int = 8) -> dict:
         print(f"  · searching online: {query}", flush=True)
-        results = youtube.search(query, max_results)
+        results = online.search(query, max_results)
         print(f"    {len(results)} found", flush=True)
         for r in results:
             known = self.lib.by_source(r["url"])
             r["in_library"] = known["id"] if known and known["file_exists"] else None
-        keys = ("url", "channel", "duration_s", "views", "published", "description", "in_library")
+        keys = ("url", "channel", "duration_s", "views", "description", "in_library")
         return {"results": [{"title": r["video_title"], **{k: r[k] for k in keys},
-                             "flags": youtube.describe(r["flags"])} for r in results]}
+                             "flags": online.describe(r["flags"])} for r in results]}
 
     def transcribe_url(self, url: str, piece: str = "", artist: str = "", performer: str = "", aliases: str = "",
                        tags: str = "") -> dict:
@@ -654,7 +656,7 @@ class Assistant:
             args = {k: v for k, v in args.items() if k in allowed}
         try:
             result = fn(**args) if fn else {"error": f"unknown tool {name}"}
-        except youtube.YouTubeError as exc:
+        except online.OnlineError as exc:
             result = {"error": str(exc)}
         except TypeError as exc:
             result = {"error": f"bad arguments: {exc}"}
@@ -667,7 +669,7 @@ class Assistant:
             offered = result.get("results", []) if name == "search_library" else [result]
             self.selectable_ids.update(rec["id"] for rec in offered
                                        if isinstance(rec.get("id"), int) and rec.get("file_exists"))
-        elif name == "search_youtube":  # a video already made into a piece is in the library: it may be played
+        elif name == "search_online":  # a video already made into a piece is in the library: it may be played
             self.selectable_ids.update(r["in_library"] for r in result.get("results", []) if r.get("in_library"))
         text = json.dumps(result, ensure_ascii=False)
         log.debug("%s %s, %.1f s → %s", name, json.dumps(args, ensure_ascii=False)[:300], time.monotonic() - started,
@@ -726,7 +728,7 @@ class Assistant:
         library_searched = False
 
         def refused(call) -> bool:
-            return call.name == "search_youtube" and not library_searched
+            return call.name == "search_online" and not library_searched
 
         def model_reply(fn, *args):
             started = time.monotonic()
@@ -765,7 +767,7 @@ class Assistant:
                 results = []
                 for call in reply.tool_calls:
                     if refused(call):
-                        log.debug("search_youtube: refused, the library not searched yet")
+                        log.debug("search_online: refused, the library not searched yet")
                         results.append((call, ONLINE_TOO_SOON))
                         continue
                     if not progress_spoken and call.name in WAITS:  # a long step is not started silently

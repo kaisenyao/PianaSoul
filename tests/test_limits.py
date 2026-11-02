@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import wave
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
-from pianasoul import audio, download, library, youtube
+from pianasoul import audio, download, library, online
 
 
 class LimitTests(unittest.TestCase):
@@ -47,12 +47,10 @@ class LimitTests(unittest.TestCase):
         ydl.process_ie_result.assert_not_called()
 
     def test_search_never_offers_a_video_over_the_limit(self):
-        pages = [{'items': [{'id': {'videoId': 'short'}}, {'id': {'videoId': 'long'}}]},
-                 {'items': [{'id': 'short', 'snippet': {'title': 'Nocturne'}, 'contentDetails': {'duration': 'PT5M'}},
-                            {'id': 'long', 'snippet': {'title': 'All Nocturnes'},
-                             'contentDetails': {'duration': 'PT2H'}}]}]
-        with patch.object(youtube, '_get', side_effect=pages):
-            self.assertEqual([r['video_title'] for r in youtube.search('nocturne', key='test')], ['Nocturne'])
+        found = {'entries': [{'id': 'aaaaaaaaaaa', 'title': 'Nocturne', 'duration': 300},
+                             {'id': 'bbbbbbbbbbb', 'title': 'All Nocturnes', 'duration': 7200}]}
+        with patch.object(online, '_extract', return_value=found):
+            self.assertEqual([r['video_title'] for r in online.search('nocturne')], ['Nocturne'])
 
 
 if __name__ == '__main__':

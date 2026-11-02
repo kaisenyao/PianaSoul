@@ -96,7 +96,6 @@ function applySettings() {
   for (const el of document.querySelectorAll('[data-t-placeholder]')) el.placeholder = T[el.dataset.tPlaceholder];
   for (const el of document.querySelectorAll('[data-t-label]')) el.setAttribute('aria-label', T[el.dataset.tLabel]);
   $('#search-input').placeholder = herOn() ? T.searchAll : T.searchPieces;
-  $('#add-input').placeholder = data.features.search ? T.addHint : T.linkHint;
   voice?.render();
   renderRecent();  // the sidebar's chats are drawn as they change, and their days are words: drawn again here
   refresh();
@@ -1783,23 +1782,20 @@ dragToReorder($('#queue-list'), () => pb().ids, (id, at, ids) => {
 // Search YouTube for piano versions (or paste a link), watch one on YouTube, download it (the same queue she uses by
 // voice), then play it: download, the ring while it is made, play.
 let cands = [], query = '', searching = false, searchRun = 0;  // searchRun: the latest search, whose results show
-let searchOff = false;  // a name asked for with online search off: it says so
 // No search shown: one still on its way is let go of, and shows nothing when it comes back.
 function forgetSearch() {
   searchRun++;
   searching = false;
-  searchOff = false;
   query = '';
 }
 async function findCands(q) {
-  searchOff = false;
   query = q;
   cands = [];
   const run = ++searchRun;
   searching = true;  // first: it shows the spinner, not "nothing found"
   renderCands();
   try {
-    const found = await api('/api/youtube?q=' + encodeURIComponent(q));
+    const found = await api('/api/online?q=' + encodeURIComponent(q));
     if (run === searchRun) cands = found;
   } catch {}
   if (run === searchRun) { searching = false; renderCands(); }
@@ -1807,7 +1803,6 @@ async function findCands(q) {
 const jobFor = c => data.jobs.find(j => j.source === c.url);
 function renderCands() {
   const body = $('#add-body');
-  if (searchOff) { body.innerHTML = `<div class="empty">${esc(T.searchOff)}</div>`; return; }
   if (!query) { body.innerHTML = ''; return; }
   if (searching) { body.innerHTML = `<div class="loading">${SPINNER}</div>`; return; }
   if (!cands.length) { body.innerHTML = `<div class="empty">${esc(T.nothing)}</div>`; return; }
@@ -1859,13 +1854,10 @@ $('#add-input').addEventListener('keydown', e => {
   e.target.blur();
   searchOnline(q);
 });
-// Searching online: by name with the Mac's YouTube key, a video link always; without the key, why not.
+// Searching online, by name or by a video's link (the sheet is there with transcription only).
 function searchOnline(q) {
   $('#add-scroll').scrollTop = 0;
-  if (data.features.search || /^https?:/i.test(q)) return findCands(q);
-  forgetSearch();
-  searchOff = true;
-  renderCands();
+  findCands(q);
 }
 $('#lib-add').innerHTML = ICON_ADD;
 $('#lib-add').addEventListener('click', addPieces);

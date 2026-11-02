@@ -218,12 +218,12 @@ class ConversationTests(unittest.TestCase):
 
     def test_the_start_up_lines_name_what_does_each_job(self):
         parts = SimpleNamespace(stt=SimpleNamespace(label='OpenAI x'), speaker=SimpleNamespace(label='ElevenLabs y'))
-        with patch.dict('os.environ', {'YOUTUBE_API_KEY': 'key'}):
-            self.assertEqual(voice.VoiceParts.describe(parts, 'OpenAI m').splitlines(), [
-                'PianaSoul voice', '  chat     OpenAI m', '  hearing  OpenAI x', '  voice    ElevenLabs y',
-                '  search   YouTube'])
-        with patch.dict('os.environ', {'YOUTUBE_API_KEY': ''}):
-            self.assertIn('  search   off (set YOUTUBE_API_KEY)', voice.VoiceParts.describe(parts, 'OpenAI m'))
+        self.assertEqual(voice.VoiceParts.describe(parts, 'OpenAI m').splitlines(), [  # yt-dlp is installed here
+            'PianaSoul voice', '  chat     OpenAI m', '  hearing  OpenAI x', '  voice    ElevenLabs y',
+            '  search   online (yt-dlp)'])
+        with patch('importlib.util.find_spec', return_value=None):  # without the advanced extra: no key to set
+            self.assertIn('  search   off (the advanced extra is not installed)',
+                          voice.VoiceParts.describe(parts, 'OpenAI m'))
 
     def test_her_chinese_name_is_written_as_configured_whatever_recognition_hears(self):
         stt = voice.Transcriber.__new__(voice.Transcriber)

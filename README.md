@@ -72,13 +72,15 @@ OpenAI API key. Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app a
 
 ### 1. Install
 
-You need Python 3.10 or later, or [uv](https://docs.astral.sh/uv/), and [Deno](https://deno.com) for downloading
-from YouTube. If you installed uv or Deno with their install scripts, put them on your PATH:
+You need Python 3.10 or later, or [uv](https://docs.astral.sh/uv/). If you installed uv with its install script,
+put it on your PATH:
 
 ```bash
-echo 'export PATH="$HOME/.local/bin:$HOME/.deno/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
+
+Setup also installs [Deno](https://deno.com), which YouTube's pages need, with the rest.
 
 Then, in the project folder:
 
@@ -99,18 +101,14 @@ Keys go in `~/.zshrc`, never in the repository.
 
 - `OPENAI_API_KEY`, for understanding requests and speech: [platform.openai.com](https://platform.openai.com) >
   API keys.
-- `YOUTUBE_API_KEY` (optional), for finding pieces on YouTube: in the
-  [Google Cloud console](https://console.cloud.google.com), enable "YouTube Data API v3", then Credentials >
-  Create API key.
 
 ```bash
 echo 'export OPENAI_API_KEY="..."' >> ~/.zshrc
-echo 'export YOUTUBE_API_KEY="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Without a YouTube key she still plays your library and the links you give her. Without an OpenAI key the app still
-runs: your library, the player and uploads work, and she is off until a key is set.
+Finding pieces online needs no key. Without an OpenAI key the app still runs: your library, the player, uploads and
+online search work, and she is off until a key is set.
 
 ### 3. Connect the piano
 
@@ -255,7 +253,6 @@ The app, voice and chat are one assistant, with one library and one set of conve
 Set these in `~/.zshrc`.
 
 - `OPENAI_API_KEY`: the chat model and speech recognition.
-- `YOUTUBE_API_KEY`: finding pieces on YouTube.
 - `ELEVENLABS_API_KEY` and `PIANASOUL_VOICE_ID`: her voice.
 - `PIANASOUL_LANGUAGES`: the languages you speak, such as `zh,en`.
 - `PIANASOUL_PORT`: the MIDI output, by part of its name, until one is chosen in the Mac app. Default `pianasoul`.

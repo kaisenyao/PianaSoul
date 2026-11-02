@@ -91,10 +91,10 @@ def main():
             player, pending = fixture.player, fixture.a.pending
             if expected.startswith('library:'):
                 okay = player.state == 'playing' and player._from == 0 and player.current[1] == expected[8:] \
-                    and not any(name == 'search_youtube' for name, _ in trace)
+                    and not any(name == 'search_online' for name, _ in trace)
             elif expected == 'online':
                 names = [name for name, _ in trace]
-                okay = 'search_youtube' in names and 'search_library' in names[:names.index('search_youtube')] \
+                okay = 'search_online' in names and 'search_library' in names[:names.index('search_online')] \
                     and player.current[1] == '贝加尔湖畔'
             elif expected in {'resume', 'pending', 'restart', 'new_song', 'replay'}:
                 offset = 0 if expected in {'restart', 'new_song'} else 22

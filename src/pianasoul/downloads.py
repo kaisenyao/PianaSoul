@@ -50,16 +50,11 @@ def clean_url(url: str) -> str:
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(kept), ""))
 
 
-def _youtube_details(url: str) -> dict:
-    """For a YouTube video, what its page says, from the YouTube API (with the channel's picture); else nothing."""
-    from . import youtube
+def _video_page(url: str) -> dict:
+    """For a YouTube video, what its page says, with the channel's picture (online search); else nothing."""
+    from . import online
 
-    if not youtube.video_id(url) or not youtube.api_key():
-        return {}
-    try:
-        return youtube.details([url]).get(url, {})
-    except youtube.YouTubeError:
-        return {}
+    return online.details([url]).get(url, {}) if online.video_id(url) else {}
 
 
 class Stopped(Exception):
@@ -233,7 +228,7 @@ class Downloads:
 
     def _file(self, job: Job, audio: Path, details: dict) -> dict:
         """Everything slow but the transcription comes first: after it, only filing the piece is left."""
-        details = {**details, **_youtube_details(job.source)}
+        details = {**details, **_video_page(job.source)}
         self._check(job)
         if not job.piece:
             started = time.monotonic()

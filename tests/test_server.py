@@ -89,10 +89,8 @@ class AppTests(unittest.TestCase):
         self.assertEqual({r['piece'] for r in state['recordings']}, {'晴天', '搁浅'})
         for key in ('jobs', 'playback', 'conversations', 'current', 'busy', 'settings', 'devices', 'version', 'features'):
             self.assertIn(key, state)
-        self.assertEqual(set(state['features']), {'transcribe', 'search', 'assistant'})
+        self.assertEqual(set(state['features']), {'transcribe', 'assistant'}, 'Online search comes with transcription')
         self.assertTrue(state['features']['assistant'])
-        with patch('pianasoul.youtube.api_key', return_value=None):
-            self.assertFalse(self.client.get('/api/state').json()['features']['search'], 'No key, no search by name')
 
     def test_tapping_a_piece_plays_it_in_its_list_and_the_player_works(self):
         a, b = self.ids
@@ -183,38 +181,42 @@ class AppTests(unittest.TestCase):
         self.assertEqual(notes, [[0.0, 1.0, 60, 64]])
 
     def test_a_search_offers_only_the_piano_versions_she_would_choose(self):
-        from pianasoul import youtube
+        from pianasoul import online
         videos = [('aaaaaaaaaaa', '江南 钢琴版', 'Kassia'), ('bbbbbbbbbbb', '林俊杰 江南 官方 MV', 'Taihe Music'),
                   ('ccccccccccc', '江南 Piano Tutorial', 'Lessons'), ('ddddddddddd', 'River South', 'Pianella Piano')]
         asked = []
 
-        def get(endpoint, params, key):
-            asked.append(params.get('q'))
-            if endpoint == 'search':
-                return {'items': [{'id': {'videoId': v}} for v, _, _ in videos]}
-            return {'items': [{'id': v, 'snippet': {'title': t, 'channelTitle': c},
-                               'contentDetails': {'duration': 'PT4M'}} for v, t, c in videos]}
-        with patch.object(youtube, 'api_key', return_value='test'), patch.object(youtube, '_get', side_effect=get):
-            found = signed_in(self.client).get('/api/youtube', params={'q': '江南'}).json()
-        self.assertEqual(asked[0], '江南 piano')
+        def extract(url, **options):  # yt-dlp's list of what YouTube found, in its order
+            asked.append(url)
+            return {'entries': [{'id': v, 'title': t, 'channel': c, 'duration': 240} for v, t, c in videos]}
+        with patch.object(online, '_extract', side_effect=extract):
+            found = signed_in(self.client).get('/api/online', params={'q': '江南'}).json()
+        self.assertEqual(asked[0], 'ytsearch15:江南 piano')
         self.assertEqual([r['video_title'] for r in found], ['江南 钢琴版', 'River South'])
         self.assertNotIn('flags', found[0])
         videos[:] = [('eeeeeeeeeee', 'Adele - Easy On Me (Piano Cover)', 'Pianella Piano'),
                      ('fffffffffff', 'Easy On Me - Easy Piano Tutorial', 'Lessons')]
-        with patch.object(youtube, 'api_key', return_value='test'), patch.object(youtube, '_get', side_effect=get):
-            found = signed_in(self.client).get('/api/youtube', params={'q': 'Easy On Me'}).json()
+        with patch.object(online, '_extract', side_effect=extract):
+            found = signed_in(self.client).get('/api/online', params={'q': 'Easy On Me'}).json()
         self.assertEqual([r['video_title'] for r in found], ['Adele - Easy On Me (Piano Cover)'],
                          'A warning word in the song\'s own name is not a warning')
 
     def test_a_pasted_link_is_that_one_video_with_its_length_and_channel(self):
-        from pianasoul import youtube
-        pages = [{'items': [{'id': 'abcdefghijk', 'contentDetails': {'duration': 'PT4M2S'},
-                             'snippet': {'title': '晴天 钢琴版', 'channelTitle': 'MappleZS', 'channelId': 'c'}}]},
-                 {'items': [{'id': 'c', 'snippet': {'thumbnails': {'default': {'url': 'https://yt3/c.jpg'}}}}]}]
-        with patch.object(youtube, 'api_key', return_value='test'), patch.object(youtube, '_get', side_effect=pages):
-            found = signed_in(self.client).get('/api/youtube', params={'q': 'https://youtu.be/abcdefghijk?si=x'}).json()
-        self.assertEqual([(r['url'], r['duration_s'], r['channel_avatar']) for r in found],
-                         [('https://www.youtube.com/watch?v=abcdefghijk', 242, 'https://yt3/c.jpg')])
+        from pianasoul import online
+        channel = 'https://www.youtube.com/channel/c'
+
+        def extract(url, **options):  # the video's page, then its channel's: a banner, and the square picture
+            if url == channel:
+                return {'thumbnails': [{'url': 'https://yt3/banner.jpg', 'width': 1060, 'height': 175},
+                                       {'url': 'https://yt3/c.jpg', 'width': 900, 'height': 900}]}
+            return {'title': '晴天 钢琴版', 'channel': 'MappleZS', 'channel_url': channel, 'duration': 242,
+                    'upload_date': '20240102', 'thumbnails': [{'url': 'https://i.ytimg.com/s.jpg', 'width': 120},
+                                                              {'url': 'https://i.ytimg.com/l.jpg', 'width': 1280}]}
+        with patch.object(online, '_extract', side_effect=extract):
+            found = signed_in(self.client).get('/api/online', params={'q': 'https://youtu.be/abcdefghijk?si=x'}).json()
+        self.assertEqual([(r['url'], r['duration_s'], r['channel_avatar'], r['thumbnail'], r['published']) for r in found],
+                         [('https://www.youtube.com/watch?v=abcdefghijk', 242, 'https://yt3/c.jpg',
+                           'https://i.ytimg.com/l.jpg', '2024-01-02')])
 
     def test_events_tell_the_page_what_changed(self):
         signed_in(self.client)
@@ -440,7 +442,7 @@ class WithoutHerTests(unittest.TestCase):
     def test_what_needs_transcription_says_it_is_off(self):
         with patch('pianasoul.core.installed', return_value=False):
             self.assertFalse(self.client.get('/api/state').json()['features']['transcribe'])
-            for method, path, body in (('get', '/api/youtube?q=x', None),
+            for method, path, body in (('get', '/api/online?q=x', None),
                                        ('post', '/api/downloads', {'url': 'https://youtu.be/abcdefghijk'})):
                 answer = getattr(self.client, method)(path, **({'json': body} if body else {}))
                 self.assertEqual((answer.status_code, answer.json()), (409, {'error': 'transcribe_off'}), path)
@@ -556,7 +558,7 @@ server.core = Core(assistant=False)
 client = TestClient(server.app, headers={'origin': 'http://testserver'})
 client.cookies.set(server.COOKIE, server.TOKEN)
 state = client.get('/api/state').json()
-assert state['features'] == {'transcribe': False, 'search': False, 'assistant': False}, state['features']
+assert state['features'] == {'transcribe': False, 'assistant': False}, state['features']
 assert client.post('/api/messages', json={'text': 'x'}).status_code == 409
 server.core.close()
 print('ok')

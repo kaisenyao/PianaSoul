@@ -22,7 +22,8 @@ dependencies = [
 
 [project.optional-dependencies]
 # Transcription, finding pieces online, and her: the large downloads, and the services that need keys.
-advanced = ["transkun==2.0.1", "torch", "imageio-ffmpeg", "yt-dlp[default]", "openai", "anthropic", "sherpa-onnx",
+# yt-dlp's own deno extra: the JavaScript runtime YouTube's pages need, installed beside Python, where yt-dlp looks.
+advanced = ["transkun==2.0.1", "torch", "imageio-ffmpeg", "yt-dlp[default,deno]", "openai", "anthropic", "sherpa-onnx",
             "pypinyin"]
 # Her, on the Mac's own microphone (./run.sh voice).
 voice = ["pianasoul[advanced]", "sounddevice"]

@@ -17,7 +17,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from . import play, youtube
+from . import online, play
 from .chat import INSTRUCTIONS, TOOLS, Assistant, Worker
 from .conversations import Conversations
 from .downloads import Downloads
@@ -103,20 +103,17 @@ class Core:
             self.library_changed()
 
     def _fill_in_videos(self) -> None:
-        """Pieces downloaded before the library kept their videos' details get them from YouTube, with the
-        request a search makes (one for up to 50 videos)."""
-        missing = [r for r in self.lib.all() if not r["video_title"] and youtube.video_id(r["source_url"])]
-        if not missing or not youtube.api_key():
+        """Pieces downloaded before the library kept their videos' details get them, in the background, one at a
+        time (a second or two each, as online search reads a video's page); with the advanced extra only."""
+        if not installed("yt_dlp"):
             return
-        try:
-            found = youtube.details([r["source_url"] for r in missing])
-        except youtube.YouTubeError as exc:
-            print(f"  (video details unavailable: {exc})", flush=True)
-            return
-        for r in missing:
-            if r["source_url"] in found:
-                self.lib.set_video(r["id"], found[r["source_url"]])
-        self.library_changed()
+        for r in [r for r in self.lib.all() if not r["video_title"] and online.video_id(r["source_url"])]:
+            if self._closed:
+                return
+            found = online.details([r["source_url"]]).get(r["source_url"])
+            if found:
+                self.lib.set_video(r["id"], found)
+                self.library_changed()
 
     # ---- the piano -----------------------------------------------------------------------------------
     def _piano_now(self) -> dict:
@@ -199,11 +196,9 @@ class Core:
 
     # ---- what the app shows -----------------------------------------------------------------------
     def features(self) -> dict:
-        """What this Mac can do beyond the library and the piano: transcribe (the advanced extra is installed), search
-        for pieces by name (and a YouTube key is set), and her."""
-        transcribe = installed("transkun", "yt_dlp")
-        return {"transcribe": transcribe, "search": transcribe and bool(youtube.api_key()),
-                "assistant": self.assistant is not None}
+        """What this Mac can do beyond the library and the piano: transcribe, which brings online search by name or
+        link (the advanced extra is installed: SPEC 9.4), and her."""
+        return {"transcribe": installed("transkun", "yt_dlp"), "assistant": self.assistant is not None}
 
     def recordings(self) -> list[dict]:
         return [recording(r) for r in self.lib.all() if r["file_exists"]]

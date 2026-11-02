@@ -482,7 +482,7 @@ class DownloadTests(Base):
                    'thumbnail': 'https://i.ytimg.com/x.jpg'}
         with patch('pianasoul.download.download_audio', return_value=(audio, details)), \
              patch('pianasoul.pipeline.convert_file', side_effect=convert), \
-             patch('pianasoul.downloads._youtube_details', return_value={'channel_avatar': 'https://yt3/a.jpg'}):
+             patch('pianasoul.downloads._video_page', return_value={'channel_avatar': 'https://yt3/a.jpg'}):
             d = self.downloads(name_piece=lambda query, video, artists: {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS',
                                                                 'aliases': 'Rice Field'})
             rec = d.run('https://youtu.be/abcdefghijk', query='稻香')
@@ -519,7 +519,7 @@ class DownloadTests(Base):
         convert = lambda engine, audio, out, options, output_name: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
         with patch('pianasoul.download.download_audio', return_value=(audio, {'video_title': '小幸運 鋼琴版'})), \
              patch('pianasoul.pipeline.convert_file', side_effect=convert), \
-             patch('pianasoul.downloads._youtube_details', return_value={}):
+             patch('pianasoul.downloads._video_page', return_value={}):
             d = self.downloads(name_piece=lambda query, video, artists: {'piece': '小幸运', 'artist': 'JerryC', 'performer': 'Melody'})
             rec = d.run('https://youtu.be/abcdefghijk', artist='田馥甄', query='我想听小幸运')
         self.assertEqual((rec['title'], rec['composer'], rec['performer']), ('田馥甄 - 小幸运 (Melody)', '田馥甄', 'Melody'))
@@ -534,7 +534,7 @@ class DownloadTests(Base):
             return {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS'}
         with patch('pianasoul.download.download_audio', return_value=(audio, {})), \
              patch('pianasoul.pipeline.convert_file') as convert, \
-             patch('pianasoul.downloads._youtube_details', return_value={}):
+             patch('pianasoul.downloads._video_page', return_value={}):
             d = self.downloads(name_piece=name_piece)
             jobs.append(d.add('https://youtu.be/abcdefghijk', query='稻香'))
             jobs[0].finished.wait(2)

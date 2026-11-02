@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 import mido
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
-from pianasoul import youtube
+from pianasoul import online
 from pianasoul.chat import MAX_TOOL_ROUNDS, NEW_CONVERSATION_AFTER_S, Assistant, TOOLS
 from pianasoul.library import Library
 from pianasoul.lines import LINES, line, recorded
@@ -164,11 +164,11 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(chat.resets, 1)
 
     def test_tool_failures_are_shown_in_the_terminal(self):
-        with patch('pianasoul.youtube.search', side_effect=youtube.YouTubeError('YouTube API error 403: quota')), \
+        with patch('pianasoul.online.search', side_effect=online.OnlineError('Unable to download API page: timed out')), \
                 contextlib.redirect_stdout(io.StringIO()) as out:
-            result = json.loads(self.a.run_tool('search_youtube', {'query': '月光'}))
-        self.assertIn('quota', result['error'])
-        self.assertIn('search_youtube failed: YouTube API error 403: quota', out.getvalue())
+            result = json.loads(self.a.run_tool('search_online', {'query': '月光'}))
+        self.assertIn('timed out', result['error'])
+        self.assertIn('search_online failed: Unable to download API page: timed out', out.getvalue())
 
     def test_selected_new_song_requires_actual_search_result(self):
         chat = ScriptedChat([call('search_library', query='月光')],
@@ -188,20 +188,20 @@ class PlaybackTests(unittest.TestCase):
 
     def test_she_searches_the_library_under_other_names_before_looking_online(self):
         line = '我去网上找找，稍等我一下～'
-        chat = ScriptedChat((line, [call('search_youtube', query='Chopin Nocturne piano')]),
+        chat = ScriptedChat((line, [call('search_online', query='Chopin Nocturne piano')]),
                             [call('search_library', query='Chopin Nocturne')],
-                            (line, [call('search_youtube', query='Chopin Nocturne piano')]), '没找到呢。')
-        with patch.object(self.a, 'search_youtube', return_value={'results': []}) as online:
+                            (line, [call('search_online', query='Chopin Nocturne piano')]), '没找到呢。')
+        with patch.object(self.a, 'search_online', return_value={'results': []}) as searched:
             self.ask(chat, '弹一下夜曲')
         self.assertEqual(chat.results[0]['error'], 'library_not_searched', 'Not online before the library')
         self.assertIn('other names', chat.results[0]['instruction'])
-        online.assert_called_once()  # once the library was searched
+        searched.assert_called_once()  # once the library was searched
         self.assertEqual(self.spoken, [line], 'Her word for looking online, only when she does')
 
     def test_a_line_about_what_she_will_do_is_said_while_she_does_it(self):
         said = []
         chat = ScriptedChat([call('search_library', query='Red Bean')],
-                            ('我去找找看，稍等我一下～', [call('search_youtube', query='红豆 piano')]), '没找到呢。')
+                            ('我去找找看，稍等我一下～', [call('search_online', query='红豆 piano')]), '没找到呢。')
         def run_tool(name, arguments):
             return '{}'
         with patch.object(self.a, 'run_tool', side_effect=run_tool):
@@ -510,7 +510,7 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(self.spoken, [])
 
     def test_a_long_step_she_starts_on_is_said_once_as_what_it_is(self):
-        for first_tool, said in (('search_youtube', 'searching'), ('transcribe_url', 'preparing'),
+        for first_tool, said in (('search_online', 'searching'), ('transcribe_url', 'preparing'),
                                  ('transcribe_local', 'preparing')):
             with self.subTest(first_tool=first_tool):
                 self.spoken.clear()
@@ -534,7 +534,7 @@ class PlaybackTests(unittest.TestCase):
                 chat = Mock()
                 chat.send_user.return_value = SimpleNamespace(text='', tool_calls=[call('search_library')])
                 chat.send_tool_results.side_effect = [
-                    SimpleNamespace(text=line, tool_calls=[call('search_youtube')]),
+                    SimpleNamespace(text=line, tool_calls=[call('search_online')]),
                     SimpleNamespace(text='', tool_calls=[call('transcribe_url')]),
                     SimpleNamespace(text='Done.', tool_calls=[])]
                 output = io.StringIO()

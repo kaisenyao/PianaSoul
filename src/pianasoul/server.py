@@ -47,7 +47,7 @@ TYPED_NOTE = """
 Requests typed in the app (typed is true in the application state) are answered on screen, not aloud; keep them
 just as short."""
 NEEDS = {'/api/messages': 'assistant', '/api/conversations': 'assistant', '/api/search': 'assistant',
-         '/api/dictation': 'assistant', '/api/youtube': 'transcribe', '/api/downloads': 'transcribe'}
+         '/api/dictation': 'assistant', '/api/online': 'transcribe', '/api/downloads': 'transcribe'}
 UPLOAD_LIMITS = {'midi': 10 << 20, 'audio': 500 << 20}  # bytes
 TOKEN = secrets.token_urlsafe(32)  # main() uses the saved one
 app = FastAPI(title='PianaSoul', docs_url=None, redoc_url=None, openapi_url=None)
@@ -725,21 +725,21 @@ def settings(change: dict = Body()):
     return core.set_settings(**{k: str(v) for k, v in change.items()})
 
 
-@app.get('/api/youtube')
-def youtube_search(q: str):
-    """Videos to add: piano versions found by a search, or the one video a link points to."""
-    from . import youtube
+@app.get('/api/online')
+def online_search(q: str):
+    """Videos to add: piano versions found by searching online, or the one video a link points to."""
+    from . import online
     from .download import video_details, video_info
     from .downloads import clean_url
     q = q.strip()
     try:
         if q.startswith(('http://', 'https://')):
             url = clean_url(q)
-            found = youtube.details([url]).get(url) if youtube.video_id(url) and youtube.api_key() else None
+            found = online.details([url]).get(url) if online.video_id(url) else None
             results = [{'url': url, **(found or video_details(video_info(url)))}]
         else:
-            results = youtube.piano_versions(q)
-    except youtube.YouTubeError as exc:
+            results = online.piano_versions(q)
+    except online.OnlineError as exc:
         return JSONResponse({'error': str(exc)}, status_code=502)
     except Exception as exc:  # a link yt-dlp cannot read
         return JSONResponse({'error': f'{type(exc).__name__}: {exc}'}, status_code=502)
@@ -1024,8 +1024,8 @@ def main(argv=None):
     version = running()
     features = core.features()
     print('Features: ' + '; '.join([
-        f'transcription {"on" if features["transcribe"] else "off (the advanced extra is not installed)"}',
-        f'search by name {"on" if features["search"] else "off (needs transcription and YOUTUBE_API_KEY)"}',
+        f'transcription and online search '
+        f'{"on" if features["transcribe"] else "off (the advanced extra is not installed)"}',
         f'her {"on" if her else f"off ({why})"}']), flush=True)
     tls = DATA_DIR / 'phone-tls'
     try:
