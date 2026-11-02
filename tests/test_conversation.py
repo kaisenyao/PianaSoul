@@ -153,14 +153,20 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.c.state, 'waiting')
         self.parts.stt.assert_not_called()
 
-    def test_turned_on_while_the_piano_plays_she_waits_for_her_name(self):
+    def test_turned_on_while_the_piano_plays_the_piece_pauses_as_for_her_name(self):
         player = self.assistant.player = Mock(state='playing', completed=None, lost=None)
+        player.pause.side_effect = lambda: setattr(player, 'state', 'paused')
+        self.assistant.touched_playback = True  # from an earlier request
         self.c.hushed.clear()
         self.c.turn_on()
+        player.pause.assert_called_once()
+        self.assertEqual(self.c.state, 'conversation', 'No name needed')
+        self.assertAlmostEqual(self.c.dialogue_until - time.monotonic(), voice.START_TIMEOUT_S, delta=.5)
+        self.c.dialogue_until = time.monotonic() - 1  # not spoken to
+        self.frames(1)
         self.assertEqual(self.c.state, 'waiting')
-        self.frames(30, speaking=True)  # the piano, taken for speech
-        self.assertEqual(self.c.state, 'waiting')
-        player.pause.assert_not_called()
+        player.go_on.assert_called_once()  # the piece plays on
+        self.parts.stt.assert_not_called()
 
     def test_goodbye_is_answered_as_any_request_then_she_waits_for_her_name(self):
         self.c.frames = [np.ones(voice.FRAME, dtype=np.int16)]

@@ -94,7 +94,7 @@ SAME_BREATH_FRAMES = 2
 START_TIMEOUT_S = 6.0  # after her greeting, wait this long for the request to begin
 END_SILENCE_S = 0.7  # this much silence (after the detector's own 0.3 s) ends the request
 MAX_REQUEST_S = 15.0
-FOLLOW_UP_S = 8.0  # after her reply you may go on without her name, unless the piano is playing
+FOLLOW_UP_S = 6.0  # after her reply you may go on without her name, unless the piano is playing
 
 # For Chinese speakers (PIANASOUL_LANGUAGES contains zh): a simplified-Chinese example sentence with an English
 # title, so the transcript uses simplified characters and keeps English song names in English.
@@ -636,22 +636,18 @@ class Conversation:
 
     def turn_on(self) -> None:
         """Tapped on: clear hushed (from any thread), then call this on the conversation's thread. As if her name had
-        been said, she listens for a request without it, for as long as after her greeting; after it, as after any
-        reply, her name again once the conversation pauses. Not while the piano plays (its sound would be taken for
-        speech): then she waits for her name, as she does on coming back to the orb (unhush)."""
+        been said, the piece playing pauses and she listens for a request without her name, for as long as after
+        her greeting; not spoken to, the piece plays on. After it, as after any reply, her name again once the
+        conversation pauses. Coming back to the orb (unhush) is not turning her on."""
         if self.hushed.is_set():
             return
         if self.state == "speaking":
             log.debug("on while her reply is out: the phone says when it has been heard")
             return
         self.news_is_old()
-        player = self.assistant.player
-        if player is not None and player.state == "playing":
-            log.debug("on while the piano plays: she listens for her name")
-            self.sleep()
-            return
-        log.debug("on: she listens for a request without her name")
-        self.finish_playback()
+        self.hold_piece()
+        log.debug("on: she listens for a request without her name%s", " (the piece pauses meanwhile)"
+                  if self.was_playing else "")
         self.follow_up_s = START_TIMEOUT_S
         self.resume()
 
@@ -714,16 +710,20 @@ class Conversation:
             self.follow_up_s = FOLLOW_UP_S
             self.end_turn()
 
-    def begin(self) -> None:
-        """Start listening to a request; the piano pauses meanwhile."""
+    def hold_piece(self) -> None:
+        """The piece playing pauses while she listens; it plays on once she has answered (finish_playback)."""
         player = self.assistant.player
         self.was_playing = self.was_playing or (player is not None and player.state == "playing")
         if player is not None:
             player.completed = None  # a new request takes priority over a closing remark
         if self.was_playing:
             player.pause()
-        log.debug("listening to a request%s", " (the piece pauses meanwhile)" if self.was_playing else "")
         self.assistant.touched_playback = False
+
+    def begin(self) -> None:
+        """Start listening to a request; the piano pauses meanwhile."""
+        self.hold_piece()
+        log.debug("listening to a request%s", " (the piece pauses meanwhile)" if self.was_playing else "")
         self.woken = None
         self.frames = list(self.recent)
         self.started = False

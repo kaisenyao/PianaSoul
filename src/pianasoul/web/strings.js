@@ -71,7 +71,7 @@ const zh = {
       ['第一句话', '点中间的球，允许麦克风，然后直接说“弹一下晴天”。'],
     ]},
     {id: 'talk', icon: 'mic', title: '和小茗同学说话', items: [
-      ['开始和停止', '点亮球，第一句直接说，不用叫她（琴正在弹时除外：琴声会被当成说话，要先叫她）；之后再说新的事，要先叫“小茗同学”（她刚回答完、琴没在弹时，可以直接接着说）。球亮着时屏幕不会自动熄灭；再点一下变灰，她不听也不说，屏幕照常熄灭，钢琴照常弹。离开球的界面她也安静，回来接着听。'],
+      ['开始和停止', '点亮球，第一句直接说，不用叫她（琴正在弹时，曲子会先暂停，和叫她时一样）；之后再说新的事，要先叫“小茗同学”（她回答完 6 秒内、琴没在弹时，可以直接接着说）。球亮着时屏幕不会自动熄灭；再点一下变灰，她不听也不说，屏幕照常熄灭，钢琴照常弹。离开球的界面她也安静，回来接着听。'],
       ['她的名字', '叫“小茗同学”或者“Jasmine”都可以。'],
       ['能说什么', '弹哪首、暂停、继续、从头弹、大声一点、小声一点、换个版本、这是谁弹的。'],
       ['她弹哪个版本', '你点名了演奏者就弹他的；曲库里有几个版本时，先弹收藏的，再是最近弹过的，再是最新加入的。'],
@@ -237,7 +237,7 @@ const en = {
       ['First words', 'Tap the orb, allow the microphone, and just say “play Clair de Lune”.'],
     ]},
     {id: 'talk', icon: 'mic', title: 'Talking to Jasmine', items: [
-      ['Start and stop', 'Tap the orb and say what you would like: the first time, no name is needed (unless the piano is playing: its sound would be taken for speech, so say her name). After that, say “Hey Jasmine” before a new request (right after her reply, while the piano is not playing, you can just go on). The screen stays on while the orb is in color; tap again and she turns gray: not listening, not speaking, the screen sleeps as usual, and the piano plays on. Away from the orb she keeps quiet too, and listens again when you come back.'],
+      ['Start and stop', 'Tap the orb and say what you would like: the first time, no name is needed (a piece playing pauses, as it does for her name). After that, say “Hey Jasmine” before a new request (within six seconds of her reply, while the piano is not playing, you can just go on). The screen stays on while the orb is in color; tap again and she turns gray: not listening, not speaking, the screen sleeps as usual, and the piano plays on. Away from the orb she keeps quiet too, and listens again when you come back.'],
       ['Her name', 'Say “Hey Jasmine” or “小茗同学”.'],
       ['What to say', 'A piece to play, pause, continue, from the beginning, louder or softer, another version, who is playing this.'],
       ['Which version', 'The pianist you name, if you name one; of several versions in the library, a favorite first, then the one played last, then the newest.'],

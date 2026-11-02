@@ -224,9 +224,9 @@ microphone; choose it in System Settings > Sound.
 The app, voice and chat are one assistant, with one library and one set of conversations. Run one of them at a time.
 
 - **The iPhone app.** Tap the orb and she comes on in color: say what you would like, no name needed the first time
-  (unless the piano is playing: its sound would be taken for speech, so say her name then). After that, say her name
-  before a new request; a follow-up right after her reply needs none, unless the piano is playing. Tap again and she
-  is gray, which is off. Drag right from the orb for the library, your playlists and her conversations, left for the
+  (a piece playing pauses while she listens, as it does for her name). After that, say her name before a new request;
+  a follow-up within six seconds of her reply needs none, unless the piano is playing: its sound would be taken for
+  speech. Tap again and she is gray, which is off. Drag right from the orb for the library, your playlists and her conversations, left for the
   player. Make a playlist from any piece (touch and hold it, then Add to Playlist), and play it from its page or by
   asking her ("play my bedtime playlist"). Settings > How to Use explains the rest.
 
