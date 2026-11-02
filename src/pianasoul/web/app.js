@@ -1984,8 +1984,11 @@ function fitInput() {
   $('#compose-send').hidden = !input.value.trim();
 }
 input.addEventListener('input', fitInput);
+// On a touch screen the keyboard's return writes a new line, as in Messages, and ↑ sends; with a keyboard of your own,
+// return sends (and shift-return writes a new line).
+const touchScreen = matchMedia('(pointer: coarse)');
 input.addEventListener('keydown', e => {
-  if (isEnter(e) && !e.shiftKey) { e.preventDefault(); sendText(); }
+  if (isEnter(e) && !e.shiftKey && !touchScreen.matches) { e.preventDefault(); sendText(); }
 });
 $('#compose-send').addEventListener('click', sendText);
 
@@ -2099,10 +2102,11 @@ function talkIn(id) {
 }
 function enterVoice(id) {
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return talkIn(id);
-  // It lands where the orb at home will be once home shows, in the middle of the screen (the orb at home may be off
-  // to the side now, with the sidebar out).
+  // It lands where the orb at home will be once home shows, in the middle of the screen: the page's, lifted as
+  // centerOrb lifts it (the orb at home may be off to the side now, with the sidebar out).
   const r = $('#pull .porb').getBoundingClientRect(), size = $('#orb').offsetWidth;
-  const home = {left: (app.clientWidth - size) / 2, top: (app.clientHeight - size) / 2, width: size, height: size};
+  const top = (app.clientHeight - size) / 2 - (parseFloat(app.style.getPropertyValue('--lift')) || 0);
+  const home = {left: (app.clientWidth - size) / 2, top, width: size, height: size};
   const dark = $('#to-voice'), fly = $('#fly-orb');
   Object.assign(fly.style, {left: home.left + 'px', top: home.top + 'px', width: home.width + 'px', height: home.height + 'px'});
   dark.hidden = fly.hidden = false;
@@ -2475,7 +2479,7 @@ app.addEventListener('pointermove', e => {
   drag.v = (e.clientX - drag.lx) / Math.max(1, now - drag.t);
   drag.lx = e.clientX; drag.t = now;
   if (drag.player) {
-    drag.dx = Math.min(0, dx);
+    drag.dx = Math.max(-app.offsetWidth, Math.min(0, dx));  // no further than its place
     moveAside(drag.player, app.offsetWidth + drag.dx);
   } else if (drag.page) {
     drag.dx = Math.max(0, dx);
