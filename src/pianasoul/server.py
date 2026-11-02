@@ -130,19 +130,45 @@ def certificate_page(tls: Path, sock: socket.socket) -> None:
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
 
+# How the program ends when another program has one of its ports: the Mac app then waits for the port to be free,
+# saying so, instead of counting a failure (SPEC 8.5). A PianaSoul of another user account that has just stopped
+# still has them for up to half a minute: macOS keeps its closed connections a while, and lets no other user take
+# their port meanwhile.
+PORT_TAKEN = os.EX_TEMPFAIL
+
+
 def listen(port: int) -> socket.socket:
-    """A socket listening on port on every network the Mac is on; SystemExit, saying why, when another program
-    (PianaSoul already running, say) has it."""
+    """A socket listening on port on every network the Mac is on; when another program (PianaSoul already running,
+    say) has it, the program ends with PORT_TAKEN, saying why."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind(('0.0.0.0', port))
     except OSError as exc:
         sock.close()
-        raise SystemExit(f'Port {port} is in use ({exc.strerror}): is PianaSoul already running, in a terminal '
-                         f'(./run.sh app) or as the Mac app? Quit it first.') from None
+        print(f'Port {port} is in use ({exc.strerror}): is PianaSoul already running, in a terminal (./run.sh app) '
+              f'or as the Mac app? Quit it first.', file=sys.stderr, flush=True)
+        raise SystemExit(PORT_TAKEN) from None
     sock.listen(128)
     return sock
+
+
+def websocket_protocol():
+    """uvicorn's own WebSocket protocol (websockets' sans-I/O one), except that stopping lets a connection that is
+    already closing finish: uvicorn 0.54 sends it a second close, which websockets refuses (InvalidState), and the
+    service ends with an error. A page that closes its connection just as the service stops does this: the Mac app's
+    own, most of all, which it closes before it stops the service."""
+    from uvicorn.protocols.websockets.websockets_sansio_impl import WebSocketsSansIOProtocol
+    from websockets.protocol import State
+
+    class Protocol(WebSocketsSansIOProtocol):
+        def shutdown(self) -> None:
+            if self.handshake_complete and not self.close_sent and self.conn.state is not State.OPEN:
+                self.stop_keepalive()  # it closed first and was answered: its end (connection_lost) follows
+                self.transport.close()
+                return
+            super().shutdown()
+    return Protocol
 
 
 def end_with_the_app(stdin=sys.stdin, patience: float = 10) -> None:
@@ -1035,7 +1061,8 @@ def main(argv=None):
     logging.getLogger('uvicorn.error').addFilter(
         lambda record: 'timeout graceful shutdown exceeded' not in record.getMessage())
     config = uvicorn.Config(app, ssl_certfile=str(tls / 'cert.pem'), ssl_keyfile=str(tls / 'key.pem'),
-                            ws_max_size=1 << 20, ws_max_queue=4, timeout_graceful_shutdown=2, log_level='warning')
+                            ws=websocket_protocol(), ws_max_size=1 << 20, ws_max_queue=4, timeout_graceful_shutdown=2,
+                            log_level='warning')
     # SIGTERM (the Mac app quitting) or Control+C: uvicorn stops serving, then hands the signal back. It ends the
     # program as an exit, never at once, so that the piano is closed first: the notes already sent finish.
     for stop in (signal.SIGTERM, signal.SIGINT):

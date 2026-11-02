@@ -755,8 +755,31 @@ class PairingTests(unittest.TestCase):
     def test_a_port_in_use_is_said_plainly(self):
         first = server.listen(0)
         self.addCleanup(first.close)
-        with self.assertRaisesRegex(SystemExit, r'is PianaSoul already running'):
+        said = io.StringIO()
+        with contextlib.redirect_stderr(said), self.assertRaises(SystemExit) as ended:
             server.listen(first.getsockname()[1])
+        self.assertIn('is PianaSoul already running', said.getvalue())
+        self.assertEqual(ended.exception.code, server.PORT_TAKEN, 'The Mac app waits on this one, not a failure')
+
+    def test_stopping_lets_a_connection_that_is_closing_finish(self):
+        from websockets.protocol import State
+        Protocol = server.websocket_protocol()
+
+        def connection(state):
+            ws = Protocol.__new__(Protocol)  # as uvicorn has it while serving: past the handshake, nothing sent to end it
+            ws.handshake_complete, ws.close_sent = True, False
+            ws.conn, ws.transport, ws.queue, ws.stop_keepalive = Mock(state=state), Mock(), Mock(), Mock()
+            ws.conn.data_to_send.return_value = [b'close']
+            return ws
+
+        closing = connection(State.CLOSING)  # the page closed it, and was answered, just as the service stops
+        closing.shutdown()
+        closing.conn.send_close.assert_not_called()  # uvicorn 0.54 would: InvalidState, and the service ends in error
+        closing.transport.close.assert_called_once()
+        still_open = connection(State.OPEN)
+        still_open.shutdown()
+        still_open.conn.send_close.assert_called_once_with(1012)  # as uvicorn does: the service is restarting
+        still_open.transport.close.assert_called_once()
 
 
 if __name__ == '__main__':
