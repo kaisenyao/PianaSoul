@@ -363,6 +363,7 @@ class Speaker:
         self.key = os.environ.get("ELEVENLABS_API_KEY", "")
         self.cloud = bool(self.key and VOICE_ID)
         self.label = f"ElevenLabs {TTS_MODEL}" if self.cloud else "macOS (set ELEVENLABS_API_KEY and PIANASOUL_VOICE_ID)"
+        self.making = threading.Lock()  # one recording made at a time (clip)
 
     def stream(self, text: str) -> Iterator[np.ndarray]:
         """text as pieces of 24 kHz PCM, the first as soon as it arrives."""
@@ -414,19 +415,23 @@ class Speaker:
         return DATA_DIR / "voice" / f"{key}.wav"
 
     def clip(self, text: str, settings: dict = VOICE_SETTINGS) -> np.ndarray:
-        """The voice saying text as 24 kHz audio, made once and then read from the data folder (voice/)."""
+        """The voice saying text as 24 kHz audio, made once and then read from the data folder (voice/). One is made
+        at a time: a line she needs while it is being made in the background (prepare_lines) is waited for and read,
+        not made, and paid for, twice."""
         path = self.clip_path(text, settings)
         if not path.is_file():
-            with urllib.request.urlopen(self._request(text, settings), timeout=30) as resp:
-                pcm = resp.read()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            part = path.with_suffix(".part")
-            with wave.open(str(part), "wb") as w:
-                w.setnchannels(1)
-                w.setsampwidth(2)
-                w.setframerate(24000)
-                w.writeframes(pcm[: len(pcm) // 2 * 2])
-            part.replace(path)
+            with self.making:
+                if not path.is_file():
+                    with urllib.request.urlopen(self._request(text, settings), timeout=30) as resp:
+                        pcm = resp.read()
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    part = path.with_suffix(".part")
+                    with wave.open(str(part), "wb") as w:
+                        w.setnchannels(1)
+                        w.setsampwidth(2)
+                        w.setframerate(24000)
+                        w.writeframes(pcm[: len(pcm) // 2 * 2])
+                    part.replace(path)
         with wave.open(str(path)) as w:
             return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
 
@@ -445,7 +450,8 @@ def mac_voice(text: str) -> np.ndarray:
 
 
 def prepare_lines(speaker: Speaker) -> None:
-    """Her ready-made lines (READY) in her ElevenLabs voice, made once and kept, so that each is said at once."""
+    """Her ready-made lines (READY) in her ElevenLabs voice, made once and kept, so that each is said at once. Run
+    in the background (VoiceParts): a line not made yet is made when she first says it."""
     if not speaker.cloud:
         return
     missing = [(text, how) for text, how in READY.items() if not speaker.clip_path(text, how).is_file()]
@@ -524,7 +530,9 @@ class VoiceParts:
     def __init__(self):
         self.stt, self.wake, self.vad = Transcriber(), WakeWord(), vad_model()
         self.speaker = Speaker()
-        prepare_lines(self.speaker)
+        # In the background, so that the service starts at once: with a new voice they take about a minute. A
+        # thread that ends with the program: a recording cut short stays a .part file, and is made again.
+        threading.Thread(target=prepare_lines, args=(self.speaker,), name="her lines", daemon=True).start()
 
     def detectors(self) -> tuple[WakeListener, Speech]:
         """A conversation's own ears for her name and for speech: what one has heard is never another's."""

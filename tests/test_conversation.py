@@ -1,4 +1,6 @@
 """Her ears and voice, on the Mac and on the phone; no paid APIs or audio devices."""
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import threading
 import time
@@ -443,6 +445,38 @@ class SpeakerTests(unittest.TestCase):
                 patch.object(self.speaker, 'clip') as clip:
             voice.prepare_lines(self.speaker)
         clip.assert_called_once_with(*next(iter(voice.READY.items())))
+
+    def test_a_line_being_made_is_not_made_twice(self):
+        started, go = threading.Event(), threading.Event()
+        def make(request, timeout):
+            started.set()
+            go.wait(5)
+            resp = Mock(read=Mock(return_value=b'\x01\x00\x02\x00'))  # made whole, read at once
+            resp.__enter__ = Mock(return_value=resp)
+            resp.__exit__ = Mock(return_value=False)
+            return resp
+        with tempfile.TemporaryDirectory() as data, patch('pianasoul.library.DATA_DIR', Path(data)), \
+                patch('urllib.request.urlopen', side_effect=make) as urlopen:
+            background = threading.Thread(target=self.speaker.clip, args=('hello',))
+            background.start()
+            started.wait(5)  # being made in the background, when she needs it
+            said = []
+            needed = threading.Thread(target=lambda: said.append(self.speaker.clip('hello').tolist()))
+            needed.start()
+            go.set()
+            background.join(5)
+            needed.join(5)
+        self.assertEqual(urlopen.call_count, 1, 'Made, and paid for, once')
+        self.assertEqual(said, [[1, 2]])
+
+    def test_her_lines_are_made_while_the_service_goes_on(self):
+        made, go = threading.Event(), threading.Event()
+        with patch.multiple(voice, Transcriber=Mock(), WakeWord=Mock(), vad_model=Mock(), Speaker=Mock(),
+                            prepare_lines=Mock(side_effect=lambda speaker: (go.wait(5), made.set()))):
+            voice.VoiceParts()  # returns while they are still being made
+            self.assertFalse(made.is_set())
+            go.set()
+            self.assertTrue(made.wait(5))
 
     def test_nothing_to_say_says_nothing(self):
         with patch('urllib.request.urlopen') as urlopen:
