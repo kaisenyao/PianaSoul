@@ -2220,7 +2220,7 @@ $('#view-settings').addEventListener('click', e => {
     }]));
   }
   const device = data.devices[e.target.closest('[data-device]')?.dataset.device];
-  if (device) info(T.howToConnect, T.connectHow[device.kind] || T.connectHow.other);
+  if (device) info(...(T.connectHow[device.kind] || T.connectHow.other));
   if (e.target.closest('#open-help')) push('help');
 });
 const topics = () => herOn() ? T.helpTopics : T.basicTopics;
@@ -2295,7 +2295,7 @@ function renderPiano() {
   $('#piano-bar').hidden = !off;
   if (off) $('#piano-text').textContent = T.pianoOff(data.piano.name);
 }
-$('#piano-how').addEventListener('click', () => info(T.howToConnect, T.connectHow[data.piano.kind] || T.connectHow.other));
+$('#piano-how').addEventListener('click', () => info(...(T.connectHow[data.piano.kind] || T.connectHow.other)));
 $('#piano-hide').innerHTML = ICON.close;
 $('#piano-hide').addEventListener('click', () => { pianoHidden = data.piano.name; renderPiano(); });
 $('#dim').addEventListener('click', dismiss);
