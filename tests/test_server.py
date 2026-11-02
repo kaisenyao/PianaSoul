@@ -180,20 +180,29 @@ class AppTests(unittest.TestCase):
         notes = self.client.get(f'/api/recordings/{self.ids[0]}/notes').json()
         self.assertEqual(notes, [[0.0, 1.0, 60, 64]])
 
-    def test_a_search_offers_only_the_piano_versions_she_would_choose(self):
+    def test_a_search_offers_the_piano_versions_she_would_choose_first(self):
         from pianasoul import online
-        videos = [('aaaaaaaaaaa', '江南 钢琴版', 'Kassia'), ('bbbbbbbbbbb', '林俊杰 江南 官方 MV', 'Taihe Music'),
-                  ('ccccccccccc', '江南 Piano Tutorial', 'Lessons'), ('ddddddddddd', 'River South', 'Pianella Piano')]
+        videos = [('aaaaaaaaaaa', 'Yiruma - River Flows in You', 'YIRUMA official'),
+                  ('bbbbbbbbbbb', 'River Flows in You 钢琴版', 'Kassia'),
+                  ('ccccccccccc', 'River Flows in You Piano Tutorial', 'Lessons'),
+                  ('ddddddddddd', 'River Flows in You', 'Pianella Piano')]
         asked = []
 
         def extract(url, **options):  # yt-dlp's list of what YouTube found, in its order
             asked.append(url)
             return {'entries': [{'id': v, 'title': t, 'channel': c, 'duration': 240} for v, t, c in videos]}
         with patch.object(online, '_extract', side_effect=extract):
-            found = signed_in(self.client).get('/api/online', params={'q': '江南'}).json()
-        self.assertEqual(asked[0], 'ytsearch15:江南 piano')
-        self.assertEqual([r['video_title'] for r in found], ['江南 钢琴版', 'River South'])
+            found = signed_in(self.client).get('/api/online', params={'q': 'River Flows in You'}).json()
+        self.assertEqual(asked[0], 'ytsearch15:River Flows in You piano')
+        self.assertEqual([r['video_title'] for r in found],
+                         ['River Flows in You 钢琴版', 'River Flows in You', 'Yiruma - River Flows in You'],
+                         'With few piano versions, the others follow them: here the composer\'s own')
         self.assertNotIn('flags', found[0])
+        videos[:] = [(f'{n:011d}', f'江南 Piano Cover {n}', 'Covers') for n in range(5)] + [
+            ('bbbbbbbbbbb', '林俊杰 江南 官方 MV', 'Taihe Music')]
+        with patch.object(online, '_extract', side_effect=extract):
+            found = signed_in(self.client).get('/api/online', params={'q': '江南'}).json()
+        self.assertEqual(len(found), 5, 'Enough piano versions: the song\'s own, sung, is not offered')
         videos[:] = [('eeeeeeeeeee', 'Adele - Easy On Me (Piano Cover)', 'Pianella Piano'),
                      ('fffffffffff', 'Easy On Me - Easy Piano Tutorial', 'Lessons')]
         with patch.object(online, '_extract', side_effect=extract):

@@ -67,15 +67,19 @@ def flags_for(title: str, channel: str, description: str, seconds: int, query: s
 
 
 PIANO_WORDS = ("piano", "钢琴", "鋼琴")
+ENOUGH = 5  # piano versions enough for a search's offer: with fewer, the other videos follow them
 
 
 def piano_versions(query: str) -> list[dict]:
-    """What the app offers to add: piano versions only, as she would choose them. The search asks for piano, and a
-    video whose title and channel do not say piano, or that has any warning flag, is left out."""
+    """What the app offers to add, as she would choose: the search asks for piano, and a video with any warning
+    flag is left out. Those whose title or channel say piano come first; when they are fewer than ENOUGH, the others
+    follow. A piece written for the piano has its best recordings say nothing of it (Yiruma's own, a pianist's on
+    DG), while a song's own recording, sung, only comes in where its piano versions are few."""
     if not any(w in query.casefold() for w in PIANO_WORDS):
         query += " piano"
-    return [r for r in search(query, 15)
-            if not r["flags"] and any(w in f"{r['video_title']} {r['channel']}".casefold() for w in PIANO_WORDS)]
+    found = [r for r in search(query, 15) if not r["flags"]]
+    said = [r for r in found if any(w in f"{r['video_title']} {r['channel']}".casefold() for w in PIANO_WORDS)]
+    return said if len(said) >= ENOUGH else said + [r for r in found if r not in said]
 
 
 def describe(flags: list[str]) -> list[str]:
