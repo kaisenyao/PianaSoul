@@ -136,12 +136,16 @@ async function conversations() {
   const c = await api('/api/conversations');
   data.conversations = c.conversations;
   data.current = c.current;
-  if (state.session === 'now' && data.current) {  // the empty current conversation just began
-    const top = stack.findLast(e => e.view === 'session' && e.id === 'now');
-    if (top) top.id = state.session = data.current;
-  }
+  followCurrent();
   renderRecent();
   refresh();
+}
+
+// The empty current conversation ('now'), once it has begun (on the Mac, or on another phone): that conversation.
+function followCurrent() {
+  if (state.session !== 'now' || !data.current) return;
+  const top = stack.findLast(e => e.view === 'session' && e.id === 'now');
+  if (top) top.id = state.session = data.current;
 }
 
 // What changed on the Mac, as it happens. A lost connection comes back, with everything read again.
@@ -176,6 +180,8 @@ async function load() {
   applyFeatures(transcribed);
   applySettings();
   renderRecent();
+  sent.length = 0;  // what waited for her while the Mac was away: kept by now, and read again below, or gone with it
+  followCurrent();
   for (const e of stack) if (e.view === 'session') renderSession(e.id);  // what was said while the Mac was away
 }
 // Until the Mac has said whether this page may come in (a moment, a second at most), the page shows only its background:
@@ -511,6 +517,9 @@ function renderHistory() {
 // One conversation, as in iMessage: you in blue on the right, her in gray on the left, and the pieces she played
 // as cards. A time shows at the start and wherever half an hour went by.
 const sessionMessages = new Map();  // conversation id → its messages, as last read
+// What you typed and sent, shown at once as Messages does, while it waits for her (she may be answering another
+// request): the Mac keeps it once she takes it up, and that message takes its place (onMessage).
+const sent = [];
 function renderSession(id) {
   const c = id === 'now' ? null : data.conversations.find(x => x.id === id);
   $('#session-title').textContent = conversationTitle(c);
@@ -531,7 +540,7 @@ function drawChat(id) {
     const at = Date.parse(m.at), mark = last === null || at - last > 30 * 60e3;
     last = at;
     return (mark ? `<div class="when">${esc(dayName(m.at))} ${esc(clockTime(m.at))}</div>` : '') + lineHTML(m);
-  }).join('');
+  }).join('') + sent.filter(w => w.session === id).map(w => `<div class="u" data-sent>${esc(w.text)}</div>`).join('');
   renderTyping();
   const shown = findMessage && document.querySelector(`#session-chat [data-m="${findMessage}"]`);
   if (shown) {
@@ -572,11 +581,19 @@ $('#session-chat').addEventListener('click', e => {
 let listsLater = null;
 function onMessage(m) {
   const id = m.conversation_id;
+  if (m.role === 'user') {
+    const waited = sent.findIndex(w => w.text === m.text && (w.session === id || w.session === 'now'));
+    if (waited >= 0) sent.splice(waited, 1);
+  }
   if (!sessionMessages.has(id) && state.session === 'now' && !data.current) sessionMessages.set(id, []);
   const kept = sessionMessages.get(id);
   if (kept && !kept.some(x => x.id === m.id)) kept.push(m);  // once, though a reading of it may have it already
   if (state.view === 'session' && (state.session === id || (state.session === 'now' && !data.current))) {
-    if (state.session === 'now') { stack.at(-1).id = state.session = id; data.current = id; }
+    if (state.session === 'now') {
+      stack.at(-1).id = state.session = id;
+      data.current = id;
+      for (const w of sent) if (w.session === 'now') w.session = id;  // the conversation they go in, now made
+    }
     drawChat(id);
   }
   clearTimeout(listsLater);
@@ -587,7 +604,10 @@ function renderTyping() {
   document.querySelector('#session-chat .typing')?.remove();
   const id = state.session === 'now' ? null : state.session;
   if (state.view === 'session' && data.busy !== null && (data.busy === id || (id === null && !data.current))) {
-    $('#session-chat').insertAdjacentHTML('beforeend', `<div class="typing" aria-label="${esc(T.typing)}"><i></i><i></i><i></i></div>`);
+    const dots = `<div class="typing" aria-label="${esc(T.typing)}"><i></i><i></i><i></i></div>`;
+    const waiting = document.querySelector('#session-chat [data-sent]');  // what you sent after, below her answer
+    if (waiting) waiting.insertAdjacentHTML('beforebegin', dots);
+    else $('#session-chat').insertAdjacentHTML('beforeend', dots);
   }
 }
 
@@ -1980,8 +2000,15 @@ function sendText() {
   if (!text) return;
   input.value = '';
   fitInput();
-  const id = state.session === 'now' ? null : state.session;
-  api('/api/messages', 'POST', {text, conversation: id}).catch(() => { input.value = text; fitInput(); });
+  const id = state.session === 'now' ? null : state.session, waiting = {text, session: state.session};
+  sent.push(waiting);
+  drawChat(state.session);
+  api('/api/messages', 'POST', {text, conversation: id}).catch(() => {
+    if (sent.includes(waiting)) sent.splice(sent.indexOf(waiting), 1);
+    if (state.view === 'session') drawChat(state.session);
+    input.value = text;
+    fitInput();
+  });
   toLatest();
 }
 // The field grows with what you write, up to five lines; ↑ comes in beside the mic once there is something to send.
