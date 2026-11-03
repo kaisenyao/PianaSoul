@@ -44,6 +44,9 @@ VOLUME_STEP = 10  # percent, for "louder" and "softer"
 LIST_MOST, OVERVIEW_MOST, MOST_PLAYED = 40, 15, 20  # library_info: pieces in one answer, artists in its overview, most played
 ACTIONS = {"play_recording", "control_playback", "play_playlist", "set_volume"}  # tools that do something she then confirms
 WAITS = {"search_online": "searching", "transcribe_url": "preparing", "transcribe_local": "preparing"}  # long steps
+# Typed to, she answers as a person texting would: her reply after a moment at least (the dots show meanwhile), and
+# what she plays starts once it is there, a little after it.
+TYPED_REPLY_S, TYPED_PLAY_S = 1.0, 0.8
 ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "First call search_library with the "
                               "piece's other names (another language or spelling, the composer's other name); search "
                               "online only if it is not there."})
@@ -294,6 +297,8 @@ class Assistant:
         self.replied_at: float | None = None
         self.conversation_id: int | None = None  # the conversation she remembers; None until something is said
         self.played_now: list[tuple[int, str]] = []  # the pieces chosen in this request, kept after its reply
+        self.typed = False  # answering a typed request: what she plays waits for her reply (after_reply)
+        self.after_reply: list = []  # what she starts playing, typed to, once her reply is there
         self.on_message = None  # called with each message kept in a conversation
         self.last_kept = None  # (conversation, role, text) of the latest message kept
         self.on_busy = None  # called with True when she starts on a request, False when she has answered
@@ -437,20 +442,12 @@ class Assistant:
             if self.speak:  # aloud, what she plays, before it sounds (and while the phone can still ask what plays)
                 self.tell(line(how, self.chinese(), request.playlist or spoken_title(request.title)))
                 announced = True
-            if request.recording_id is None or (request.recording_id == player.current_id and request.scope is None):
-                # the piece already in the player, from its file as the library has it now: on from where it was (a
-                # resume, a retry: the same listening), or again from its start
-                if request.recording_id is not None and not from_start:
-                    player.go_on(request.from_s)
-                else:
-                    player.start([player.current if request.recording_id is not None else (request.path, request.title)],
-                                 from_s=request.from_s)
-            else:
-                ids, scope = (list(request.ids), request.scope) if request.scope is not None else (
-                    [*self.conversations.pieces(self.conversation_id or 0), *(i for i, _ in self.played_now)],
-                    {"kind": "conversation", "id": self.conversation_id})
-                player.select(request.recording_id, ids, scope, request.from_s, mode=request.mode)
-                self.played_now.append((request.recording_id, request.title))
+            if self.typed:  # it starts once her reply is there (ask)
+                self.after_reply.append(lambda: self._started(request, from_start))
+                self.pending = None
+                return {"status": "playing", "how": how, "title": request.title, "from": clock(request.from_s),
+                        "introduction_spoken": False, **({"playlist": request.playlist} if request.playlist else {})}
+            self._play(request, from_start)
         except LookupError as exc:
             if self.player and self.player.state == "playing":
                 self.player.pause()
@@ -462,6 +459,34 @@ class Assistant:
         print(f"  ▶ {player.current[1]}  {clock(player.position)}", flush=True)
         return {"status": "playing", "how": how, "title": player.current[1], "from": clock(player.position),
                 "introduction_spoken": announced, **({"playlist": request.playlist} if request.playlist else {})}
+
+    def _play(self, request: PlaybackRequest, from_start: bool) -> None:
+        player = self.player
+        if request.recording_id is None or (request.recording_id == player.current_id and request.scope is None):
+            # the piece already in the player, from its file as the library has it now: on from where it was (a
+            # resume, a retry: the same listening), or again from its start
+            if request.recording_id is not None and not from_start:
+                player.go_on(request.from_s)
+            else:
+                player.start([player.current if request.recording_id is not None else (request.path, request.title)],
+                             from_s=request.from_s)
+        else:
+            ids, scope = (list(request.ids), request.scope) if request.scope is not None else (
+                [*self.conversations.pieces(self.conversation_id or 0), *(i for i, _ in self.played_now)],
+                {"kind": "conversation", "id": self.conversation_id})
+            player.select(request.recording_id, ids, scope, request.from_s, mode=request.mode)
+            self.played_now.append((request.recording_id, request.title))
+
+    def _started(self, request: PlaybackRequest, from_start: bool) -> None:
+        """A typed request's piece, started after her reply: the piano gone meanwhile, or the file, she says so."""
+        try:
+            self._play(request, from_start)
+            print(f"  ▶ {self.player.current[1]}  {clock(self.player.position)}", flush=True)
+        except LookupError as exc:
+            self.pending = request
+            self.piano_news(self.piano_missing(exc))
+        except FileNotFoundError:
+            self.piano_news({"error": "recording_unavailable"})
 
     def _playlist(self, name: str) -> tuple[dict | None, list[dict]]:
         """One of the user's playlists, by name (whatever its case and spaces; of two with that name, the one changed
@@ -695,19 +720,27 @@ class Assistant:
             # Each request resends the whole conversation: after a long quiet spell, start afresh.
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
                 self.new_conversation(chat)
-            self.speak, self.played_now = speak, []
+            self.speak, self.played_now, self.typed, asked = speak, [], typed, time.monotonic()
             self.keep("user", text)
             if self.on_busy:
                 self.on_busy(True)
             try:
                 answer = self._answer(chat, text, typed)
+                if typed:
+                    time.sleep(max(0.0, asked + TYPED_REPLY_S - time.monotonic()))
                 if answer:
                     self.keep("assistant", answer)
+                if self.after_reply:
+                    if self.on_busy:
+                        self.on_busy(False)  # the dots go with her reply
+                    time.sleep(TYPED_PLAY_S)
+                    for start in self.after_reply:
+                        start()
                 for rec_id, title in self.played_now:
                     self.keep("piece", title, rec_id)
                 return answer
             finally:
-                self.speak = None
+                self.speak, self.typed, self.after_reply = None, False, []
                 self.replied_at = self.clock()
                 if self.on_busy:
                     self.on_busy(False)

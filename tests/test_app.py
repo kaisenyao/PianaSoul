@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 import mido
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
+from pianasoul import chat as chat_module
 from pianasoul.chat import Assistant
 from pianasoul.conversations import QUIET_S, Conversations
 from pianasoul.downloads import Downloads
@@ -360,6 +361,25 @@ class AssistantTests(Base):
         self.assertEqual([(m['role'], m['text']) for m in self.kept],
                          [('user', '弹一下晴天'), ('assistant', '好呀，晴天。'), ('piece', '周杰伦 - 晴天 (MappleZS)')])
         self.assertEqual(self.p.scope, {'kind': 'conversation', 'id': self.a.conversation_id})
+
+    def test_typed_to_she_replies_first_then_the_piece_starts(self):
+        events = []
+        self.a.on_message = lambda m: events.append(m['role'])
+        self.a.on_busy = lambda busy: events.append(f'busy {busy}')
+        select = self.p.select
+        plays = lambda *a, **k: (events.append('plays'), select(*a, **k))
+        with patch.object(self.p, 'select', side_effect=plays), \
+             patch.object(chat_module, 'TYPED_REPLY_S', 0.3), patch.object(chat_module, 'TYPED_PLAY_S', 0.2):
+            chat = Scripted([self.call('play_recording', id=self.ids[0])], '好呀，晴天。')
+            started = time.monotonic()
+            self.a.ask(chat, '弹一下晴天', typed=True)
+        self.assertEqual(events, ['user', 'busy True', 'assistant', 'busy False', 'plays', 'piece', 'busy False'])
+        self.assertGreaterEqual(time.monotonic() - started, 0.5, 'A moment to write it, then a little after')
+        events.clear()
+        chat = Scripted([self.call('play_recording', id=self.ids[1])], '好。')
+        with patch.object(self.p, 'select', side_effect=plays):
+            self.a.ask(chat, '弹搁浅')  # said, not typed: it plays as she speaks
+        self.assertLess(events.index('plays'), events.index('assistant'))
 
     def test_her_list_is_the_pieces_of_the_conversation(self):
         for rec, name in zip(self.ids, ('晴天', '搁浅')):

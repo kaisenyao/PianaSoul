@@ -2,7 +2,7 @@
 ever reads or writes the real ~/Music/PianaSoul or Application Support. Setting PIANASOUL_DATA also keeps the one-time
 move from a checkout's old output/ folder from starting. What goes to the Trash goes to a throwaway folder (TRASH),
 not the Mac's, no note ever goes to a real MIDI output (a test that plays gives its own), and the real chat model is
-never asked to name pieces (a test that names them gives its own model)."""
+never asked to name pieces (a test that names them gives its own model). A typed reply does not wait."""
 import atexit
 import os
 from pathlib import Path
@@ -43,3 +43,6 @@ def no_model(prompt):
 
 
 llm.complete_json = no_model
+
+from pianasoul import chat  # noqa: E402
+chat.TYPED_REPLY_S = chat.TYPED_PLAY_S = 0  # a typed reply's pauses are not waited for (a test of them sets its own)
