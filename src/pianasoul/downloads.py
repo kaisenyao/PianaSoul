@@ -20,7 +20,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .library import CACHE_DIR, file_result, make_title, safe_name
+from .library import CACHE_DIR, file_result, make_title
 
 log = logging.getLogger(__spec__.name)
 
@@ -221,17 +221,26 @@ class Downloads:
         return rec
 
     def _file(self, job: Job, audio: Path, details: dict) -> dict:
-        """Everything slow but the transcription comes first: after it, only filing the piece is left."""
-        details = {**details, **_video_page(job.source)}
-        self._check(job)
-        if not job.piece:
-            started = time.monotonic()
-            self._name(job, details)
-            log.debug("named in %.1f s: %s", time.monotonic() - started, job.title)
+        """The transcription starts at once; meanwhile the video's page is read (a YouTube video: its channel's
+        picture and the rest, a second or two) and the piece named from what is known of it (the model, a second
+        or two), and once both are done it is filed under its names."""
+        details = dict(details)
+
+        def meanwhile():
+            try:
+                details.update(_video_page(job.source))
+            except Exception as exc:  # the piece is made all the same, with what the download said of the video
+                log.debug("the video's page not read: %s", exc)
+            if not job.piece:
+                started = time.monotonic()
+                self._name(job, details)
+                log.debug("named in %.1f s: %s", time.monotonic() - started, job.title)
+        side = threading.Thread(target=meanwhile, name="naming", daemon=True)
+        side.start()
         self._check(job)
         job.status = "converting"
         self.changed()
-        rec = self._transcribe(job, audio, job.video.get("duration_s") or details.get("duration_s") or 0)
+        rec = self._transcribe(job, audio, job.video.get("duration_s") or details.get("duration_s") or 0, side)
         if details:
             self.lib.set_video(rec["id"], details)
             rec = self.lib.get(rec["id"])
@@ -251,7 +260,8 @@ class Downloads:
             setattr(job, name, getattr(job, name) or named.get(name, ""))
         job.artist, job.performer = self.lib.known_artist(job.artist), self.lib.known_artist(job.performer)
 
-    def _transcribe(self, job: Job, audio: Path, seconds: float) -> dict:
+    def _transcribe(self, job: Job, audio: Path, seconds: float, named: threading.Thread) -> dict:
+        """The piece made, then filed under its names once named is done (_file)."""
         from .pipeline import Options, convert_file
 
         if self._engine is None:
@@ -271,7 +281,9 @@ class Downloads:
             threading.Thread(target=tick, daemon=True).start()
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                info = convert_file(self._engine, audio, Path(tmp), Options(), output_name=safe_name(job.title))
+                info = convert_file(self._engine, audio, Path(tmp), Options(), output_name="piece")
+                self._check(job)
+                named.join()
                 self._check(job)
                 if info.get("audio_duration_s"):
                     self._speed = info["transcribe_seconds"] / info["audio_duration_s"]

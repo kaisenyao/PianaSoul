@@ -967,22 +967,42 @@ class DownloadTests(Base):
             rec = piece_made(d, 'https://youtu.be/abcdefghijk', artist='田馥甄', query='我想听小幸运')
         self.assertEqual((rec['title'], rec['composer'], rec['performer']), ('田馥甄 - 小幸运 (Melody)', '田馥甄', 'Melody'))
 
-    def test_a_piece_stopped_while_it_is_named_is_not_made(self):
+    def test_a_piece_is_named_and_its_video_read_while_it_is_transcribed(self):
+        audio = self.root / 'a.m4a'
+        audio.write_bytes(b'x')
+        transcribing, named = threading.Event(), threading.Event()
+
+        def convert(engine, audio, out, options, output_name):  # it waits for the naming, which waits for it
+            transcribing.set()
+            self.assertTrue(named.wait(2), 'Named meanwhile, not first')
+            return {'files': {'midi': str(make_midi(Path(out) / f'{output_name}.mid'))}}
+
+        def name_piece(query, video, artists):
+            self.assertTrue(transcribing.wait(2))
+            named.set()
+            return {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS'}
+        with patch('pianasoul.download.download_audio', return_value=(audio, {'video_title': '稻香 钢琴'})), \
+             patch('pianasoul.pipeline.convert_file', side_effect=convert), \
+             patch('pianasoul.downloads._video_page', return_value={'channel_avatar': 'https://yt3/a.jpg'}):
+            d = self.downloads(name_piece=name_piece)
+            rec = piece_made(d, 'https://youtu.be/abcdefghijk', query='稻香')
+        self.assertEqual((rec['title'], rec['channel_avatar']), ('周杰伦 - 稻香 (MappleZS)', 'https://yt3/a.jpg'))
+
+    def test_a_piece_stopped_while_it_is_named_is_not_filed(self):
         audio = self.root / 'a.m4a'
         audio.write_bytes(b'x')
         jobs = []
 
-        def name_piece(query, video, artists):  # the stop comes while the model names it
+        def name_piece(query, video, artists):  # the stop comes while the model names it, as it is transcribed
             d.stop(jobs[0].id)
             return {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS'}
         with patch('pianasoul.download.download_audio', return_value=(audio, {})), \
-             patch('pianasoul.pipeline.convert_file') as convert, \
+             patch('pianasoul.pipeline.convert_file'), \
              patch('pianasoul.downloads._video_page', return_value={}):
             d = self.downloads(name_piece=name_piece)
             jobs.append(d.add('https://youtu.be/abcdefghijk', query='稻香'))
             jobs[0].finished.wait(2)
         self.assertEqual(jobs[0].status, 'stopped')
-        convert.assert_not_called()
         self.assertEqual(self.lib.count(), 3)
 
     def test_a_stopped_piece_leaves_nothing(self):
