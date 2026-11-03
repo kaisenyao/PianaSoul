@@ -154,7 +154,7 @@ class ConversationTests(unittest.TestCase):
         self.parts.stt.assert_not_called()
 
     def test_turned_on_while_the_piano_plays_the_piece_pauses_as_for_her_name(self):
-        player = self.assistant.player = Mock(state='playing', completed=None, lost=None)
+        player = self.assistant.player = Mock(state='playing', completed=None, lost=None, lead=0.0)
         player.pause.side_effect = lambda: setattr(player, 'state', 'paused')
         self.assistant.touched_playback = True  # from an earlier request
         self.c.hushed.clear()
@@ -167,6 +167,18 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.c.state, 'waiting')
         player.go_on.assert_called_once()  # the piece plays on
         self.parts.stt.assert_not_called()
+
+    def test_turned_on_while_a_network_piano_plays_its_last_notes_are_not_taken_for_speech(self):
+        player = self.assistant.player = Mock(state='playing', completed=None, lost=None, lead=1.0)
+        player.pause.side_effect = lambda: setattr(player, 'state', 'paused')
+        self.c.hushed.clear()
+        self.c.turn_on()
+        self.frames(3, speaking=True)  # the notes already sent, still sounding
+        self.assertEqual(self.c.state, 'conversation', 'Not a request yet')
+        self.assertAlmostEqual(self.c.dialogue_until - time.monotonic(), voice.START_TIMEOUT_S + 1.0, delta=.5)
+        self.c.deaf_until = time.monotonic() - .01  # the lead has passed
+        self.frames(1, speaking=True)
+        self.assertEqual(self.c.state, 'listening')
 
     def test_goodbye_is_answered_as_any_request_then_she_waits_for_her_name(self):
         self.c.frames = [np.ones(voice.FRAME, dtype=np.int16)]

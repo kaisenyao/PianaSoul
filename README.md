@@ -70,8 +70,8 @@ manual edits. They play side by side, and the sound switches between them every 
 A Mac app for PianaSoul is in development and in private beta. Until it is released, the steps below run
 PianaSoul from source.
 
-You need a Mac and a piano that takes MIDI (or Pianoteq). For her, and for new pieces from YouTube, you also need an
-OpenAI API key. Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app and her voice on the Mac.
+You need a Mac and a piano that takes MIDI (or Pianoteq). For her you also need an OpenAI API key; new pieces from
+YouTube need none (without one, they are named from the video's title). Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app and her voice on the Mac.
 
 ### 1. Install
 

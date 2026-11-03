@@ -381,6 +381,23 @@ class AssistantTests(Base):
             self.a.ask(chat, '弹搁浅')  # said, not typed: it plays as she speaks
         self.assertLess(events.index('plays'), events.index('assistant'))
 
+    def test_typed_to_her_piece_still_plays_when_her_reply_fails(self):
+        class Failing(Scripted):
+            def send_tool_results(self, results):
+                raise OSError('the model did not answer')
+        with self.assertRaises(OSError):
+            self.a.ask(Failing([self.call('play_recording', id=self.ids[0])]), '弹一下晴天', typed=True)
+        self.assertEqual(self.p.current_id, self.ids[0], 'As it would have, said rather than typed')
+        self.assertIsNone(self.a.pending)
+
+    def test_typed_to_her_piece_gives_way_to_a_tap_on_the_phone(self):
+        def busy(on):
+            if not on:
+                self.a.taps += 1  # the phone's player, used while her reply was coming
+        self.a.on_busy = busy
+        self.a.ask(Scripted([self.call('play_recording', id=self.ids[0])], '好呀，晴天。'), '弹一下晴天', typed=True)
+        self.assertIsNone(self.p.current_id, 'The tap wins, as over a spoken request')
+
     def test_her_list_is_the_pieces_of_the_conversation(self):
         for rec, name in zip(self.ids, ('晴天', '搁浅')):
             chat = Scripted([self.call('search_library', query=name)], [self.call('play_recording', id=rec)], '好。')

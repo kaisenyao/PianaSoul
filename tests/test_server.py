@@ -210,6 +210,35 @@ class AppTests(unittest.TestCase):
         self.assertEqual([r['video_title'] for r in found], ['Adele - Easy On Me (Piano Cover)'],
                          'A warning word in the song\'s own name is not a warning')
 
+    def test_a_search_that_fails_says_why(self):
+        from yt_dlp.utils import ExtractorError
+        from pianasoul import online
+
+        def pages():  # a search's pages are fetched as its entries are read
+            raise ExtractorError('Unable to download API page: timed out')
+            yield
+
+        class Offline:
+            def __init__(self, options):
+                self.options = options
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def extract_info(self, url, download, process):
+                return {'entries': pages()}
+        with patch('yt_dlp.YoutubeDL', Offline), self.assertRaises(online.OnlineError) as failed:
+            online.search('晴天')
+        self.assertIn('timed out', str(failed.exception))
+
+    def test_a_song_named_simple_is_not_an_easy_version(self):
+        from pianasoul import online
+        self.assertEqual(online.flags_for('周杰倫 簡單愛 鋼琴版 Piano Cover', 'Pianist', '', 240, '简单爱'), [])
+        self.assertEqual(online.flags_for('简单爱 钢琴简单版', 'Pianist', '', 240, '简单爱'), ['easy'])
+
     def test_a_pasted_link_is_that_one_video_with_its_length_and_channel(self):
         from pianasoul import online
         channel = 'https://www.youtube.com/channel/c'

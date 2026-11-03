@@ -573,6 +573,7 @@ class Conversation:
         self.started = False
         self.silent = self.elapsed = 0.0
         self.dialogue_until = 0.0
+        self.deaf_until = 0.0  # tapped on while the piano played: the notes already sent sound on till then
         self.was_playing = False
         self.woken, self.go_on = None, 0
         self.follow_up_s = FOLLOW_UP_S
@@ -646,10 +647,13 @@ class Conversation:
             return
         self.news_is_old()
         self.hold_piece()
+        # A piece paused on a network session still sounds for its lead (the notes already sent): not taken for you.
+        lead = self.assistant.player.lead if self.was_playing else 0.0
         log.debug("on: she listens for a request without her name%s", " (the piece pauses meanwhile)"
                   if self.was_playing else "")
-        self.follow_up_s = START_TIMEOUT_S
+        self.follow_up_s = START_TIMEOUT_S + lead
         self.resume()
+        self.deaf_until = time.monotonic() + lead
 
     def news_is_old(self) -> None:
         """She is listening from now on: what happened to the piece before (it ended, or the piano went away),
@@ -765,7 +769,7 @@ class Conversation:
             if time.monotonic() > self.dialogue_until:
                 self.sleep()
             else:
-                if speaking:
+                if speaking and time.monotonic() >= self.deaf_until:
                     self.begin()  # the request starts with the frames just before it, this one included
                 return
         if self.state == "waiting":

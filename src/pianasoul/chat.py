@@ -299,6 +299,8 @@ class Assistant:
         self.played_now: list[tuple[int, str]] = []  # the pieces chosen in this request, kept after its reply
         self.typed = False  # answering a typed request: what she plays waits for her reply (after_reply)
         self.after_reply: list = []  # what she starts playing, typed to, once her reply is there
+        self.taps = 0  # what was done on the phone's player: counted, so that a start waiting for her reply gives way
+        self.taps_before = 0  # as it was when the first start of a typed request began to wait
         self.on_message = None  # called with each message kept in a conversation
         self.last_kept = None  # (conversation, role, text) of the latest message kept
         self.on_busy = None  # called with True when she starts on a request, False when she has answered
@@ -443,8 +445,9 @@ class Assistant:
                 self.tell(line(how, self.chinese(), request.playlist or spoken_title(request.title)))
                 announced = True
             if self.typed:  # it starts once her reply is there (ask)
+                if not self.after_reply:
+                    self.taps_before = self.taps
                 self.after_reply.append(lambda: self._started(request, from_start))
-                self.pending = None
                 return {"status": "playing", "how": how, "title": request.title, "from": clock(request.from_s),
                         "introduction_spoken": False, **({"playlist": request.playlist} if request.playlist else {})}
             self._play(request, from_start)
@@ -477,16 +480,29 @@ class Assistant:
             player.select(request.recording_id, ids, scope, request.from_s, mode=request.mode)
             self.played_now.append((request.recording_id, request.title))
 
+    def _start_after_reply(self) -> None:
+        """What a typed request plays, once her reply is there; not if the phone's player was used meanwhile (a tap
+        wins, as it does over a spoken request, whose piece plays at once)."""
+        starts, self.after_reply = self.after_reply, []
+        if self.taps == self.taps_before:
+            for start in starts:
+                start()
+
     def _started(self, request: PlaybackRequest, from_start: bool) -> None:
-        """A typed request's piece, started after her reply: the piano gone meanwhile, or the file, she says so."""
+        """A typed request's piece, started after her reply: the piano gone meanwhile, the file, or anything else,
+        she says so, as a tool's failure would be said."""
         try:
             self._play(request, from_start)
+            self.pending = None
             print(f"  ▶ {self.player.current[1]}  {clock(self.player.position)}", flush=True)
         except LookupError as exc:
             self.pending = request
             self.piano_news(self.piano_missing(exc))
         except FileNotFoundError:
             self.piano_news({"error": "recording_unavailable"})
+        except Exception as exc:
+            print(f"  (playing failed: {type(exc).__name__}: {exc})", flush=True)
+            self.piano_news({"error": "failed"})
 
     def _playlist(self, name: str) -> tuple[dict | None, list[dict]]:
         """One of the user's playlists, by name (whatever its case and spaces; of two with that name, the one changed
@@ -725,7 +741,11 @@ class Assistant:
             if self.on_busy:
                 self.on_busy(True)
             try:
-                answer = self._answer(chat, text, typed)
+                try:
+                    answer = self._answer(chat, text, typed)
+                except Exception:
+                    self._start_after_reply()  # what she was to play still plays, as it would have when spoken
+                    raise
                 if typed:
                     time.sleep(max(0.0, asked + TYPED_REPLY_S - time.monotonic()))
                 if answer:
@@ -734,8 +754,7 @@ class Assistant:
                     if self.on_busy:
                         self.on_busy(False)  # the dots go with her reply
                     time.sleep(TYPED_PLAY_S)
-                    for start in self.after_reply:
-                        start()
+                    self._start_after_reply()
                 for rec_id, title in self.played_now:
                     self.keep("piece", title, rec_id)
                 return answer

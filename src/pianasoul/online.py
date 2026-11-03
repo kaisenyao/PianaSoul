@@ -15,7 +15,7 @@ FLAG_WORDS = {
     "lesson": "tutorial", "easy": "easy", "slow": "easy", "beginner": "easy", "piano tiles": "game",
     "compilation": "compilation", "playlist": "compilation", "1 hour": "compilation", "hours": "compilation",
     "8 bit": "not-piano", "8-bit": "not-piano", "remix": "remix",
-    "教学": "tutorial", "教學": "tutorial", "简易": "easy", "簡易": "easy", "简单": "easy", "簡單": "easy",
+    "教学": "tutorial", "教學": "tutorial", "简易": "easy", "簡易": "easy", "简单版": "easy", "簡單版": "easy",
     "慢速": "easy", "入门": "easy", "入門": "easy",
 }
 FLAG_TEXT = {  # each flag as the chat model reads it
@@ -39,18 +39,23 @@ class _Silent:
 # yt-dlp solves YouTube's JavaScript challenges with deno, which the advanced extra installs beside Python (where
 # yt-dlp looks first); node, should the Mac have it, too.
 OPTIONS = {"quiet": True, "no_warnings": True, "logger": _Silent(), "socket_timeout": 20,
+           "extractor_retries": 1,  # a page that fails is tried again once, not three times: a stall is not minutes
            "js_runtimes": {"deno": {}, "node": {}}}
 
 
-def _extract(url: str, **options) -> dict:
-    """What yt-dlp makes of url, without downloading anything; OnlineError, saying why, when it cannot."""
+def _extract(url: str, listed: bool = False, **options) -> dict:
+    """What yt-dlp makes of url, without downloading anything; OnlineError, saying why, when it cannot. listed: its
+    entries are read here too (a search's pages are fetched only as they are read), so that their failure says why."""
     from yt_dlp import YoutubeDL
-    from yt_dlp.utils import DownloadError
+    from yt_dlp.utils import YoutubeDLError
 
     try:
         with YoutubeDL({**OPTIONS, **options}) as ydl:
-            return ydl.extract_info(url, download=False, process=False) or {}
-    except DownloadError as exc:
+            info = ydl.extract_info(url, download=False, process=False) or {}
+            if listed:
+                info["entries"] = list(info.get("entries") or [])
+            return info
+    except YoutubeDLError as exc:  # DownloadError and ExtractorError alike
         raise OnlineError(str(exc).removeprefix("ERROR: ")) from None
 
 
@@ -97,7 +102,7 @@ def search(query: str, max_results: int = 8) -> list[dict]:
     """Videos for query, YouTube's best first: the list alone (about a second for 8), so no publishing date, which
     only a video's own page gives."""
     max_results = max(1, min(int(max_results), 15))
-    found = _extract(f"ytsearch{max_results}:{query}", extract_flat="in_playlist")
+    found = _extract(f"ytsearch{max_results}:{query}", listed=True)
     results = []
     for entry in found.get("entries") or []:
         vid = str(entry.get("id") or "")

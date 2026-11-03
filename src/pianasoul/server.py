@@ -347,6 +347,7 @@ def play(id: int = Body(), ids: list[int] = Body(default=[]), scope: dict = Body
     """A piece tapped in a list: it plays (unless it is the one already playing), and that list plays on. With a mode,
     the list is played as a whole (a playlist's 播放: order, its 随机播放: shuffle), from its start."""
     playback = core.playback
+    _tapped()
     try:
         if mode is None and id == playback.current_id and not playback.ended and playback.state != 'stopped':
             playback.show(id, ids, scope)
@@ -367,6 +368,8 @@ def playback(action: str = Body(embed=True), value: float | str | None = Body(de
     """▶/⏸ (toggle), ✕ (stop: back to 0:00), ⏮ (prev), ⏭ (next), seek (value: seconds), mode (value), remove or
     move (value: an id), volume (value: percent)."""
     p = core.playback
+    if action in {'toggle', 'stop', 'prev', 'next', 'seek'}:
+        _tapped()
     try:
         if action == 'toggle':
             p.toggle()
@@ -395,6 +398,12 @@ def playback(action: str = Body(embed=True), value: float | str | None = Body(de
     except LookupError as exc:
         return _piano_missing(exc)
     return p.snapshot()
+
+
+def _tapped() -> None:
+    """What plays was changed on the phone: a piece she is about to start, typed to, gives way (Assistant.taps)."""
+    if core.assistant:
+        core.assistant.taps += 1
 
 
 def _piano_missing(exc) -> JSONResponse:
