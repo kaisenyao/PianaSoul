@@ -169,10 +169,11 @@ function listen() {
                                                                                           : listen()), 2000);
 }
 async function load() {
+  const transcribed = data.features.transcribe;
   Object.assign(data, await api('/api/state'));
   heardAt = performance.now();
   try { localStorage.setItem('features', JSON.stringify(data.features)); } catch {}
-  applyFeatures();
+  applyFeatures(transcribed);
   applySettings();
   renderRecent();
   for (const e of stack) if (e.view === 'session') renderSession(e.id);  // what was said while the Mac was away
@@ -297,8 +298,9 @@ function show(view, id = null) {
 }
 // Home is her orb, or without her the library: then the library page itself sits where the orb would, and
 // everything else (the sidebar beside it, the player a left swipe away, the pages over it) is as it is with her.
-function applyFeatures() {
-  if (!data.features.transcribe && openSheet === $('#sheet-add') && !$('#add-field').hidden) closeOverlays();  // its search went
+// transcribed: whether it could before. Gone now, what was open for it (searching online, a menu that offers it) goes.
+function applyFeatures(transcribed = false) {
+  if (transcribed && !data.features.transcribe) { closeCtx(); closeOverlays(); }
   const lib = $('#view-library'), basic = !herOn();
   app.classList.toggle('basic', basic);
   if (basic === (lib.parentNode === main)) return;
