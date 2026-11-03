@@ -298,9 +298,13 @@ function show(view, id = null) {
 }
 // Home is her orb, or without her the library: then the library page itself sits where the orb would, and
 // everything else (the sidebar beside it, the player a left swipe away, the pages over it) is as it is with her.
-// transcribed: whether it could before. Gone now, what was open for it (searching online, a menu that offers it) goes.
+// transcribed: whether it could before. Gone now, what offered it goes: a menu, the Upload or Search Online chooser, the
+// search; nothing else open (an edit, the uploads), which works as before.
 function applyFeatures(transcribed = false) {
-  if (transcribed && !data.features.transcribe) { closeCtx(); closeOverlays(); }
+  if (transcribed && !data.features.transcribe) {
+    closeCtx();
+    if ($('#add-how').classList.contains('show') || (openSheet === $('#sheet-add') && !$('#add-field').hidden)) closeOverlays();
+  }
   const lib = $('#view-library'), basic = !herOn();
   app.classList.toggle('basic', basic);
   if (basic === (lib.parentNode === main)) return;
