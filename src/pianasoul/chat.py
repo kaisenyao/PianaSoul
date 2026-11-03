@@ -748,6 +748,9 @@ class Assistant:
             if self.player and self.player.current:
                 state["current"] = {"title": self.player.current[1], "state": self.player.state,
                                     "position_s": self.player.position}
+                rec = self.lib.get(self.player.current_id) if getattr(self.player, "current_id", None) else None
+                if rec:  # its names as the library keeps them: the title need not say who plays it
+                    state["current"].update(id=rec["id"], **title_parts(rec["title"], rec["composer"], rec["performer"]))
             if self.player and self.player.volume is not None:
                 state["volume"] = self.player.volume
             if playlists := self.lib.playlists():

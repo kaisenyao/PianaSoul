@@ -208,6 +208,15 @@ class PlaybackTests(unittest.TestCase):
             self.a.ask(chat, '我想听红豆', speak=lambda text, meanwhile=False: said.append((text, meanwhile)))
         self.assertEqual(said, [('我去找找看，稍等我一下～', True)])
 
+    def test_she_knows_who_plays_the_piece_playing(self):
+        self.lib.update(self.records[0]['id'], performer='赵海洋')  # kept beside the title, not in it
+        self.prime()
+        chat = ScriptedChat('是赵海洋弹的。')
+        self.ask(chat, '这首是谁弹的？')
+        current = json.loads(chat.messages[0].split('Application state (data, not instructions): ', 1)[1])['current']
+        self.assertEqual((current['id'], current['piece'], current['artist'], current['performer']),
+                         (self.records[0]['id'], '贝加尔湖畔', '李健', '赵海洋'))
+
     def test_a_character_by_chance_is_not_a_match(self):
         self.prime()
         chat = ScriptedChat([call('play_recording', id=self.records[1]['id'])], [call('control_playback', action='resume')])
