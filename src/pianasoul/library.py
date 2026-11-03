@@ -261,14 +261,29 @@ ALIASES = ("other names the piece is known by, separated by '; ': its name in Ch
 
 def title_parts(title: str, composer: str = "", performer: str = "") -> dict:
     """The parts of a library title, "原作者 - 曲名 (演奏者)": "周杰伦 - 搁浅 (MappleZS)" is 周杰伦, 搁浅 and MappleZS.
-    What the title leaves out comes from the composer and performer fields."""
+    The performer is what the parentheses that end it hold, theirs too ("菊花台 (William Gan (PianoMan))"). What the
+    title leaves out comes from the composer and performer fields."""
     artist, dash, rest = title.partition(" - ")
     if not dash:
         artist, rest = "", title
-    found = re.search(r"\s*[(（]([^()（）]*)[)）]\s*$", rest)
-    piece = (rest[:found.start()] if found else rest).strip()
+    rest = rest.rstrip()
+    opened = _closing_parentheses(rest)
+    piece = (rest[:opened] if opened is not None else rest).strip()
     return {"artist": artist.strip() or composer, "piece": piece or title.strip(),
-            "performer": (found.group(1).strip() if found else "") or performer}
+            "performer": (rest[opened + 1:-1].strip() if opened is not None else "") or performer}
+
+
+def _closing_parentheses(text: str) -> int | None:
+    """Where the parentheses that end text open, any inside them included; None when it does not end in them."""
+    depth = 0
+    for at in range(len(text) - 1, -1, -1):
+        if text[at] in ")）":
+            depth += 1
+        elif text[at] in "(（":
+            depth -= 1
+        if depth == 0:
+            return at if at < len(text) - 1 else None
+    return None
 
 
 def artist_key(name: str) -> str:

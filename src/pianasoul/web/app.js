@@ -219,11 +219,22 @@ function signedOut(refused) {
 // A piece is a library recording, or one still being made (a job, kept apart by its key).
 const pieceById = id => data.recordings.find(r => r.id === id);
 const jobKey = j => 'j' + j.id;
+// As the Mac splits it (library.title_parts): the performer is what the parentheses that end it hold, theirs too.
 function titleParts(title) {
   const dash = title.indexOf(' - ');
-  const artist = dash < 0 ? '' : title.slice(0, dash), rest = dash < 0 ? title : title.slice(dash + 3);
-  const found = rest.match(/\s*[(（]([^()（）]*)[)）]\s*$/);
-  return {artist, piece: (found ? rest.slice(0, found.index) : rest).trim() || title, performer: found ? found[1] : ''};
+  const artist = dash < 0 ? '' : title.slice(0, dash), rest = (dash < 0 ? title : title.slice(dash + 3)).trimEnd();
+  const opened = closingParentheses(rest);
+  return {artist, piece: (opened === null ? rest : rest.slice(0, opened)).trim() || title,
+          performer: opened === null ? '' : rest.slice(opened + 1, -1).trim()};
+}
+function closingParentheses(text) {
+  let depth = 0;
+  for (let at = text.length - 1; at >= 0; at--) {
+    if (')）'.includes(text[at])) depth++;
+    else if ('(（'.includes(text[at])) depth--;
+    if (depth === 0) return at < text.length - 1 ? at : null;
+  }
+  return null;
 }
 const subtitle = p => [p.artist, p.performer].filter(Boolean).join(' · ');
 // In the player, each of them a way to their page, as in Apple Music: whose it is (原作者), who plays it (演奏者).
@@ -554,10 +565,11 @@ function lineHTML(m) {
   if (m.role === 'piece') return pieceCard(m.recording_id, m.text, m.id);
   return `<div class="${m.role === 'user' ? 'u' : 'a'}" data-m="${m.id}">${esc(m.text)}</div>`;
 }
-// A played piece as her message, like an audio message: tap it to play it again.
+// A played piece as her message, like an audio message: tap it to play it again. One not in the library as the phone
+// last read it is drawn as deleted, and drawn again as the library comes (a piece just made, its card here first).
 function pieceCard(id, title, mid) {
   const p = pieceById(id), m = mid ? ` data-m="${mid}"` : '';
-  if (!p) return `<div class="card gone"${m}>${esc(titleParts(title).piece)} · ${esc(T.gone)}</div>`;
+  if (!p) return `<div class="card gone" data-was="${id}" data-title="${esc(title)}"${m}>${esc(titleParts(title).piece)} · ${esc(T.gone)}</div>`;
   const on = isPlaying(id);
   return `<button class="card" data-piece="${id}" data-title="${esc(title)}"${m}>
       <span class="cplay">${on ? `<span class="eq${pb().state === 'paused' ? ' paused' : ''}"><i></i><i></i><i></i></span>` : ICON_PLAY}</span>
@@ -568,8 +580,8 @@ function pieceCard(id, title, mid) {
 }
 function renderSessionCards() {
   if (state.view !== 'session') return;
-  for (const card of document.querySelectorAll('#session-chat .card[data-piece]')) {
-    card.outerHTML = pieceCard(+card.dataset.piece, card.dataset.title, card.dataset.m);
+  for (const card of document.querySelectorAll('#session-chat .card:is([data-piece], [data-was])')) {
+    card.outerHTML = pieceCard(+(card.dataset.piece || card.dataset.was), card.dataset.title, card.dataset.m);
   }
 }
 const piecesIn = id => [...new Set((sessionMessages.get(id) || []).filter(m => m.role === 'piece' && pieceById(m.recording_id)).map(m => m.recording_id))];

@@ -48,6 +48,9 @@ class LibraryTests(unittest.TestCase):
                              ('贝加尔湖畔（赵海洋）', ('李健', '贝加尔湖畔', '赵海洋')),
                              ('Chopin - Waltz in A Minor, B. 150 (Paul Barton)',
                               ('Chopin', 'Waltz in A Minor, B. 150', 'Paul Barton')),
+                             ('周杰伦 - 菊花台 (William Gan (PianoMan))', ('周杰伦', '菊花台', 'William Gan (PianoMan)')),
+                             ('Chopin - Nocturne (Op. 9) (Lang Lang)', ('Chopin', 'Nocturne (Op. 9)', 'Lang Lang')),
+                             ('Bach - Air (', ('Bach', 'Air (', '')),
                              ('Greensleeves', ('李健', 'Greensleeves', ''))]:
             found = title_parts(title, composer='李健')
             self.assertEqual((found['artist'], found['piece'], found['performer']), parts)
