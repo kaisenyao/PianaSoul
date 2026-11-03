@@ -28,9 +28,9 @@
 </head>
 <body>
 <main>
-  <h1><span class="en">Let this phone trust your Mac</span><span class="zh">让手机信任这台 Mac</span></h1>
+  <h1><span class="en">Let This Phone Trust Your Mac</span><span class="zh">让手机信任这台Mac</span></h1>
   <p class="dim"><span class="en">Once per phone. PianaSoul's page is private to your home network; this certificate
-    lets the phone open it safely.</span><span class="zh">每部手机只需一次。PianaSoul 的页面只在你家的网络里；装上这个证书，手机才能安全地打开它。</span></p>
+    lets the phone open it safely.</span><span class="zh">每部手机只需设置一次。PianaSoul的页面仅在你的家庭网络中可用；安装此证书后，手机才能安全地打开它。</span></p>
 
   <div class="switch">
     <button type="button" data-os="ios">iPhone · iPad</button><button type="button" data-os="android">Android</button>
@@ -41,41 +41,41 @@
   <section data-os="ios">
   <ol>
     <li class="en">Tap <b>Download the certificate</b>, then <b>Allow</b>.</li>
-    <li class="zh">点<b>下载证书</b>，再点<b>允许</b>。</li>
+    <li class="zh">轻点<b>下载证书</b>，然后轻点<b>允许</b>。</li>
     <li class="en">Open <b>Settings</b>, tap <b>Profile Downloaded</b> near the top, then <b>Install</b>. Not there? Look in
       <b>General › VPN &amp; Device Management</b>, or download it again.</li>
-    <li class="zh">打开<b>设置</b>，点顶部的<b>已下载描述文件</b>，再点<b>安装</b>。没看到的话，去<b>通用 › VPN 与设备管理</b>里找，或者重新下载。</li>
+    <li class="zh">打开<b>设置</b>，轻点顶部的<b>已下载描述文件</b>，然后轻点<b>安装</b>。如果没有看到，请前往<b>通用 › VPN与设备管理</b>查找，或重新下载。</li>
     <li class="en"><b>Settings › General › About › Certificate Trust Settings</b>: turn on full trust for “{{name}}”.
       Installing alone is not enough: this step is needed too.</li>
-    <li class="zh"><b>设置 › 通用 › 关于本机 › 证书信任设置</b>：打开“{{name}}”的完全信任。只安装还不够，这一步必须做。</li>
+    <li class="zh"><b>设置 › 通用 › 关于本机 › 证书信任设置</b>：为“{{name}}”打开完全信任。仅安装证书还不够，必须完成此步骤。</li>
   </ol>
   </section>
   <section data-os="android">
   <ol>
     <li class="en">Tap <b>Download the certificate</b>.</li>
-    <li class="zh">点<b>下载证书</b>。</li>
+    <li class="zh">轻点<b>下载证书</b>。</li>
     <li class="en">Open <b>Settings</b> and search for <b>CA certificate</b> (or <b>Install certificate</b>): the way
       there differs from one phone to another. Some phones first ask you to set a screen lock.</li>
-    <li class="zh">打开<b>设置</b>，搜索 <b>CA 证书</b>（或<b>安装证书</b>）：各品牌的路径不一样。有的手机会先要求设置锁屏。</li>
+    <li class="zh">打开<b>设置</b>，搜索<b>CA 证书</b>（或<b>安装证书</b>）：不同品牌的路径各不相同。部分手机会先要求设置锁屏。</li>
     <li class="en">Choose <b>CA certificate</b>, then the file you downloaded, and confirm. Android warns about
       installing certificates: install only this one, from your own Mac.</li>
-    <li class="zh">选 <b>CA 证书</b>，再选刚下载的文件，确认安装。安卓会提示安装证书的风险：只安装这一个、来自你自己 Mac 的证书。</li>
+    <li class="zh">选择<b>CA 证书</b>，然后选择刚下载的文件并确认安装。安卓会提示安装证书的风险：请仅安装这一个来自你自己Mac的证书。</li>
   </ol>
   <p class="dim"><span class="en">Open PianaSoul in Chrome: other browsers and apps may not trust a certificate you
-    install yourself.</span><span class="zh">用 Chrome 打开 PianaSoul：别的浏览器和 App 可能不认你自己装的证书。</span></p>
+    install yourself.</span><span class="zh">请使用Chrome打开PianaSoul：其他浏览器和App可能不信任你自行安装的证书。</span></p>
   </section>
 
   <h2><span class="en">Then</span><span class="zh">然后</span></h2>
-  <p><span class="en">Scan the second code on the Mac to open PianaSoul. You can add it to the Home Screen.</span><span
-    class="zh">扫 Mac 上的第二个二维码打开 PianaSoul，可以把它添加到主屏幕。</span></p>
+  <p><span class="en">On your Mac, scan the code in step 2 to open PianaSoul. You can add it to the Home Screen.</span><span
+    class="zh">扫描Mac上第2步的二维码以打开PianaSoul。你可以将其添加到主屏幕。</span></p>
 
-  <h2><span class="en">Troubleshooting</span><span class="zh">遇到问题</span></h2>
+  <h2><span class="en">Troubleshooting</span><span class="zh">疑难解答</span></h2>
   <p class="dim"><span class="en">To be sure the certificate is your Mac's, compare its SHA-256 fingerprint in the
     phone's certificate details with the one behind the ⓘ in PianaSoul's settings on the Mac (Phone, step&nbsp;1),
     or the one the terminal printed when PianaSoul first started there.</span><span
-    class="zh">想确认证书来自你的 Mac：把手机证书详细信息里的 SHA-256 指纹，和 Mac 上 PianaSoul 设置（手机，第&nbsp;1&nbsp;步）里 ⓘ 显示的对照；在终端里运行的，和第一次启动时终端打出的对照。</span></p>
+    class="zh">若要确认证书来自你的Mac，请将手机上证书详细信息中的SHA-256指纹，与Mac上PianaSoul设置（“手机”，第1步）中ⓘ显示的指纹比对；如果在“终端”中运行，则与首次启动时“终端”中显示的指纹比对。</span></p>
   <p class="dim"><span class="en">If your router gives the Mac a new address, the Home Screen app has to be added
-    again: reserving the Mac's address in the router avoids that.</span><span class="zh">路由器给 Mac 换了地址时，主屏幕上的 App 要重新添加；在路由器里给 Mac 保留固定地址可以避免。</span></p>
+    again: reserving the Mac's address in the router avoids that.</span><span class="zh">如果路由器更改了Mac的地址，需要重新添加主屏幕上的App；在路由器中为Mac保留固定地址可避免此问题。</span></p>
 </main>
 <script>
   // The page in the phone's language, with the steps for the phone's system: iPhone and iPad unless it is an
