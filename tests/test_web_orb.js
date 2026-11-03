@@ -28,7 +28,7 @@ function harness({denied = false, reduced = false} = {}) {
   vm.runInContext(source, sandbox);
   const h = {sandbox, frames, documentEvents, make};
   h.home = (dataset, shown = () => true) => { const o = make(dataset); o.orb = sandbox.animateOrb(o.element, shown); return o; };
-  h.other = (lit, shown = () => true) => { const o = make(); sandbox.addOrb(o.element, lit, shown); return o; };
+  h.other = (lit, shown = () => true, voiced = false) => { const o = make(); sandbox.addOrb(o.element, lit, shown, voiced); return o; };
   h.step = now => { const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(now); };
   return h;
 }
@@ -112,3 +112,21 @@ assert.ok(turning.uniforms.quiet > .05 && turning.uniforms.quiet < .5, 'Over a m
 for (let now = 1880; now <= 3000; now += 40) t.step(now);
 assert.ok(turning.uniforms.quiet < .02, 'Then in color');
 console.log('Orb passed: gray/color motion parity, volume response, reduced motion, background suspension, GPU loss/fallback/recovery, her other orbs on one clock, and a gentle change between gray and color.');
+
+// The orb that flies home is home's: it moves with the voice as home's does, and bounces with it; other orbs do not.
+{
+const v = harness();
+let flying = true;
+const at = v.home({active: 'true'}), fly = v.other(() => true, () => flying, true), pull = v.other(() => true);
+at.orb.level(.8);
+for (const now of [1000, 1040, 1080, 1120]) v.step(now);
+assert.equal(fly.styles['--scale'], at.styles['--scale'], 'Landing, the same size as home');
+assert.ok(Number(at.styles['--scale']) > Number(pull.styles['--scale']));
+const bounced = [];
+for (const o of [at, fly, pull]) o.element.animate = () => bounced.push(o);
+at.orb.bounce([{scale: 1}, {scale: 1.07}], {duration: 460});
+assert.deepEqual(bounced, [at, fly], 'The flying orb bounces with home, the others do not');
+flying = false; bounced.length = 0;
+at.orb.bounce([{scale: 1}, {scale: 1.07}], {duration: 460});
+assert.deepEqual(bounced, [at], 'Landed and hidden, it no longer does');
+}

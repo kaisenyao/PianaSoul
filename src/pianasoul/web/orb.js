@@ -150,7 +150,13 @@ function register(element, target, shown = () => true) {
 // The orb at home: gray when off, color when on, half way while it comes on; it moves with your voice and hers.
 export function animateOrb(element, shown) {
   home = register(element, () => element.dataset.active === 'true' ? 0 : element.dataset.waking === 'true' ? .5 : 1, shown);
-  return {level(value) { home.input = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0; }};
+  return {
+    level(value) { home.input = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0; },
+    // A bounce (a tap, her coming on): the orb flying home bounces with it, being the same orb.
+    bounce(keyframes, options) {
+      for (const o of orbs) if (o === home || (o.voiced && o.shown())) o.element.animate?.(keyframes, options);
+    },
+  };
 }
 
 // How much the orb at home is in color (or is becoming): the orbs that lead home look as it does.

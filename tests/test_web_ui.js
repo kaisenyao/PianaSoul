@@ -98,7 +98,7 @@ function harness(options = {}) {
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox);
   const labels = () => ({idle: 'off', starting: 'starting', active: 'on'});
-  h.voice = sandbox.voice(orb, toggle, {level: value => h.levels.push(value)}, cues, labels);
+  h.voice = sandbox.voice(orb, toggle, {level: value => h.levels.push(value), bounce: () => orb.animate()}, cues, labels);
   const gesture = async fn => {
     h.inTap = true;
     try { fn(); } finally { h.inTap = false; }

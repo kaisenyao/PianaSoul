@@ -25,7 +25,7 @@ export function voice(element, toggle, orb, cues, labels) {
 
   function feedback(connected = false) {
     if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      element.animate?.(connected
+      orb.bounce(connected
         ? [{scale: 1}, {scale: .96, offset: .25}, {scale: 1.07, offset: .6}, {scale: 1}]
         : [{scale: 1}, {scale: .95}, {scale: 1}],
       {duration: connected ? 460 : 180, easing: 'ease-in-out'});

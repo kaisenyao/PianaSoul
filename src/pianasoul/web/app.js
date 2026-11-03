@@ -2113,8 +2113,8 @@ function enterVoice(id) {
   flying = true;
   sameLook(fly, $('#pull .porb'));
   const dx = r.left + r.width / 2 - (home.left + home.width / 2), dy = r.top + r.height / 2 - (home.top + home.height / 2);
-  fly.animate([{transform: `translate(${dx}px, ${dy}px) scale(${r.width / home.width})`}],  // to its own size: home's
-    {duration: 560, easing: 'cubic-bezier(.32, .72, 0, 1)'});
+  fly.animate([{transform: `translate(${dx}px, ${dy}px) scale(${r.width / home.width})`, offset: 0}],  // from the pull,
+    {duration: 560, easing: 'cubic-bezier(.32, .72, 0, 1)'});  // to its own size, which is home's
   voice.on();  // inside the gesture, as a tap on the orb would be
   dark.animate([{opacity: 0}, {opacity: 1}], {duration: 200, fill: 'forwards'}).finished.then(() => {
     app.classList.add('instant');
