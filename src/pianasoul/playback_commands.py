@@ -41,6 +41,12 @@ FILLERS_START = (*dict.fromkeys(w.casefold() for w in WAKE_WORDS + assistant_nam
 FILLERS_END = ("please", "吧", "啊", "呀", "哦", "呃", "嗯")
 
 
+def name_said(text: str) -> str | None:
+    """The wake word whose name text says ("小明同学。" says 小茗同学), for her greeting's language; None without one."""
+    t = spell_names(unicodedata.normalize("NFKC", text)).casefold()
+    return next((word for word, name in zip(WAKE_WORDS, assistant_names(WAKE_WORDS)) if name.casefold() in t), None)
+
+
 def spell_names(text: str) -> str:
     """text with her Chinese names written as they are configured. Speech recognition hears only the sound and
     may write 小茗同学 as 小明同学; the same goes for anything typed with other characters of the same sound."""

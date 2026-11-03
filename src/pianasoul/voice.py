@@ -42,7 +42,7 @@ import numpy as np
 
 from .lines import LINES, line, recorded
 from .play import clock
-from .playback_commands import WAKE_WORDS, is_chinese, match_command, spell_names, strip_fillers
+from .playback_commands import WAKE_WORDS, is_chinese, match_command, name_said, spell_names, strip_fillers
 
 log = logging.getLogger(__spec__.name)
 
@@ -816,8 +816,9 @@ class Conversation:
             text = ""
         request = strip_fillers(text)
         if not request:
-            if self.woken:  # only her name, in one breath: greet and listen, as after a pause
-                self.greet(self.woken)
+            name = self.woken or name_said(text)
+            if name:  # only her name (in one breath, or said to her listening): greet and listen, as after a pause
+                self.greet(name)
             else:  # nothing to answer: wait for her name again
                 self.sleep()
             return

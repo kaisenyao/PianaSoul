@@ -102,7 +102,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.c.state, 'listening', 'After a reply, no name is needed for a while')
 
     def test_nothing_to_answer_stays_silent_and_waits_for_her_name(self):
-        for heard in ('', '小明同学', '嗯。'):
+        for heard in ('', '嗯。'):
             self.out.events.clear()
             self.c.frames = [np.zeros(voice.FRAME, dtype=np.int16)]
             self.parts.stt.return_value = heard
@@ -144,6 +144,19 @@ class ConversationTests(unittest.TestCase):
         self.c.unhush()
         self.frames(30, speaking=True)
         self.assertEqual(self.c.state, 'waiting', 'Back on the orb, her name again')
+
+    def test_turned_on_her_name_alone_gets_her_greeting(self):
+        # Tapped on (or listening on after a reply), only her name said: she greets, in its language, and listens
+        # for the request, as when her name is said while she waits for it.
+        for heard, language in (('小明同学。', 'zh'), ('Jasmine?', 'en')):
+            self.c.hushed.clear()
+            self.c.turn_on()
+            self.c.frames = [np.zeros(voice.FRAME, dtype=np.int16)]
+            self.parts.stt.return_value = heard
+            self.c.respond()
+            self.assistant.ask.assert_not_called()
+            self.assertIn(self.parts.speaker.stream.call_args.args[0], LINES['greet'][language])
+            self.assertEqual(self.out.events[-1], ('turn_end', False), 'Then she listens for the request')
 
     def test_turned_on_and_not_spoken_to_she_waits_for_her_name(self):
         self.c.hushed.clear()
