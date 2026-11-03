@@ -390,6 +390,13 @@ class PlaybackTests(unittest.TestCase):
         self.assertNotIn(LINES['greet']['zh'][0], recorded(), 'Greetings are said differently')
         self.assertFalse([t for t in recorded() if '{' in t], 'A piece\'s name is said as it is made')
 
+    def test_pause_next_and_previous_said_these_ways_are_short_requests(self):
+        for text, action in (('暂停一下。', 'pause'), ('先暂停一下吧', 'pause'), ('下一首', 'next'), ('切歌', 'next'),
+                             ('小茗同学，下一首。', 'next'), ('Next.', 'next'), ('上一首吧', 'previous')):
+            self.assertEqual(match_command(text), action, text)
+        for text in ('换一首', '下一首弹什么好呢', '我想听下一首歌的那个版本'):
+            self.assertIsNone(match_command(text), text)
+
     def test_negations_and_new_song_titles_remain_model_requests(self):
         for text in ('不要继续播放', '我想继续听月光', '你能看看能帮我继续吗', '小声一点，然后帮我弹红豆',
                      '帮我找《再见》这首歌', '我想听再见', 'play See You Again', '大声一点好吗，再来一首'):
@@ -449,6 +456,14 @@ class PlaybackTests(unittest.TestCase):
             finish_interaction(self.a, speaker, '好，先暂停。', True)
             start.assert_not_called()
         speaker.say.assert_called_once_with('好，先暂停。')
+
+    def test_next_with_this_piece_alone_changes_nothing_so_the_held_piece_plays_on(self):
+        self.prime()
+        self.a.touched_playback = False  # paused for her to listen (voice's hold_piece)
+        answer = self.ask(ScriptedChat(), '下一首')
+        self.assertIn(answer, LINES['nothing_next']['zh'])
+        finish_interaction(self.a, Mock(), answer, True)
+        self.assertEqual(self.player.state, 'playing')
 
     def test_short_pause_has_one_spoken_confirmation_and_keeps_position(self):
         self.prime()

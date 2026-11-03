@@ -584,10 +584,10 @@ function renderSessionCards() {
     card.outerHTML = pieceCard(+(card.dataset.piece || card.dataset.was), card.dataset.title, card.dataset.m);
   }
 }
-const piecesIn = id => [...new Set((sessionMessages.get(id) || []).filter(m => m.role === 'piece' && pieceById(m.recording_id)).map(m => m.recording_id))];
 $('#session-chat').addEventListener('click', e => {
   const card = e.target.closest('[data-piece]');
-  if (card) play(+card.dataset.piece, piecesIn(state.session), {kind: 'conversation', id: state.session}, card);
+  // That piece alone: the chat is not a play queue
+  if (card) play(+card.dataset.piece, [+card.dataset.piece], {kind: 'conversation', id: state.session}, card);
 });
 // A message kept on the Mac: it shows at once in its conversation, and the sidebar learns its new title.
 let listsLater = null;

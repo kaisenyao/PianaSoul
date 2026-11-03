@@ -39,6 +39,7 @@ log = logging.getLogger(__spec__.name)
 DEFAULT_PORT = "pianasoul"
 NETWORK_LEAD_S = 1.0  # how early each message leaves for a network session
 GAP_S = 2.0  # silence between pieces
+LEAD_IN_S = 0.8  # a piece played from its start begins this long before its first note: the silence before is skipped
 LOOK_EVERY_S = 1.0  # while playing, how often the player makes sure the piano is still there
 HEARD_LATE_S = 0.2  # notes leaving this much later than they should sound are heard late: said in the log
 SENT = {"note_on", "note_off", "control_change"}  # no program changes: they could switch the Pianoteq preset
@@ -321,6 +322,31 @@ def default_lead(out: Output) -> float:
         return NETWORK_LEAD_S if out.peers is not None else 0.0
 
 
+@functools.lru_cache(maxsize=256)
+def _first_note(path: str, changed: int) -> float:
+    import mido
+
+    at = 0.0
+    for msg in mido.MidiFile(path):
+        at += msg.time
+        if msg.type == "note_on" and msg.velocity:
+            return at
+    return 0.0
+
+
+def begin(path: Path, from_s: float) -> float:
+    """Where a piece starts: at from_s; played from its start (0, or below: after that much silence), LEAD_IN_S before
+    its first note, so that the silence a file may open with (a video's opening, say) is not waited through, and the
+    first note does not come at once either."""
+    if from_s > 0:
+        return from_s
+    try:
+        first = _first_note(str(path), Path(path).stat().st_mtime_ns)
+    except Exception:  # a file that cannot be read fails where it is played, as it is
+        return from_s
+    return from_s + max(0.0, first - LEAD_IN_S)
+
+
 def clock(seconds: float) -> str:
     return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
 
@@ -417,9 +443,9 @@ class Player:
         return self._offset
 
     def play(self, items: list[tuple[Path, str]], from_s: float = 0.0, on_start=None) -> None:
-        """Play (path, title) items in order, the first from from_s (below 0: after that much silence); returns
-        when everything is sent, or paused or stopped. With a lead, the music goes on for that long after this
-        returns. after_run() follows, once the keys and the pedal are up."""
+        """Play (path, title) items in order, the first from from_s (below 0: after that much silence), the others
+        from their start (begin); returns when everything is sent, or paused or stopped. With a lead, the music goes
+        on for that long after this returns. after_run() follows, once the keys and the pedal are up."""
         try:
             for i, (path, title) in enumerate(items):
                 if i and self._stop.wait(GAP_S):
@@ -429,7 +455,7 @@ class Player:
                 self.current, self.state = (path, title), "playing"
                 if on_start:
                     on_start(path, title)
-                if not self._play_file(path, from_s if i == 0 else 0.0):
+                if not self._play_file(path, begin(path, from_s if i == 0 else 0.0)):
                     return  # pause() or stop() sets the state, or the piano went away (lost)
             self.state, self._offset = "stopped", 0.0
             if self.current and not self._stop.is_set():
@@ -551,10 +577,11 @@ class Player:
 
     def _launch(self, items: list[tuple[Path, str]], from_s: float) -> None:
         self._stop.clear()  # here, not in the thread, so an immediate pause() cannot be lost
-        self.current, self.state, self._offset = items[0], "playing", from_s
-        log.debug("plays %s from %s%s", items[0][1], clock(max(0.0, from_s)),
+        start = begin(items[0][0], from_s)  # as the thread will find it (play), for the position meanwhile
+        self.current, self.state, self._offset = items[0], "playing", start
+        log.debug("plays %s from %s%s", items[0][1], clock(max(0.0, start)),
                   "" if self.volume is None else f" at volume {self.volume}%")
-        self._t0, self._from, self._sent_to = time.perf_counter() + self.lead - from_s, from_s, from_s
+        self._t0, self._from, self._sent_to = time.perf_counter() + self.lead - start, start, start
         self._thread = threading.Thread(target=self.play, args=(items, from_s), daemon=True)
         self._thread.start()
 
@@ -644,7 +671,7 @@ class Player:
         piano goes away."""
         import mido
 
-        pedal: dict[int, int] = {}  # sustain value per channel at from_s, restored before continuing
+        held: dict[tuple[int, int], int] = {}  # each controller as it is at from_s (the pedals), sent before going on
         self._t0 = time.perf_counter() + self.lead - from_s
         self._from = self._sent_to = from_s
         at, restored = 0.0, from_s <= 0
@@ -661,14 +688,13 @@ class Player:
                 if msg.type == "control_change" and msg.control == VOLUME_CONTROL:
                     continue  # the listener's, not the file's
                 if at < from_s:
-                    if msg.type == "control_change" and msg.control == 64:
-                        pedal[msg.channel] = msg.value
+                    if msg.type == "control_change" and msg.control < 120:  # not the channel mode messages
+                        held[msg.channel, msg.control] = msg.value
                     continue
                 if not restored:
-                    for channel, value in pedal.items():
-                        if value >= 64:
-                            self._send(mido.Message("control_change", channel=channel, control=64, value=value),
-                                       self._t0 + from_s)
+                    for (channel, control), value in held.items():
+                        self._send(mido.Message("control_change", channel=channel, control=control, value=value),
+                                   self._t0 + from_s)
                     restored = True
                 due = self._t0 + at - self.lead  # when this message should leave
                 if self._wait_until(due):

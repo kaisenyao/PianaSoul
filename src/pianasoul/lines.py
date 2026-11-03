@@ -27,6 +27,12 @@ LINES = {
     "restart": {"zh": ["好，那我从头再给你弹一遍。", "没问题，我们从头开始。"],
                 "en": ["Of course, I'll play it again from the beginning.", "Let's start again from the first note."]},
     "now_playing": {"zh": ["已经在弹啦～"], "en": ["I'm already playing it."]},
+    # 下一首 / 上一首 in the list that plays; past its last piece, its first again; or nothing after this one
+    "next": {"zh": ["好，下一首～"], "en": ["Next one."]},
+    "previous": {"zh": ["好，上一首～"], "en": ["Back to the previous one."]},
+    "from_first": {"zh": ["这已经是最后一首了，我从第一首开始再给你弹～"], "en": ["That was the last one, so here's the first again."]},
+    "nothing_next": {"zh": ["后面没有排着的曲子啦，想听什么告诉我～"],
+                     "en": ["There's nothing lined up after this one. What would you like to hear?"]},
     # Got ready while something else was chosen (by her or on the phone): not started, the user's choice stands
     "ready": {"zh": ["《{piece}》准备好啦，想听的时候告诉我～"], "en": ["{piece} is ready whenever you'd like to hear it."]},
     # A piece she was preparing in the background could not be made: named, or a pasted link not named yet

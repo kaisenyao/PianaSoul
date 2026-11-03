@@ -235,7 +235,8 @@ The app, voice and chat are one assistant, with one library and one set of conve
   asking her ("play my bedtime playlist"). Settings > How to Use explains the rest.
 
 - **Voice.** Say "Hey Jasmine" (or "Xiǎomíng Tóngxué"), then a piece: "Hey Jasmine, play Clair de Lune". "Stop",
-  "continue", "start over", "louder", "softer" and "bye" act at once, in English or Chinese.
+  "continue", "start over", "next", "previous", "louder", "softer" and "bye" act at once, in English or Chinese. A
+  piece she chooses plays on its own; in a playlist, "next" past the last piece starts it again from the first.
 
 - **Chat.** Run `./run.sh chat` and ask in any language: "Chopin's Nocturne Op. 9 No. 2 by Rubinstein", "something
   gentle by Debussy", a video link, or a path to your own recording. `/help` lists the commands.

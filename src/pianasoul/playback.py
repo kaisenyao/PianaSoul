@@ -1,9 +1,10 @@
 """The piano as a music app plays it: one piece at a time from a list, in one of three modes.
 
-The list is where the piece was chosen: the library, 收藏, 最近播放, an artist, or a conversation (the pieces she
-played in it). 顺序 and 随机 play the list once and stop; 单曲循环 plays the piece again and again. ⏮ starts the
-piece over after its first 3 seconds, and otherwise goes to the one before; neither button wraps around. When the
-list is over, its first piece waits at 0:00 (ended), as an album does.
+The list is where the piece was chosen: the library, 收藏, 最近播放, an artist or a playlist; a piece she chose, or
+one tapped in a conversation, plays alone (the conversation is not a play queue). 顺序 and 随机 play the list once and
+stop; 单曲循环 plays the piece again and again. ⏮ starts the piece over 3 seconds after it began (where it begins
+when played from its start: play.begin), and otherwise goes to the one before; neither button wraps around (her
+下一首 does: Assistant.step). When the list is over, its first piece waits at 0:00 (ended), as an album does.
 
 Chat, voice and the phone all play through the one Playback, so they always agree on what is playing, and on its
 volume: set from any of them, kept in the library, and told to the piano before each piece.
@@ -29,7 +30,7 @@ from .play import GAP_S, Output, Player
 
 log = logging.getLogger(__spec__.name)
 MODES = ("order", "one", "shuffle")
-RESTART_AFTER_S = 3.0  # ⏮ past this point starts the piece over
+RESTART_AFTER_S = 3.0  # ⏮ this long after a piece began starts it over
 DEFAULT_VOLUME = 80  # percent, until one is chosen: about where MIDI's own default (100 of 127) is
 PLAY_S = 30.0  # heard this long, a piece of unknown length counts as played
 
@@ -262,25 +263,42 @@ class Playback(Player):
             finally:
                 self._going_on = False
 
-    def step(self, direction: int) -> None:
-        """⏮ (direction < 0) or ⏭; each plays what it lands on."""
+    def landing(self, direction: int, around: bool = False) -> tuple[int | None, str]:
+        """Where ⏮ (direction < 0) or ⏭ lands, without going there: (the piece, "moved"). Past the last piece,
+        (None, "ended"); around (her 下一首), its first piece instead, (that piece, "around"), or for a list of this
+        piece alone (None, "alone"). Nothing in the player: (None, "")."""
         with self._lock:
             if self.current_id is None:
-                return
+                return None, ""
             ids = self._live()
             i = ids.index(self.current_id) if self.current_id in ids else -1
             if direction < 0:
-                target = self.current_id if self.position > RESTART_AFTER_S or i <= 0 else ids[i - 1]
-            elif 0 <= i < len(ids) - 1:
-                target = ids[i + 1]
-            elif self.mode == "one":
-                target = self.current_id
-            else:
+                begun = self.position - play.begin(self.current[0], 0.0)  # heard of it, from where it begins
+                return (self.current_id if begun > RESTART_AFTER_S or i <= 0 else ids[i - 1]), "moved"
+            if 0 <= i < len(ids) - 1:
+                return ids[i + 1], "moved"
+            if self.mode == "one":
+                return self.current_id, "moved"
+            if not around:
+                return None, "ended"
+            return (ids[0], "around") if len(ids) > 1 else (None, "alone")
+
+    def step(self, direction: int) -> None:
+        """⏮ (direction < 0) or ⏭ on the phone: each plays what it lands on; past the last piece, the list ends."""
+        with self._lock:
+            target, how = self.landing(direction)
+            if how == "ended":
                 self._end_list()
-                return
-            path_title = self.item(target)
+            elif target is not None:
+                self.go_to(target)
+
+    def go_to(self, rec_id: int) -> None:
+        """Play rec_id, a piece of the list that plays, from its start; the list stays as it is (⏮, ⏭, her 下一首).
+        LookupError when the piano is not there: then nothing changes."""
+        with self._lock:
+            path_title = self.item(rec_id)
             previous = self.current_id
-            self._set_current(target)
+            self._set_current(rec_id)
             try:
                 self.start([path_title], 0.0)
             except LookupError:

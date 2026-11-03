@@ -88,6 +88,7 @@ Playback:
 - To operate the current or pending piece, use control_playback(action). It takes NO recording ID:
   pause: stop playing but keep the position; resume: continue from the saved position;
   restart: play the same piece from zero; retry: repeat the pending playback, preserving its intended position;
+  next / previous: the next or the previous piece in the list that plays (a playlist; a piece you chose plays alone);
   cancel: explicitly abandon the selected request and reset playback. Use pause, NOT cancel, for temporary
   waiting, "not yet", or "wait until the connection is ready". These preserve the piece and position.
 - A report of disconnection does not erase a piece. If the user reports fixing the connection or asks to try
@@ -222,9 +223,10 @@ TOOLS = [
     {"name": "control_playback",
      "description": "Control the current or pending piece using application-owned state. Never supply a recording ID. "
                     "pause keeps position (also for waiting/not ready); resume continues; restart starts at zero; retry repeats a failed attempt; "
+                    "next and previous move in the list that plays, as the player's buttons (past the last piece, its first again); "
                     "cancel explicitly abandons the request and resets position, so never use it merely to wait for reconnection.",
      "parameters": {"type": "object", "properties": {"action": {"type": "string",
-                    "enum": ["pause", "resume", "restart", "retry", "cancel"]}},
+                    "enum": ["pause", "resume", "restart", "retry", "next", "previous", "cancel"]}},
                     "required": ["action"], "additionalProperties": False}},
     {"name": "set_volume",
      "description": "Set the piano's volume, 0-100 (the application state has the current level).",
@@ -307,14 +309,15 @@ REPLY_LINES = {  # a playback result, its error or status, and her line for it
     "playback_connection_unavailable": "piano_missing", "playback_connection_lost": "piano_lost",
     "recording_unavailable": "file_missing", "recording_not_found": "which_piece", "nothing_to_play": "what_to_play",
     "paused": "pause", "stopped": "cancel", "nothing is playing": "nothing_playing", "not_started": "ready",
-    "not_ready": "not_ready", "link_not_ready": "link_not_ready",
+    "not_ready": "not_ready", "link_not_ready": "link_not_ready", "nothing_next": "nothing_next",
 }
 
 
 @dataclass(frozen=True)
 class PlaybackRequest:
     """A piece to play, from where. A request with a scope brings its own list (ids) and mode: a playlist, named
-    for her line; without one, the list is the pieces she has played in the conversation."""
+    for her line; without one, the piece plays alone (the conversation is not a play queue). moved: a step in the
+    list that plays (next, previous, from_first, restart; her line), which stays as it is."""
     path: Path
     title: str
     from_s: float = 0.0
@@ -323,6 +326,7 @@ class PlaybackRequest:
     ids: tuple[int, ...] = ()
     scope: dict | None = None
     mode: str | None = None
+    moved: str = ""
 
 
 class Assistant:
@@ -548,8 +552,8 @@ class Assistant:
         return {"error": "nothing_to_play"}
 
     def _start(self, request: PlaybackRequest, from_start: bool = False, going_on: bool = False) -> dict:
-        """Play the request, saying so first: a piece from its list (a playlist's, or else the pieces she has played
-        in this conversation), or the piece in the player again. going_on: it is playing already, only looked at.
+        """Play the request, saying so first: a piece from its list (a playlist's, or else alone), a step in the
+        list that plays, or the piece in the player again. going_on: it is playing already, only looked at.
         With the piano away nothing changes, and the request waits to be retried (pending). The phone's player used
         since the request began (while she found and transcribed a piece, say), the user's choice stands: nothing
         is started, and she says it is ready (the very piece chosen there, it plays). (Nor, voice, does a piece
@@ -565,8 +569,8 @@ class Assistant:
                     "instruction": "While you were getting it, the user changed what plays on their phone, so it was "
                                    "not started. Do not start it: say in a few words that it is ready whenever they "
                                    "want it."}
-        how = ("playlist_shuffled" if request.mode == "shuffle" else "playlist") if request.playlist \
-            else "restart" if from_start else "resume" if request.from_s > 0 else "playing"  # her line (lines.py)
+        how = request.moved or (("playlist_shuffled" if request.mode == "shuffle" else "playlist") if request.playlist
+                                else "restart" if from_start else "resume" if request.from_s > 0 else "playing")  # lines.py
         announced = False
         try:
             player = self._get_player()
@@ -600,7 +604,12 @@ class Assistant:
     def _play(self, request: PlaybackRequest, from_start: bool) -> None:
         player = self.player
         self.started_now = True
-        if request.recording_id is None or (request.recording_id == player.current_id and request.scope is None):
+        if request.moved:  # a step in the list that plays: the list stays as it is
+            was = player.current_id
+            player.go_to(request.recording_id)
+            if request.recording_id != was:
+                self.played_now.append((request.recording_id, request.title))
+        elif request.recording_id is None or (request.recording_id == player.current_id and request.scope is None):
             # the piece already in the player, from its file as the library has it now: on from where it was (a
             # resume, a retry: the same listening), or again from its start
             if request.recording_id is not None and not from_start:
@@ -608,10 +617,9 @@ class Assistant:
             else:
                 player.start([player.current if request.recording_id is not None else (request.path, request.title)],
                              from_s=request.from_s)
-        else:
+        else:  # a playlist plays on in its order; a piece she chose plays alone (the chat is not a play queue)
             ids, scope = (list(request.ids), request.scope) if request.scope is not None else (
-                [*self.conversations.pieces(self.conversation_id or 0), *(i for i, _ in self.played_now)],
-                {"kind": "conversation", "id": self.conversation_id})
+                [request.recording_id], {"kind": "conversation", "id": self.conversation_id})
             player.select(request.recording_id, ids, scope, request.from_s, mode=request.mode)
             self.played_now.append((request.recording_id, request.title))
 
@@ -754,7 +762,26 @@ class Assistant:
             return self.stop()
         if action in {"resume", "restart", "retry"}:
             return self.play(from_start=action == "restart")
+        if action in {"next", "previous"}:
+            return self.step(1 if action == "next" else -1)
         return {"error": "invalid_control_action"}
+
+    def step(self, direction: int) -> dict:
+        """下一首 / 上一首, as ⏭ and ⏮ on the phone, in the list that plays: past its last piece, its first again; with
+        this piece alone, nothing changes, and she says there is nothing lined up. Said and started as any piece
+        she plays (_start)."""
+        target, how = self.player.landing(direction, around=True) if self.player else (None, "")
+        if how == "":
+            return {"status": "nothing is playing"}
+        if how == "alone":
+            return {"status": "nothing_next"}
+        self._touch()
+        rec = self.lib.get(target)
+        if not rec or not rec["file_exists"]:
+            return {"error": "recording_unavailable"}
+        moved = "from_first" if how == "around" else "restart" if target == self.player.current_id \
+            else "next" if direction > 0 else "previous"
+        return self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=target, moved=moved))
 
     def pause(self) -> dict:
         self._touch()

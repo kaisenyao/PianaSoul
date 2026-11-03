@@ -9,11 +9,17 @@ WAKE_WORDS = ["小茗同学", "Hey Jasmine"]
 # Short commands handled without the model, in English and in simplified and traditional Chinese.
 COMMANDS = {
     "pause": {"stop", "pause", "stop playing", "stop it", "stop the music", "enough", "that's enough",
-              "停", "停一下", "暂停", "暫停", "停止", "停止播放", "暂停播放", "暫停播放", "够了", "夠了", "别弹了", "別彈了", "先停一下"},
+              "停", "停一下", "暂停", "暫停", "停止", "停止播放", "暂停播放", "暫停播放", "够了", "夠了", "别弹了", "別彈了", "先停一下",
+              "暂停一下", "暫停一下", "先暂停", "先暫停", "先暂停一下", "先暫停一下", "停一停"},
     "resume": {"play", "continue", "keep playing", "resume", "go on", "start playing", "continue playing",
                "播放", "开始播放", "開始播放", "继续", "繼續", "继续弹", "繼續彈", "继续播放", "繼續播放", "接着弹", "接著彈", "接着播放", "接著播放"},
     "retry": {"retry", "try again", "重试", "再试一次"},
     "cancel": {"cancel", "取消", "取消播放"},
+    "next": {"next", "next one", "next song", "next piece", "skip", "skip it", "skip this one", "play the next one",
+             "下一首", "下一曲", "下首", "下一首歌", "跳过", "跳過", "跳过这首", "跳過這首", "切歌", "换下一首", "換下一首",
+             "放下一首", "弹下一首", "彈下一首", "播放下一首"},
+    "previous": {"previous", "previous one", "previous song", "previous piece", "go back", "play the previous one",
+                 "上一首", "上一曲", "上首", "上一首歌", "回到上一首", "放上一首", "弹上一首", "彈上一首", "播放上一首"},
     "restart": {"start over", "from the beginning", "play it again", "play it from the beginning",
                 "从头弹", "從頭彈", "从头开始", "從頭開始", "从头播放", "從頭播放", "重新弹", "重新彈"},
     "louder": {"louder", "a bit louder", "a little louder", "turn it up", "volume up",

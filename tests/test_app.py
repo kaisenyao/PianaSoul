@@ -15,11 +15,12 @@ from unittest.mock import Mock, patch
 import mido
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
-from pianasoul import chat as chat_module
+from pianasoul import chat as chat_module, play
 from pianasoul.chat import Assistant
 from pianasoul.conversations import QUIET_S, Conversations
 from pianasoul.downloads import Downloads, Job
 from pianasoul.library import Library
+from pianasoul.lines import LINES
 from pianasoul.play import GAP_S, Player
 from pianasoul.playback import Playback
 
@@ -273,6 +274,50 @@ class PlaybackTests(Base):
             Player(port=Mock()).play([(path, 'steady')])
         self.assertFalse([c for c in said.call_args_list if 'late' in str(c.args[0])])
 
+    def test_a_piece_from_its_start_skips_the_silence_before_its_first_note_but_a_moment(self):
+        midi = mido.MidiFile()
+        track = mido.MidiTrack()
+        midi.tracks.append(track)
+        track.append(mido.Message('note_on', note=60, velocity=64, time=round(mido.second2tick(3.0, 480, 500000))))
+        track.append(mido.Message('note_off', note=60, time=240))
+        path = self.root / 'Music' / 'late start.mid'
+        midi.save(path)
+        rec = self.lib.add(path, 'Late start')['id']
+        self.assertAlmostEqual(play.begin(path, 0.0), 3.0 - play.LEAD_IN_S)
+        self.assertAlmostEqual(play.begin(path, -2.0), 1.0 - play.LEAD_IN_S, msg='After a gap, the gap first')
+        self.assertEqual(play.begin(path, 1.5), 1.5, 'From where it was: as it is')
+        self.assertEqual(play.begin(self.lib.get(self.ids[0])['midi_path'], 0.0), 0.0, 'One that begins at once')
+        self.p.select(rec, [rec])
+        self.assertAlmostEqual(self.p.snapshot()['position'], 3.0 - play.LEAD_IN_S, delta=0.1)
+        sent = []
+        port = Mock()
+        port.send.side_effect = lambda msg, *a, **k: msg.type == 'note_on' and sent.append(time.perf_counter())
+        started = time.perf_counter()
+        Player(port=port).play([(path, 'late start')])
+        self.assertAlmostEqual(sent[0] - started, play.LEAD_IN_S, delta=0.3)
+        self.p.select(rec, [self.ids[0], rec])
+        self.p.step(-1)
+        self.assertEqual(self.p.current_id, self.ids[0], '⏮ at once: the one before, its 3 s from where it began')
+
+    def test_the_pedals_an_opening_skipped_set_are_sent_before_its_first_note(self):
+        midi = mido.MidiFile()
+        track = mido.MidiTrack()
+        midi.tracks.append(track)
+        half = round(mido.second2tick(0.5, 480, 500000))
+        track.append(mido.Message('control_change', control=67, value=127, time=half))  # una corda
+        track.append(mido.Message('control_change', control=64, value=127, time=0))
+        track.append(mido.Message('note_on', note=60, velocity=40, time=5 * half))
+        track.append(mido.Message('note_off', note=60, time=240))
+        path = self.root / 'soft.mid'
+        midi.save(path)
+        port = Mock()
+        Player(port=port).play([(path, 'soft')])
+        sent = [(m.type, getattr(m, 'control', None), getattr(m, 'value', None)) for m in
+                (c.args[0] for c in port.send.call_args_list)]
+        first_note = sent.index(('note_on', None, None))
+        self.assertIn(('control_change', 67, 127), sent[:first_note])
+        self.assertIn(('control_change', 64, 127), sent[:first_note])
+
     def test_the_phone_is_told_when_the_position_is_heard(self):
         self.p.lead = 1.0  # the notes leave a second early
         self.p.select(self.ids[0], self.ids)
@@ -472,12 +517,49 @@ class AssistantTests(Base):
                             '好呀。'), '弹一下晴天', typed=True, taps=sent)
         self.assertIsNone(self.p.current_id)
 
-    def test_her_list_is_the_pieces_of_the_conversation(self):
+    def test_a_piece_she_chooses_plays_alone_the_chat_is_not_a_play_queue(self):
         for rec, name in zip(self.ids, ('晴天', '搁浅')):
             chat = Scripted([self.call('search_library', query=name)], [self.call('play_recording', id=rec)], '好。')
             self.a.ask(chat, f'弹{name}')
-        self.assertEqual(self.p.ids, self.ids[:2])
+        self.assertEqual((self.p.ids, self.p.current_id), ([self.ids[1]], self.ids[1]))
+        self.assertEqual(self.p.scope, {'kind': 'conversation', 'id': self.a.conversation_id})
+        said = self.a.ask(Scripted(), '下一首')
+        self.assertIn(said, LINES['nothing_next']['zh'])
+        self.assertEqual((self.p.current_id, self.p.state), (self.ids[1], 'playing'), 'Nothing changes')
+        self.assertIn(self.a.ask(Scripted(), '上一首'), LINES['restart']['zh'], 'Only this one: from its start')
+
+    def test_her_next_is_said_before_the_piece_changes_and_typed_it_changes_after_her_reply(self):
+        self.lib.new_playlist('睡前', self.ids)
+        self.a.ask(Scripted([SimpleNamespace(name='play_playlist', arguments={'name': '睡前'})], '好。'), '放我的睡前歌单')
+        events = []
+        go_to = self.p.go_to
+        with patch.object(self.p, 'go_to', side_effect=lambda rec: (events.append('plays'), go_to(rec))):
+            self.a.ask(Scripted(), '下一首', speak=lambda text, meanwhile=False: events.append(text))
+            self.assertEqual(len(events), 2)
+            self.assertIn(events[0], LINES['next']['zh'], 'Said, then played, as a new piece is')
+            self.assertEqual(events[1], 'plays')
+            events.clear()
+            self.a.on_message = lambda m: events.append(m['role'])
+            self.a.ask(Scripted(), '下一首', typed=True)
+        self.assertLess(events.index('assistant'), events.index('plays'), 'Typed: after her reply')
+        self.assertEqual(self.p.current_id, self.ids[2])
+
+    def test_next_and_previous_move_in_a_playlist_and_past_its_end_it_starts_again(self):
+        self.lib.new_playlist('睡前', self.ids)
+        self.a.ask(Scripted([SimpleNamespace(name='play_playlist', arguments={'name': '睡前'})], '好。'), '放我的睡前歌单')
+        self.assertEqual(self.p.current_id, self.ids[0])
+        self.assertIn(self.a.ask(Scripted(), '下一首'), LINES['next']['zh'])
         self.assertEqual(self.p.current_id, self.ids[1])
+        self.assertIn(self.a.ask(Scripted(), '上一首吧'), LINES['previous']['zh'])
+        self.assertEqual(self.p.current_id, self.ids[0])
+        self.p.step(1), self.p.step(1)
+        self.assertEqual(self.p.current_id, self.ids[2])
+        self.assertIn(self.a.ask(Scripted(), '小茗同学，下一首'), LINES['from_first']['zh'])
+        self.assertEqual((self.p.current_id, self.p.state), (self.ids[0], 'playing'), 'Not ended, as ⏭ would')
+        self.p.step(1), self.p.step(1), self.p.step(1)
+        self.assertEqual((self.p.state, self.p.current_id), ('stopped', self.ids[0]), 'The phone\'s ⏭ ends the list')
+        moved = json.loads(self.a.run_tool('control_playback', {'action': 'next'}))  # the model's way to it
+        self.assertEqual((moved['how'], self.p.current_id), ('next', self.ids[1]))
 
     def test_a_quiet_half_hour_starts_a_new_conversation(self):
         now = [1000.0]
