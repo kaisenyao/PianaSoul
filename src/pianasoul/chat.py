@@ -325,7 +325,8 @@ class Assistant:
         self.played_now: list[tuple[int, str]] = []  # the pieces chosen in this request, kept after its reply
         self.typed = False  # answering a typed request: what she plays waits for her reply (after_reply)
         self.after_reply: list = []  # what she starts playing, typed to, once her reply is there
-        self.taps = 0  # what was done on the phone's player: counted, so that a start waiting for her reply gives way
+        self.taps = 0  # what was done on the phone's player: counted, so that what she would start gives way to it
+        self.taps_asked = 0  # as it was when the request began: used since, nothing she gets ready is started (_start)
         self.taps_before = 0  # as it was when the first start of a typed request began to wait
         self.on_message = None  # called with each message kept in a conversation
         self.last_kept = None  # (conversation, role, text) of the latest message kept
@@ -456,7 +457,14 @@ class Assistant:
     def _start(self, request: PlaybackRequest, from_start: bool = False, going_on: bool = False) -> dict:
         """Play the request, saying so first: a piece from its list (a playlist's, or else the pieces she has played
         in this conversation), or the piece in the player again. going_on: it is playing already, only looked at.
-        With the piano away nothing changes, and the request waits to be retried (pending)."""
+        With the piano away nothing changes, and the request waits to be retried (pending). The phone's player used
+        since the request began (while she found and transcribed a piece, say), the user's choice stands: nothing
+        is started, and she says it is ready."""
+        if not going_on and self.taps != self.taps_asked:
+            return {"status": "not_started", "title": request.title,
+                    "instruction": "While you were getting it, the user changed what plays on their phone, so it was "
+                                   "not started. Do not start it: say in a few words that it is ready whenever they "
+                                   "want it."}
         how = ("playlist_shuffled" if request.mode == "shuffle" else "playlist") if request.playlist \
             else "restart" if from_start else "resume" if request.from_s > 0 else "playing"  # her line (lines.py)
         announced = False
@@ -508,7 +516,7 @@ class Assistant:
 
     def _start_after_reply(self) -> None:
         """What a typed request plays, once her reply is there; not if the phone's player was used meanwhile (a tap
-        wins, as it does over a spoken request, whose piece plays at once)."""
+        wins, as it does before she starts anything: _start)."""
         starts, self.after_reply = self.after_reply, []
         if self.taps == self.taps_before:
             for start in starts:
@@ -763,6 +771,7 @@ class Assistant:
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
                 self.new_conversation(chat)
             self.speak, self.played_now, self.typed, asked = speak, [], typed, time.monotonic()
+            self.taps_asked = self.taps
             self.keep("user", text)
             if self.on_busy:
                 self.on_busy(True)

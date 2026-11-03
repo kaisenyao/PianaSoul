@@ -399,6 +399,28 @@ class AssistantTests(Base):
         self.a.ask(Scripted([self.call('play_recording', id=self.ids[0])], '好呀，晴天。'), '弹一下晴天', typed=True)
         self.assertIsNone(self.p.current_id, 'The tap wins, as over a spoken request')
 
+    def test_what_she_gets_ready_gives_way_to_the_phone_used_meanwhile(self):
+        # She finds and transcribes a piece; meanwhile another is chosen on the phone. When hers is ready, the
+        # user's choice stands: it is not started, and she is told why, to say it is ready.
+        found = self.a.search_library
+        def search_library(query):
+            result = found(query)
+            self.a.taps += 1  # the phone's player, used while she was getting it
+            return result
+        results = []
+        class Told(Scripted):
+            def send_tool_results(self, given):
+                results.extend(json.loads(raw) for _, raw in given)
+                return super().send_tool_results(given)
+        with patch.object(self.a, 'search_library', search_library):  # its own signature: run_tool keeps the query
+            self.a.ask(Told([self.call('search_library', query='晴天')], [self.call('play_recording', id=self.ids[0])],
+                            '准备好了，想听时告诉我。'), '弹一下晴天')
+        self.assertIsNone(self.p.current_id, 'What the phone plays stays')
+        self.assertEqual(results[-1]['status'], 'not_started')
+        self.a.ask(Scripted([self.call('search_library', query='晴天')], [self.call('play_recording', id=self.ids[0])],
+                            '好呀。'), '现在弹晴天吧')
+        self.assertEqual(self.p.current_id, self.ids[0], 'Asked again, it plays')
+
     def test_her_list_is_the_pieces_of_the_conversation(self):
         for rec, name in zip(self.ids, ('晴天', '搁浅')):
             chat = Scripted([self.call('search_library', query=name)], [self.call('play_recording', id=rec)], '好。')
