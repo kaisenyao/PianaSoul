@@ -1006,7 +1006,7 @@ def main(argv=None):
     show_details(args.debug)
     import uvicorn
     from .chat import startup
-    from .core import Core, installed, version as running
+    from .core import Core, installed, transcription_state, version as running
     from .library import DATA_DIR, move_old_library
     from .web_tls import CA_FILE, fingerprint, local_name, prepare_https
     sockets = listen(PORT), listen(CERT_PORT)  # first: nothing starts while another PianaSoul runs
@@ -1031,11 +1031,8 @@ def main(argv=None):
         her, why = False, f'her chat model did not start: {exc}'
         core = Core(assistant=False)
     version = running()
-    features = core.features()
     print('Features: ' + '; '.join([
-        'transcription and online search ' + ('on' if features['transcribe'] else 'off (turned off)'
-                                               if installed('transkun', 'yt_dlp') else
-                                               'off (the advanced extra is not installed)'),
+        f'transcription and online search {transcription_state()}',
         f'her {"on" if her else f"off ({why})"}']), flush=True)
     tls = DATA_DIR / 'phone-tls'
     try:

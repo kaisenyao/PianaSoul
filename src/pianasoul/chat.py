@@ -13,7 +13,6 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import Future
-import importlib.util
 import inspect
 import json
 import logging
@@ -163,11 +162,12 @@ NAME_PROPERTIES = {name: {"type": "string", "description": meaning}
 TOOLS = [
     {"name": "search_library",
      "description": "Search the local MIDI library by piece, artist, performer, alias or tag (any language); "
-                    "the best match first. Always before search_online, with the piece's other names.",
+                    "the best match first.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
     {"name": "search_online",
-     "description": "Search videos online (YouTube). Returns url, title, channel, duration_s, views, description, "
-                    "warning flags, and in_library when that video was already transcribed.",
+     "description": "Search videos online (YouTube), only once search_library, with the piece's other names, has "
+                    "not found it. Returns url, title, channel, duration_s, views, description, warning flags, and "
+                    "in_library when that video was already transcribed.",
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string"},
          "max_results": {"type": "integer", "description": "1-15, default 8"}}, "required": ["query"]}},
@@ -260,8 +260,11 @@ def startup(name: str, **jobs: str) -> str:
 
 
 def search_label() -> str:
-    """Online search, which comes with the advanced extra (yt-dlp), needing no key (SPEC 9.4)."""
-    return "online (yt-dlp)" if importlib.util.find_spec("yt_dlp") else "off (the advanced extra is not installed)"
+    """Online search, which comes with transcription (the advanced extra, yt-dlp), needing no key (SPEC 9.4)."""
+    from .core import transcription_state  # core is made of this module
+
+    state = transcription_state()
+    return "online (yt-dlp)" if state == "on" else state
 
 
 def spoken_title(title: str) -> str:

@@ -342,6 +342,13 @@ def transcription_on() -> bool:
     return os.environ.get("PIANASOUL_TRANSCRIBE") != "0" and installed("transkun", "yt_dlp")
 
 
+def transcription_state() -> str:
+    """As the start says it: on, or off and why."""
+    if transcription_on():
+        return "on"
+    return "off (turned off)" if installed("transkun", "yt_dlp") else "off (the advanced extra is not installed)"
+
+
 def installed(*modules: str) -> bool:
     """Whether these modules can be imported, without importing them."""
     try:

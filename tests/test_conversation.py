@@ -244,6 +244,8 @@ class ConversationTests(unittest.TestCase):
         with patch('importlib.util.find_spec', return_value=None):  # without the advanced extra: no key to set
             self.assertIn('  search   off (the advanced extra is not installed)',
                           voice.VoiceParts.describe(parts, 'OpenAI m'))
+        with patch.dict('os.environ', {'PIANASOUL_TRANSCRIBE': '0'}):  # the Mac app's Online Search & Transcription off
+            self.assertIn('  search   off (turned off)', voice.VoiceParts.describe(parts, 'OpenAI m'))
 
     def test_her_chinese_name_is_written_as_configured_whatever_recognition_hears(self):
         stt = voice.Transcriber.__new__(voice.Transcriber)

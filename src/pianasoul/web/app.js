@@ -298,6 +298,7 @@ function show(view, id = null) {
 // Home is her orb, or without her the library: then the library page itself sits where the orb would, and
 // everything else (the sidebar beside it, the player a left swipe away, the pages over it) is as it is with her.
 function applyFeatures() {
+  if (!data.features.transcribe && openSheet === $('#sheet-add') && !$('#add-field').hidden) closeOverlays();  // its search went
   const lib = $('#view-library'), basic = !herOn();
   app.classList.toggle('basic', basic);
   if (basic === (lib.parentNode === main)) return;
@@ -2222,7 +2223,12 @@ $('#view-settings').addEventListener('click', e => {
   if (device) info(...(T.connectHow[device.kind] || T.connectHow.other));
   if (e.target.closest('#open-help')) push('help');
 });
-const topics = () => herOn() ? T.helpTopics : T.basicTopics;
+// Her topics or the basic ones, as she is on or off; and of them, the library's as online search is (each set has the
+// one for its usual case: hers with it, the basic without).
+const topics = () => {
+  const library = (data.features.transcribe ? T.helpTopics : T.basicTopics).find(t => t.id === 'library');
+  return (herOn() ? T.helpTopics : T.basicTopics).map(t => t.id === 'library' ? library : t);
+};
 function renderHelp() {
   $('#help-list').innerHTML = topics().map(h =>
     `<button class="grow" data-article="${h.id}">${ICON[h.icon]}<span class="gl">${esc(h.title)}</span>${CHEV}</button>`).join('');
