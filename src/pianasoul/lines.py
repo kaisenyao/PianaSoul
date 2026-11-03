@@ -29,6 +29,8 @@ LINES = {
     "restart": {"zh": ["好，那我从头再给你弹一遍。", "没问题，我们从头开始。"],
                 "en": ["Of course, I'll play it again from the beginning.", "Let's start again from the first note."]},
     "now_playing": {"zh": ["已经在弹啦～"], "en": ["I'm already playing it."]},
+    # Got ready while the phone's player was used: not started, the user's choice stands
+    "ready": {"zh": ["《{piece}》准备好啦，想听的时候告诉我～"], "en": ["{piece} is ready whenever you'd like to hear it."]},
     "pause": {"zh": ["好呀，我先停一下，想听的时候叫我继续。", "已经暂停啦，想接着听就叫我。",
                      "嗯，我先停下来，你准备好了再继续。"],
               "en": ["Sure, I'll pause here. Ask me when you'd like to continue.",

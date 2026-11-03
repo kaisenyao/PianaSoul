@@ -284,7 +284,7 @@ def _brief(rec: dict) -> dict:
 REPLY_LINES = {  # a playback result, its error or status, and her line for it
     "playback_connection_unavailable": "piano_missing", "playback_connection_lost": "piano_lost",
     "recording_unavailable": "file_missing", "recording_not_found": "which_piece", "nothing_to_play": "what_to_play",
-    "paused": "pause", "stopped": "cancel", "nothing is playing": "nothing_playing",
+    "paused": "pause", "stopped": "cancel", "nothing is playing": "nothing_playing", "not_started": "ready",
 }
 
 
@@ -459,9 +459,16 @@ class Assistant:
         in this conversation), or the piece in the player again. going_on: it is playing already, only looked at.
         With the piano away nothing changes, and the request waits to be retried (pending). The phone's player used
         since the request began (while she found and transcribed a piece, say), the user's choice stands: nothing
-        is started, and she says it is ready."""
-        if not going_on and self.taps != self.taps_asked:
+        is started, and she says it is ready (the very piece chosen there, it plays). (Nor, voice, does a piece
+        paused while she listened play on by itself: finish_interaction.)"""
+        player = self.player
+        if not going_on and self.phone_used():
+            if player is not None and request.recording_id is not None \
+                    and player.current_id == request.recording_id and player.state == "playing":
+                return {"status": "playing", "how": "now_playing", "title": request.title,
+                        "from": clock(player.position)}
             return {"status": "not_started", "title": request.title,
+                    **({"playlist": request.playlist} if request.playlist else {}),
                     "instruction": "While you were getting it, the user changed what plays on their phone, so it was "
                                    "not started. Do not start it: say in a few words that it is ready whenever they "
                                    "want it."}
@@ -513,6 +520,10 @@ class Assistant:
                 {"kind": "conversation", "id": self.conversation_id})
             player.select(request.recording_id, ids, scope, request.from_s, mode=request.mode)
             self.played_now.append((request.recording_id, request.title))
+
+    def phone_used(self) -> bool:
+        """Whether the phone's player was used since the request began: what it did stands."""
+        return self.taps != self.taps_asked
 
     def _start_after_reply(self) -> None:
         """What a typed request plays, once her reply is there; not if the phone's player was used meanwhile (a tap
@@ -763,15 +774,16 @@ class Assistant:
         return line(key, self.chinese(), result.get("playlist") or spoken_title(result.get("title", "")))
 
     # ---- conversation ------------------------------------------------------------------------
-    def ask(self, chat, text: str, speak=None, typed: bool = False) -> str:
+    def ask(self, chat, text: str, speak=None, typed: bool = False, taps: int | None = None) -> str:
         """Answer one request and keep it, her lines and the pieces she played in the conversation. speak says
-        her lines aloud as they come (voice); typed marks a request typed in the app, answered on screen."""
+        her lines aloud as they come (voice); typed marks a request typed in the app, answered on screen. taps: the
+        phone's player as it was when the request was made, if it waited its turn (Core.type)."""
         with self._turn:
             # Each request resends the whole conversation: after a long quiet spell, start afresh.
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
                 self.new_conversation(chat)
             self.speak, self.played_now, self.typed, asked = speak, [], typed, time.monotonic()
-            self.taps_asked = self.taps
+            self.taps_asked = self.taps if taps is None else taps
             self.keep("user", text)
             if self.on_busy:
                 self.on_busy(True)

@@ -40,7 +40,7 @@ class ConversationTests(unittest.TestCase):
         self.parts.detectors = lambda: (self.parts.wake, self.parts.speech)
         self.parts.wake.heard.return_value = None
         self.parts.speaker.stream.side_effect = lambda text: iter([np.zeros(240, dtype=np.int16)])
-        self.assistant = Mock(player=None, touched_playback=False)
+        self.assistant = Mock(player=None, touched_playback=False, taps=0)
         self.chat = Mock()
         self.c = voice.Conversation(self.assistant, self.chat, self.parts, self.out)
         self.pcm = np.full(voice.FRAME, 1200, dtype='<i2')
@@ -314,6 +314,28 @@ class ConversationTests(unittest.TestCase):
         self.c.respond()
         self.chat.reset.assert_not_called()
         player.go_on.assert_called_once_with(3.0)  # at once, not after the follow-up window
+
+    def test_a_piece_paused_while_she_listened_stays_as_the_phone_left_it(self):
+        # The phone's player used since the piece was paused for her (paused, a piece chosen): her reply does not
+        # undo it. Used before (the piece chosen there, then the orb tapped), the piece plays on as ever.
+        player = self.assistant.player = Mock(state='playing', completed=None, lost=None, current=('p', '传奇'),
+                                              position=3.0, lead=0.0)
+        self.assistant.taps = 1  # the piece chosen on the phone, before she was asked anything
+        self.c.hushed.clear()
+        self.c.turn_on()
+        player.state = 'paused'
+        self.c.dialogue_until = time.monotonic() - 1
+        self.frames(1)  # not spoken to: she waits for her name, and the piece plays on
+        player.go_on.assert_called_once_with(3.0)
+        player.reset_mock()
+        player.state = 'playing'
+        self.c.begin()
+        player.state = 'paused'
+        self.assistant.taps += 1  # the phone's player, while she listened and answered
+        self.c.frames = [np.zeros(voice.FRAME, dtype=np.int16)]
+        self.assistant.ask.return_value = '《晴天》准备好啦，想听的时候告诉我～'
+        self.c.respond()
+        player.go_on.assert_not_called()
 
     def test_hushed_she_neither_listens_nor_speaks_and_the_piano_plays_on(self):
         player = self.assistant.player = Mock(state='playing', completed=None, lost=None, current=('p', '传奇'),

@@ -421,6 +421,25 @@ class AssistantTests(Base):
                             '好呀。'), '现在弹晴天吧')
         self.assertEqual(self.p.current_id, self.ids[0], 'Asked again, it plays')
 
+    def test_giving_way_she_says_it_is_ready_unless_it_is_that_very_piece(self):
+        # Not started: her line, when she has no words of her own, says it is ready. The very piece chosen on the
+        # phone meanwhile: it plays, and she says so.
+        self.a.selectable_ids.add(self.ids[0])
+        self.a.taps_asked, self.a.taps = 0, 1
+        self.assertTrue(self.a.phone_used())
+        result = self.a.play_recording(self.ids[0])
+        self.assertEqual(result['status'], 'not_started')
+        self.assertIn('准备好啦', self.a.playback_reply(result))
+        self.p.select(self.ids[0], self.ids, None)  # the phone's player: this very piece
+        self.assertEqual(self.a.play_recording(self.ids[0])['how'], 'now_playing')
+
+    def test_a_request_that_waited_its_turn_gives_way_to_the_phone_used_after_it_was_sent(self):
+        sent = self.a.taps
+        self.a.taps += 1  # the phone's player, used while it waited behind another request
+        self.a.ask(Scripted([self.call('search_library', query='晴天')], [self.call('play_recording', id=self.ids[0])],
+                            '好呀。'), '弹一下晴天', typed=True, taps=sent)
+        self.assertIsNone(self.p.current_id)
+
     def test_her_list_is_the_pieces_of_the_conversation(self):
         for rec, name in zip(self.ids, ('晴天', '搁浅')):
             chat = Scripted([self.call('search_library', query=name)], [self.call('play_recording', id=rec)], '好。')

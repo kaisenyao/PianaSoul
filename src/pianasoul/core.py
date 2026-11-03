@@ -270,12 +270,15 @@ class Core:
     # ---- what the app does --------------------------------------------------------------------------
     def type(self, text: str, conversation_id: int | None = None) -> None:
         """A request typed in the app, answered on screen: in conversation_id, however long ago it was (an
-        earlier one is picked up again), or in the current conversation."""
+        earlier one is picked up again), or in the current conversation. The phone's player used after it was
+        sent wins over what it plays, though it waits its turn."""
+        taps = self.assistant.taps
+
         def answer():
             if conversation_id is not None:
                 self.assistant.pick_up(self.chat, conversation_id)
             try:
-                self.assistant.ask(self.chat, text, typed=True)
+                self.assistant.ask(self.chat, text, typed=True, taps=taps)
             except Exception as exc:  # that request is dropped; the conversation goes on
                 print(f"  (model error: {exc}; that request is dropped)", flush=True)
             self.emit({"type": "conversations"})

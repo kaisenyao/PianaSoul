@@ -497,8 +497,9 @@ def finished_remark(player, chinese: bool, since: float = 0.0) -> str | None:
     return line("finished", chinese)
 
 
-def finish_interaction(assistant, speaker, answer: str, was_playing: bool) -> None:
-    """Check automatic resumption before speaking a final reply, so a fault is reported once."""
+def finish_interaction(assistant, speaker, answer: str, was_playing: bool, taps_held: int | None = None) -> None:
+    """Check automatic resumption before speaking a final reply, so a fault is reported once. taps_held: the phone's
+    player as it was when the piece was paused for her to listen; used since, what it did stands."""
     def say(text):
         if text:
             print(f"assistant> {text}\n", flush=True)
@@ -506,7 +507,7 @@ def finish_interaction(assistant, speaker, answer: str, was_playing: bool) -> No
 
     player = assistant.player
     if was_playing and player is not None and player.state == "paused":
-        if assistant.touched_playback:
+        if assistant.touched_playback or taps_held is not None and assistant.taps != taps_held:  # she or the phone
             say(answer)
             print(f"  ⏸ {player.current[1]}  {clock(player.position)}", flush=True)
             return
@@ -576,6 +577,7 @@ class Conversation:
         self.deaf_until = 0.0  # tapped on while the piano played: the notes already sent sound on till then
         self.was_playing = False
         self.woken, self.go_on = None, 0
+        self.taps_held = 0  # the phone's player as it was when the piece playing was paused for her (hold_piece)
         self.follow_up_s = FOLLOW_UP_S
         self.listening_since = 0.0
         self.news_is_old()
@@ -717,7 +719,10 @@ class Conversation:
     def hold_piece(self) -> None:
         """The piece playing pauses while she listens; it plays on once she has answered (finish_playback)."""
         player = self.assistant.player
-        self.was_playing = self.was_playing or (player is not None and player.state == "playing")
+        playing = player is not None and player.state == "playing"
+        if playing and not self.was_playing:
+            self.taps_held = self.assistant.taps
+        self.was_playing = self.was_playing or playing
         if player is not None:
             player.completed = None  # a new request takes priority over a closing remark
         if self.was_playing:
@@ -744,7 +749,7 @@ class Conversation:
         self.status("conversation")
 
     def finish_playback(self, answer: str = "") -> None:
-        finish_interaction(self.assistant, self, answer, self.was_playing)
+        finish_interaction(self.assistant, self, answer, self.was_playing, self.taps_held)
         self.was_playing = False
 
     def sleep(self) -> None:
