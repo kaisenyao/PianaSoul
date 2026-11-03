@@ -111,7 +111,6 @@ for (let now = 1480; now <= 1840; now += 40) t.step(now);
 assert.ok(turning.uniforms.quiet > .05 && turning.uniforms.quiet < .5, 'Over a moment');
 for (let now = 1880; now <= 3000; now += 40) t.step(now);
 assert.ok(turning.uniforms.quiet < .02, 'Then in color');
-console.log('Orb passed: gray/color motion parity, volume response, reduced motion, background suspension, GPU loss/fallback/recovery, her other orbs on one clock, and a gentle change between gray and color.');
 
 // The orb that flies home is home's: it moves with the voice as home's does, and bounces with it; other orbs do not.
 {
@@ -130,3 +129,4 @@ flying = false; bounced.length = 0;
 at.orb.bounce([{scale: 1}, {scale: 1.07}], {duration: 460});
 assert.deepEqual(bounced, [at], 'Landed and hidden, it no longer does');
 }
+console.log('Orb passed: gray/color motion parity, volume response, reduced motion, background suspension, GPU loss/fallback/recovery, her other orbs on one clock, a gentle change between gray and color, and the flying orb sized and bounced as the orb at home is.');

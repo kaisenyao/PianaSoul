@@ -106,7 +106,7 @@ dark.addEventListener('change', () => { if (data.settings.appearance === 'system
 const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
   conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system'}, devices: [],
   piano: {name: '', kind: 'other', connected: true},
-  version: {commit: '', repo: ''}, features: {transcribe: true, search: true, assistant: true}, playlists: [], pictures: {}, descriptions: {}};
+  version: {commit: '', repo: ''}, features: {transcribe: true, assistant: true}, playlists: [], pictures: {}, descriptions: {}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
 // What the Mac can do and the look chosen: kept on this phone too, so that the page opens on the right home (her orb,
 // or the library) and in the right colors before the Mac has said.
@@ -1984,11 +1984,12 @@ function fitInput() {
   $('#compose-send').hidden = !input.value.trim();
 }
 input.addEventListener('input', fitInput);
-// On a touch screen the keyboard's return writes a new line, as in Messages, and ↑ sends; with a keyboard of your own,
-// return sends (and shift-return writes a new line).
-const touchScreen = matchMedia('(pointer: coarse)');
+// While the phone's own keyboard is on the screen, its return writes a new line, as in Messages, and ↑ sends; with a
+// keyboard of your own (a computer's, or one for an iPad or a phone: none on the screen), return sends, and
+// shift-return writes a new line. The keyboard on the screen is the visible area it takes (fitKeyboard).
+const onScreenKeyboard = () => !!vv && innerHeight - vv.height > 80;
 input.addEventListener('keydown', e => {
-  if (isEnter(e) && !e.shiftKey && !touchScreen.matches) { e.preventDefault(); sendText(); }
+  if (isEnter(e) && !e.shiftKey && !onScreenKeyboard()) { e.preventDefault(); sendText(); }
 });
 $('#compose-send').addEventListener('click', sendText);
 
@@ -2145,7 +2146,9 @@ function enterVoice(id) {
     hint.classList.toggle('armed', px >= ARM);
   };
   let x0 = 0, sure = false;  // sure: it went up before it went sideways
-  const begin = (x, y, target) => { x0 = x; sure = false; y0 = atEnd() && state.view === 'session' && !target.closest('.compose') ? y : null; };
+  const begin = (x, y, target) => {  // not again while the orb is still flying home
+    x0 = x; sure = false; y0 = !flying && atEnd() && state.view === 'session' && !target.closest('.compose') ? y : null;
+  };
   const move = (x, y, e) => {
     if (y0 === null) return;
     const up = y0 - y;
