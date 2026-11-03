@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul.downloads import Downloads
 from pianasoul.library import Library, artist_key
-from test_app import Base
+from test_app import Base, piece_made
 from test_library import make_midi
 
 JPEG = b'\xff\xd8\xff\xe0' + b'picture' * 10
@@ -89,7 +89,7 @@ class NewPieceTests(Base):
         with patch('pianasoul.pipeline.convert_file', side_effect=convert):
             d = Downloads(self.lib, engine=Mock(), name_piece=lambda query, video, artists: asked.append(artists) or
                                          {'piece': '稻香', 'artist': '周杰伦', 'performer': 'mapplezs'})
-            rec = d.run(str(audio))
+            rec = piece_made(d, str(audio))
         self.assertIn('周杰伦', asked[0], 'The model is told who is there already')
         self.assertEqual((rec['title'], rec['performer']), ('周杰伦 - 稻香 (MappleZS)', 'MappleZS'))
 

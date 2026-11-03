@@ -143,12 +143,6 @@ class Downloads:
         self.changed()
         return job
 
-    def run(self, source: str, **details) -> dict:
-        """Queue a piece and wait for it: the library record, or {"error": ...}."""
-        job = self.add(source, **details)
-        job.finished.wait()
-        return job.result if job.result else {"error": job.error or job.status}
-
     def stop(self, job_id: int) -> None:
         """Stop a piece: it leaves the queue at once, and nothing it made stays (a transcription under way is
         thrown away when it ends)."""

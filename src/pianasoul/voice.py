@@ -584,6 +584,12 @@ class Conversation:
 
     def status(self, state: str) -> None:
         self.state = state
+        # A piece she prepared starts only while she waits for her name: listening on, its sound would be taken for
+        # speech (end_turn), and it would cut into what she is saying or hearing.
+        if state == "waiting":
+            self.assistant.may_play.set()
+        else:
+            self.assistant.may_play.clear()
         self.out.status(state)
 
     def speak(self, pieces) -> None:
@@ -717,7 +723,9 @@ class Conversation:
             self.end_turn()
 
     def hold_piece(self) -> None:
-        """The piece playing pauses while she listens; it plays on once she has answered (finish_playback)."""
+        """The piece playing pauses while she listens; it plays on once she has answered (finish_playback). A piece
+        she prepared waits from now on, before she looks at what plays (status)."""
+        self.assistant.may_play.clear()
         player = self.assistant.player
         playing = player is not None and player.state == "playing"
         if playing and not self.was_playing:

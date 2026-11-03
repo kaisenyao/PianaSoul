@@ -38,7 +38,8 @@
 
 - **She finds what you don't have.** She looks on YouTube for a real piano performance (no tutorials or falling
   notes) and turns it into MIDI with [Transkun](https://github.com/Yujia-Yan/Transkun): notes, timing, dynamics and
-  pedal. Your own recordings work too.
+  pedal. Your own recordings work too. This happens in the background, so you can keep talking with her; the piece
+  plays once it is ready, unless you have chosen something else meanwhile, and then she tells you it is ready.
 
 - **Your library is a folder on your Mac.** Put MIDI files in `~/Music/PianaSoul`, in Finder or from the phone, and
   they are in the app at once, with favorites, recently played and search. The basics need no key at all.
@@ -349,16 +350,17 @@ The project can live on a dedicated Mac mini. To start it from any folder, add
 - **A recording to MIDI:** Transkun `2.0.1`, on this Mac.
 - **Hearing her name, and telling speech from silence:** sherpa-onnx keyword spotting and Silero VAD, on this Mac.
 
-A request goes: speech recognition, then the assistant with your library, then a search, download and transcription
-if the piece is new, then a check that the piano is there, and then the notes.
+A request goes: speech recognition, then the assistant with your library, then a check that the piano is there, and
+then the notes. A new piece is searched for while you wait, then downloaded and transcribed in the background; it
+plays once it is there.
 
 - **Her words.** What always goes the same way (a control done, a volume step, a notice about the piano, goodbye)
   she says in a ready-made line from `src/pianasoul/lines.py`, recorded once in her voice. Everything else the model
   words.
 
 - **Playing safely.** The model can only play pieces that a library search, a look at your library or a
-  transcription returned in the same request, or one of your playlists by its name, so it cannot play something it
-  made up. Short requests such as "stop" are done without the model.
+  transcription returned in the same request, one of the pieces she prepared lately, or one of your playlists by its
+  name, so it cannot play something it made up. Short requests such as "stop" are done without the model.
 
 - **Another chat model.** Anthropic can do the chat: set `PIANASOUL_MODEL=anthropic:claude-haiku-5-5` and
   `ANTHROPIC_API_KEY`. Speech recognition still needs `OPENAI_API_KEY`.

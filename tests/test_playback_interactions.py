@@ -519,21 +519,26 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(self.spoken, [])
 
     def test_a_long_step_she_starts_on_is_said_once_as_what_it_is(self):
-        for first_tool, said in (('search_online', 'searching'), ('transcribe_url', 'preparing'),
-                                 ('transcribe_local', 'preparing')):
-            with self.subTest(first_tool=first_tool):
+        chat = ScriptedChat([call('search_library', query='Red Bean')], [call('search_online')],
+                            [call('transcribe_url')], 'Done.')
+        def run_tool(name, arguments):
+            if name != 'search_library':
+                self.assertEqual(len(self.spoken), 1)  # feedback precedes the blocking work
+            return '{}'
+        with patch.object(self.a, 'run_tool', side_effect=run_tool):
+            self.ask(chat, '我想听红豆')
+        self.assertEqual(self.spoken, LINES['searching']['zh'])
+        kept = [m['text'] for m in self.a.conversations.messages(self.a.conversation_id)]
+        self.assertIn(self.spoken[0], kept, 'In the conversation too, typed or said')
+
+    def test_a_piece_sent_to_be_prepared_is_no_wait_to_fill(self):
+        for tool in ('transcribe_url', 'transcribe_local'):
+            with self.subTest(tool=tool):
                 self.spoken.clear()
-                chat = ScriptedChat([call('search_library', query='Red Bean')], [call(first_tool)],
-                                    [call('transcribe_url')], 'Done.')
-                def run_tool(name, arguments):
-                    if name != 'search_library':
-                        self.assertEqual(len(self.spoken), 1)  # feedback precedes the blocking work
-                    return '{}'
-                with patch.object(self.a, 'run_tool', side_effect=run_tool):
+                chat = ScriptedChat([call('search_library', query='Red Bean')], [call(tool)], 'Done.')
+                with patch.object(self.a, 'run_tool', return_value='{"status": "preparing"}'):
                     self.ask(chat, '我想听红豆')
-                self.assertEqual(self.spoken, LINES[said]['zh'])
-                kept = [m['text'] for m in self.a.conversations.messages(self.a.conversation_id)]
-                self.assertIn(self.spoken[0], kept, 'In the conversation too, typed or said')
+                self.assertEqual(self.spoken, [], 'It is prepared in the background: she answers at once')
 
     def test_model_wait_message_is_preserved_without_fallback_in_both_modes(self):
         line = "I'll find a lovely piano performance for you; please give me a moment."

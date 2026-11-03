@@ -15,8 +15,6 @@ LINES = {
               "en": ["Hi! I'm here.", "Yes? I'm listening!", "Mm-hmm, go ahead!"]},
     # A wait she is starting on, when she has not said anything yet
     "searching": {"zh": ["我去找找看，稍等我一下～"], "en": ["Let me look for it, just a moment."]},
-    "preparing": {"zh": ["我去准备一下，稍等我一会儿。"],
-                  "en": ["Let me get this piece ready for you; it takes a little while."]},
     # Playing: a new piece, the same one from where it was or from the start, or the one already playing
     "playing": {"zh": ["好啦，这就给你弹《{piece}》。", "来啦，《{piece}》送给你～", "《{piece}》，听好咯～"],
                 "en": ["Here's {piece}, just for you.", "Coming up: {piece}.", "Let me play {piece} for you."]},
@@ -29,8 +27,13 @@ LINES = {
     "restart": {"zh": ["好，那我从头再给你弹一遍。", "没问题，我们从头开始。"],
                 "en": ["Of course, I'll play it again from the beginning.", "Let's start again from the first note."]},
     "now_playing": {"zh": ["已经在弹啦～"], "en": ["I'm already playing it."]},
-    # Got ready while the phone's player was used: not started, the user's choice stands
+    # Got ready while something else was chosen (by her or on the phone): not started, the user's choice stands
     "ready": {"zh": ["《{piece}》准备好啦，想听的时候告诉我～"], "en": ["{piece} is ready whenever you'd like to hear it."]},
+    # A piece she was preparing in the background could not be made: named, or a pasted link not named yet
+    "not_ready": {"zh": ["《{piece}》这次没准备好，要不要换个版本试试？"],
+                  "en": ["I couldn't get {piece} ready this time. Shall I try another version?"]},
+    "link_not_ready": {"zh": ["那个链接这次没准备好，要不要换一个试试？"],
+                       "en": ["I couldn't get that link ready this time. Shall we try another one?"]},
     "pause": {"zh": ["好呀，我先停一下，想听的时候叫我继续。", "已经暂停啦，想接着听就叫我。",
                      "嗯，我先停下来，你准备好了再继续。"],
               "en": ["Sure, I'll pause here. Ask me when you'd like to continue.",

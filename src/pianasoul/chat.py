@@ -3,13 +3,13 @@
     ./run.sh chat
 
 The assistant looks in the local library first, then searches online (YouTube, through yt-dlp), gets the chosen video
-ready through the same queue as the app's downloads (download, transcribe, file it in the library folder's
-Transcribed/), and plays it on the piano over MIDI.
+ready in the background through the same queue as the app's downloads (download, transcribe, file it in the library
+folder's Transcribed/), and plays it on the piano over MIDI once it is there.
 """
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import Future
@@ -42,7 +42,8 @@ MATCH_SCORE = 2.0  # a library match on a whole word (two characters or more), n
 VOLUME_STEP = 10  # percent, for "louder" and "softer"
 LIST_MOST, OVERVIEW_MOST, MOST_PLAYED = 40, 15, 20  # library_info: pieces in one answer, artists in its overview, most played
 ACTIONS = {"play_recording", "control_playback", "play_playlist", "set_volume"}  # tools that do something she then confirms
-WAITS = {"search_online": "searching", "transcribe_url": "preparing", "transcribe_local": "preparing"}  # long steps
+WAITS = {"search_online": "searching"}  # a long step, and her line for it
+PREPARED_KEPT = 5  # the latest pieces she prepared in the background, remembered to be asked for
 # Typed to, she answers as a person texting would: her reply after a moment at least (the dots show meanwhile), and
 # what she plays starts once it is there, a little after it.
 TYPED_REPLY_S, TYPED_PLAY_S = 1.0, 0.8
@@ -81,8 +82,9 @@ If you are not sure which piece the user means (a misspelled or ambiguous name),
 piece and say which.
 
 Playback:
-- Use play_recording(id) ONLY to select a recording returned by search_library, library_info or a successful
-  transcription in this request. Never invent, infer or reuse an unverified recording ID.
+- Use play_recording(id) ONLY to select a recording returned by search_library, library_info or a transcription
+  that is done, or listed in the application state (library_matches, prepared). Never invent, infer or reuse an
+  unverified recording ID.
 - To operate the current or pending piece, use control_playback(action). It takes NO recording ID:
   pause: stop playing but keep the position; resume: continue from the saved position;
   restart: play the same piece from zero; retry: repeat the pending playback, preserving its intended position;
@@ -134,12 +136,18 @@ FINDING_ONLINE = """2. If it is not there either, write one short, friendly sent
    - if the user named a pianist ("Lang Lang's Chopin"), use only that pianist; if there is none, say so and ask.
    If nothing fits, try one refined search.
 3. Call transcribe_url with the chosen URL, the piece's names (piece, artist, performer and aliases: each on its
-   own, as the tool describes them) and a few English tags. Then call play_recording with the new id and say whose performance
-   it is in a few words.
+   own, as the tool describes them) and a few English tags. The piece is prepared in the background and plays by
+   itself once it is ready, unless something else is chosen to play meanwhile, in this request or later (the user
+   is then told it is ready); of several sent at once, only the first ready plays by itself, and the others are
+   said to be ready. Do not call play_recording for it. Say in a few words whose performance you are getting ready
+   and that it will play once it is, without predicting a duration; the user may chat or ask for more meanwhile. If
+   transcribe_url says it is done (it was prepared before), call play_recording with its id instead.
 4. If there is no good piano version, say so kindly and do not play something poor.
-If the user pastes a video link, briefly say you will prepare it and explicitly ask them to
-wait, without estimating a duration. Call transcribe_url with that link (its names empty unless the user named
-them) and play it. For a local audio file path use transcribe_local in the same way."""
+If the user pastes a video link, call transcribe_url with it (its names empty unless the user named them) and say
+briefly that you are getting it ready, as above. For a local audio file path use transcribe_local in the same way.
+The application state lists the pieces being prepared (preparing), those prepared lately (prepared) and those that
+could not be (could_not_prepare): when the user asks about one, say how it is. One prepared may be played with
+play_recording; for one that could not be, you may offer to look for another performance."""
 FINDING_LIBRARY = """2. If it is not there either, say kindly, in a sentence or two, that it is not in their library, and that you can
    find pieces online once Online Search & Transcription (在线搜索与转谱) is turned on in PianaSoul's settings on the Mac;
    name that setting as it is. You may offer something close from their library. A pasted video link or a local
@@ -173,13 +181,15 @@ TOOLS = [
          "max_results": {"type": "integer", "description": "1-15, default 8"}}, "required": ["query"]}},
     {"name": "transcribe_url",
      "description": "Download the audio of one video (YouTube, bilibili or another site yt-dlp supports), transcribe "
-                    "it to MIDI and add it to the library under its names (left empty, they are taken from the video).",
+                    "it to MIDI and add it to the library under its names (left empty, they are taken from the video). "
+                    "In the background, after any pieces before it: it plays by itself once ready.",
      "parameters": {"type": "object", "properties": {
          "url": {"type": "string"}, **NAME_PROPERTIES,
          "tags": {"type": "string", "description": "comma-separated English tags"}},
          "required": ["url"]}},
     {"name": "transcribe_local",
-     "description": "Transcribe a local audio file (mp3, m4a, wav, flac) to MIDI and add it to the library under its names.",
+     "description": "Transcribe a local audio file (mp3, m4a, wav, flac) to MIDI and add it to the library under its "
+                    "names. In the background, after any pieces before it: it plays by itself once ready.",
      "parameters": {"type": "object", "properties": {
          "path": {"type": "string"}, **NAME_PROPERTIES,
          "tags": {"type": "string", "description": "comma-separated English tags"}},
@@ -198,7 +208,7 @@ TOOLS = [
          "name": {"type": "string", "description": "the artist's or the playlist's name, for those"}},
          "required": ["about"], "additionalProperties": False}},
     {"name": "play_recording",
-     "description": "Select a NEW recording from library_matches, search_library, library_info or transcription in this request, and play it from zero. "
+     "description": "Select a NEW recording from library_matches, search_library, library_info, a transcription that is done or the pieces prepared lately, and play it from zero. "
                     "For continuing, retrying or restarting the existing piece, use control_playback instead.",
      "parameters": {"type": "object", "properties": {"id": {"type": "integer"}},
                     "required": ["id"], "additionalProperties": False}},
@@ -281,10 +291,21 @@ def _brief(rec: dict) -> dict:
     return {"id": rec["id"], **names, **{k: rec[k] for k in keys if k in rec}}
 
 
+def _named(job) -> str:
+    """A piece being made, as she is told of it: its title, or its link or file until it is named."""
+    return job.public()["title"] or job.source
+
+
+def _choice(rec: dict) -> dict:
+    """A recording the application state offers her to play: what she chooses by, not where its file is."""
+    return {k: v for k, v in _brief(rec).items() if k not in ("source_url", "midi_path", "notes", "pedal_presses")}
+
+
 REPLY_LINES = {  # a playback result, its error or status, and her line for it
     "playback_connection_unavailable": "piano_missing", "playback_connection_lost": "piano_lost",
     "recording_unavailable": "file_missing", "recording_not_found": "which_piece", "nothing_to_play": "what_to_play",
     "paused": "pause", "stopped": "cancel", "nothing is playing": "nothing_playing", "not_started": "ready",
+    "not_ready": "not_ready", "link_not_ready": "link_not_ready",
 }
 
 
@@ -318,7 +339,7 @@ class Assistant:
         self.speak = None  # during a spoken request: says her lines aloud as they come
         self.pending: PlaybackRequest | None = None
         self.selectable_ids: set[int] = set()  # only IDs offered by tools in the current request
-        self.touched_playback = False  # set whenever play, pause or stop runs
+        self.touched_playback = False  # set whenever play, pause or stop runs (_touch)
         self.clock = time.time
         self.replied_at: float | None = None
         self.conversation_id: int | None = None  # the conversation she remembers; None until something is said
@@ -328,6 +349,16 @@ class Assistant:
         self.taps = 0  # what was done on the phone's player: counted, so that what she would start gives way to it
         self.taps_asked = 0  # as it was when the request began: used since, nothing she gets ready is started (_start)
         self.taps_before = 0  # as it was when the first start of a typed request began to wait
+        # What plays, changed by her (play, pause, stop), by a request for pieces to be prepared or by one of them
+        # starting: counted, so that a piece she prepared in the background starts only if nothing changed since.
+        self.moves = 0
+        self.preparing: dict[int, tuple] = {}  # being prepared: job id -> (job, moves, taps) as the request left them
+        self.preparing_now: list[int] = []  # the jobs this request has sent to be prepared
+        self.started_now = False  # this request started a piece or went on with one (_play)
+        self.prepared: deque[int] = deque(maxlen=PREPARED_KEPT)  # the ids of the latest she prepared, oldest first
+        self.failed: deque[str] = deque(maxlen=PREPARED_KEPT)  # the latest that could not be made, by name or link
+        self.may_play = threading.Event()  # cleared unless voice waits for her name: a piece she prepared waits
+        self.may_play.set()
         self.on_message = None  # called with each message kept in a conversation
         self.last_kept = None  # (conversation, role, text) of the latest message kept
         self.on_busy = None  # called with True when she starts on a request, False when she has answered
@@ -410,15 +441,75 @@ class Assistant:
         return self._transcribe(path, piece=piece, artist=artist, performer=performer, aliases=aliases, tags=tags)
 
     def _transcribe(self, source: str, **names) -> dict:
-        """Through the same queue as the app's downloads, named the same way; waits for the piece."""
+        """Through the same queue as the app's downloads, named the same way. A piece made before is there at once;
+        any other is prepared in the background, and she is free meanwhile (_prepared)."""
         if self.downloads is None:
             from .downloads import Downloads
 
             self.downloads = Downloads(self.lib)
-        rec = self.downloads.run(source, query=self.request, **names)
-        if rec.get("error"):
-            return {"status": "failed", "error": rec["error"]}
-        return {"status": "done", **_brief(rec)}
+        job = self.downloads.add(source, query=self.request, **names)
+        if job.finished.is_set():
+            if job.result is None:
+                return {"status": "failed", "error": job.error or job.status}
+            return {"status": "done", **_brief(job.result)}
+        if not self.preparing_now:  # what this request asked for, not what an earlier one did, starts once ready
+            self.moves += 1
+        self.preparing_now.append(job.id)
+        waited = job.id in self.preparing  # asked for again: one waits for it, as the latest request found things
+        self.preparing[job.id] = (job, self.moves, self.taps_asked)  # moves as the request ends (_asked)
+        if not waited:
+            threading.Thread(target=self._prepared, args=(job,), daemon=True).start()
+        return {"status": "preparing", "title": job.public()["title"],
+                "instruction": "It is being prepared in the background. It plays by itself once ready (of several sent "
+                               "at once, the first ready), unless something else is chosen to play meanwhile; then "
+                               "the user is told it is ready. Do not call play_recording for it."}
+
+    def _asked(self) -> None:
+        """As a request ends: what it sent to be prepared starts once ready if nothing changes from now on, and not if
+        the request played a piece itself, new or going on (they are said to be ready)."""
+        moves = None if self.started_now else self.moves
+        for job_id in self.preparing_now:
+            job, _, taps = self.preparing[job_id]
+            self.preparing[job_id] = (job, moves, taps)
+
+    def _prepared(self, job) -> None:
+        """A piece prepared in the background, once it is there (or could not be): when she is free (no request she
+        is answering, and voice waiting for her name)."""
+        job.finished.wait()
+        while True:
+            self.may_play.wait()
+            with self._turn:
+                if self.may_play.is_set():
+                    return self._ready(job)
+
+    def _ready(self, job) -> None:
+        """It plays if nothing has changed since the request that asked for it (_start: nor on the phone), the first of
+        a request's pieces only; else she says it is ready, or that it could not be made. Remembered either way
+        (prepared, failed)."""
+        _, moves, taps = self.preparing.pop(job.id)
+        rec = self.lib.get(job.result["id"]) if job.result else None
+        if rec is None:
+            if job.status == "failed":  # not one stopped in the app
+                title = job.public()["title"]
+                self.failed.append(_named(job))
+                self.piano_news({"error": "not_ready", "title": title} if title else {"error": "link_not_ready"})
+            return
+        self.prepared.append(rec["id"])
+        if getattr(self.player, "current_id", None) == rec["id"]:
+            return  # chosen meanwhile, by her or on the phone: nothing to say
+        if self.moves != moves:
+            self.piano_news({"status": "not_started", "title": rec["title"]})
+            return
+        self.moves += 1
+        self.taps_asked, self.played_now = taps, []
+        try:
+            result = self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=rec["id"]))
+        except Exception as exc:  # said, as for a typed request's piece (_started)
+            print(f"  (playing failed: {type(exc).__name__}: {exc})", flush=True)
+            result = {"error": "failed"}
+        self.piano_news(result)
+        for rec_id, title in self.played_now:
+            self.keep("piece", title, rec_id)
 
     def _get_player(self):
         if self.player is None:
@@ -430,7 +521,7 @@ class Assistant:
     def play(self, id: int | None = None, from_start: bool = False) -> dict:
         """A new piece (id), the one waiting to be played again (pending), or the one in the player: from where it
         was, or from the start."""
-        self.touched_playback = True
+        self._touch()
         if id is not None:
             rec = self.lib.get(int(id))
             if not rec:
@@ -506,6 +597,7 @@ class Assistant:
 
     def _play(self, request: PlaybackRequest, from_start: bool) -> None:
         player = self.player
+        self.started_now = True
         if request.recording_id is None or (request.recording_id == player.current_id and request.scope is None):
             # the piece already in the player, from its file as the library has it now: on from where it was (a
             # resume, a retry: the same listening), or again from its start
@@ -524,6 +616,12 @@ class Assistant:
     def phone_used(self) -> bool:
         """Whether the phone's player was used since the request began: what it did stands."""
         return self.taps != self.taps_asked
+
+    def _touch(self) -> None:
+        """She changes what plays (play, pause, stop): a piece paused while she listened stays as she left it
+        (voice.finish_interaction), and a piece she is preparing does not start by itself (_ready)."""
+        self.touched_playback = True
+        self.moves += 1
 
     def _start_after_reply(self) -> None:
         """What a typed request plays, once her reply is there; not if the phone's player was used meanwhile (a tap
@@ -566,7 +664,7 @@ class Assistant:
         if not pieces:
             return {"error": "playlist_empty"}
         first = random.choice(pieces) if shuffle else pieces[0]
-        self.touched_playback = True
+        self._touch()
         return self._start(PlaybackRequest(
             Path(first["midi_path"]), first["title"], recording_id=first["id"], playlist=found["name"],
             ids=tuple(p["id"] for p in pieces), scope={"kind": "playlist", "id": found["id"]},
@@ -657,7 +755,7 @@ class Assistant:
         return {"error": "invalid_control_action"}
 
     def pause(self) -> dict:
-        self.touched_playback = True
+        self._touch()
         player = self.player
         if not player or player.current is None or player.state == "stopped":
             return {"status": "nothing is playing"}
@@ -669,7 +767,7 @@ class Assistant:
 
     def stop(self) -> dict:
         self.pending = None
-        self.touched_playback = True
+        self._touch()
         if self.player and self.player.current is not None:
             self.player.stop()
             print(f"  ⏹ {self.player.current[1]}", flush=True)
@@ -681,8 +779,7 @@ class Assistant:
         may be played as if search_library had offered them."""
         found = [r for r in self.lib.search(strip_fillers(text)) if r["score"] >= MATCH_SCORE and r["file_exists"]]
         self.selectable_ids.update(r["id"] for r in found)
-        return [{k: v for k, v in _brief(r).items() if k not in ("source_url", "midi_path", "notes", "pedal_presses")}
-                for r in found]
+        return [_choice(r) for r in found]
 
     def short_request(self, action: str) -> str:
         """A short request that always means the same thing (playback_commands), done without the model."""
@@ -703,8 +800,9 @@ class Assistant:
 
     def piano_news(self, result: dict) -> str:
         """Her line about the piano (playback_reply) when no request to her brought it up: a tap in the app, the piano
-        going away while playing, a piece paused for her that could not go on. She sends it to the conversation, as
-        she would text it, but not again while it is the last thing there. Returns it, for where she speaks."""
+        going away while playing, a piece paused for her that could not go on, a piece she prepared in the background
+        (_ready). She sends it to the conversation, as she would text it, but not again while it is the last thing
+        there. Returns it, for where she speaks."""
         line = self.playback_reply(result)
         if self.last_kept != (self.conversation_id, "assistant", line):
             print(f"assistant> {line}\n", flush=True)
@@ -783,6 +881,7 @@ class Assistant:
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
                 self.new_conversation(chat)
             self.speak, self.played_now, self.typed, asked = speak, [], typed, time.monotonic()
+            self.preparing_now, self.started_now = [], False
             self.taps_asked = self.taps if taps is None else taps
             self.keep("user", text)
             if self.on_busy:
@@ -806,6 +905,7 @@ class Assistant:
                     self.keep("piece", title, rec_id)
                 return answer
             finally:
+                self._asked()
                 self.speak, self.typed, self.after_reply = None, False, []
                 self.replied_at = self.clock()
                 if self.on_busy:
@@ -850,6 +950,15 @@ class Assistant:
                 rec = self.lib.get(self.player.current_id) if getattr(self.player, "current_id", None) else None
                 if rec:  # its names as the library keeps them: the title need not say who plays it
                     state["current"].update(id=rec["id"], **title_parts(rec["title"], rec["composer"], rec["performer"]))
+            waiting = [job for job, _, _ in self.preparing.values()]  # one finished while she was busy is as it ended
+            if making := [_named(job) for job in waiting if not job.finished.is_set()]:
+                state["preparing"] = making
+            made = [*self.prepared, *(job.result["id"] for job in waiting if job.finished.is_set() and job.result)]
+            if prepared := [rec for rec in map(self.lib.get, made) if rec and rec["file_exists"]]:
+                state["prepared"] = [_choice(rec) for rec in prepared]
+                self.selectable_ids.update(rec["id"] for rec in prepared)
+            if failed := [*self.failed, *(_named(job) for job in waiting if job.status == "failed")]:
+                state["could_not_prepare"] = failed
             if self.player and self.player.volume is not None:
                 state["volume"] = self.player.volume
             if playlists := self.lib.playlists():

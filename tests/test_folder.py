@@ -18,6 +18,7 @@ from pianasoul.core import Core
 from pianasoul.downloads import Downloads
 from pianasoul.folder import Folder
 from pianasoul.library import Library
+from test_app import piece_made
 from test_library import make_midi
 
 
@@ -292,7 +293,7 @@ class TranscribeOnceTests(unittest.TestCase):
         item = self.put('Noise.mp3')
         with patch('pianasoul.pipeline.convert_file', side_effect=RuntimeError('could not decode audio')):
             d = Downloads(self.lib, engine=object())
-            d.run(str(self.music / 'Noise.mp3'))
+            piece_made(d, str(self.music / 'Noise.mp3'))
         failed = self.lib.audio_item(item['id'])
         self.assertEqual((failed['status'], failed['error']), ('failed', 'RuntimeError: could not decode audio'))
 

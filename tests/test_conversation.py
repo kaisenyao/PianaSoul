@@ -101,6 +101,22 @@ class ConversationTests(unittest.TestCase):
         self.frames(1, speaking=True)
         self.assertEqual(self.c.state, 'listening', 'After a reply, no name is needed for a while')
 
+    def test_a_piece_she_prepared_starts_only_while_she_waits_for_her_name(self):
+        # Not while she listens on without her name after her reply either: its sound would be taken for speech.
+        self.assistant.may_play = may_play = threading.Event()
+        may_play.set()
+        self.frames(1, speaking=True, name='小明同学')
+        self.assertFalse(may_play.is_set(), 'Her name heard')
+        self.assistant.ask.return_value = 'Hello'
+        self.c.respond()
+        self.c.resume()  # her reply heard: she listens on
+        self.assertEqual(self.c.state, 'conversation')
+        self.assertFalse(may_play.is_set())
+        self.c.sleep()
+        self.assertTrue(may_play.is_set(), 'She waits for her name again')
+        self.c.piano_unavailable()  # a remark of hers, and the phone has yet to say it was heard
+        self.assertFalse(may_play.is_set())
+
     def test_nothing_to_answer_stays_silent_and_waits_for_her_name(self):
         for heard in ('', '嗯。'):
             self.out.events.clear()
