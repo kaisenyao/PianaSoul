@@ -528,6 +528,37 @@ class AssistantTests(Base):
         self.assertEqual((self.p.current_id, self.p.state), (self.ids[1], 'playing'), 'Nothing changes')
         self.assertIn(self.a.ask(Scripted(), '上一首'), LINES['restart']['zh'], 'Only this one: from its start')
 
+    def test_her_words_before_a_lookup_are_said_at_once_and_once_but_not_before_an_action(self):
+        class Ahead(Scripted):  # a streamed model: the words go to before_tool as it starts on its first tool
+            def __init__(self, words, *steps):
+                super().__init__(*steps)
+                self.words = words
+
+            def send_user(self, text):
+                reply = super().send_user(text)
+                if reply.tool_calls:
+                    self.before_tool(self.words, reply.tool_calls[0].name)
+                    return SimpleNamespace(text=self.words, tool_calls=reply.tool_calls)
+                return reply
+        said = []
+        speak = lambda text, meanwhile=False: said.append((text, meanwhile))
+        self.a.ask(Ahead('我找找晴天～', [self.call('search_library', query='晴天')], '没找到呢。'), '弹一下晴天', speak=speak)
+        self.assertEqual(said, [('我找找晴天～', True)], 'At once, while she looks; not again')
+        said.clear()
+        answer = self.a.ask(Ahead('我找找晴天～', [self.call('search_library', query='晴天')],
+                                  [self.call('play_recording', id=self.ids[0])], '找到啦。'), '弹一下晴天', speak=speak)
+        self.assertEqual((said, answer), ([('我找找晴天～', True)], ''), 'It named the piece: no opening line after it')
+        self.assertEqual(self.p.current_id, self.ids[0])
+        said.clear()
+        with patch.object(chat_module, 'MAX_TOOL_ROUNDS', 1):  # she gives up, still looking
+            answer = self.a.ask(Ahead('我再找找～', [self.call('library_info', about='overview')],
+                                      [self.call('library_info', about='overview')]), '我都有什么曲子', speak=speak)
+        self.assertEqual((len(said), answer), (2, ''), 'Said with each of her two looks; not again as her answer')
+        said.clear()
+        self.a.ask(Ahead('好，这就弹～', [self.call('play_recording', id=self.ids[0])], '好。'), '弹晴天', speak=speak)
+        self.assertNotIn(('好，这就弹～', True), said, 'Words that come with an action: her line follows it')
+        self.assertTrue(said and '晴天' in said[0][0])
+
     def test_her_next_is_said_before_the_piece_changes_and_typed_it_changes_after_her_reply(self):
         self.lib.new_playlist('睡前', self.ids)
         self.a.ask(Scripted([SimpleNamespace(name='play_playlist', arguments={'name': '睡前'})], '好。'), '放我的睡前歌单')

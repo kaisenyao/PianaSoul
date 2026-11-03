@@ -12,6 +12,13 @@ import re
 from dataclasses import dataclass, field
 
 DEFAULTS = {"openai": "gpt-6-luna", "anthropic": "claude-haiku-5-5"}
+# She thinks a little, on the models that think: her first sentence came quickest and cleanest so (M5.5 validation).
+REASONING = {"effort": "low"}
+THINKS = re.compile(r"(o\d|gpt-[5-9])")  # OpenAI's models that take reasoning settings
+
+
+class BrokenOff(RuntimeError):
+    """A streamed response that ended before it was over."""
 
 
 @dataclass
@@ -60,15 +67,52 @@ class OpenAIChat:
                        "parameters": t["parameters"]} for t in tools]
         self.previous = self.turn_start = None
         self.earlier: list[dict] = []  # a conversation picked up again, sent before the first request
+        # Called with (the words written, the tool's name) as the model, having written words, starts on its first
+        # tool call: what it says it will do may be said while it does it.
+        self.before_tool = None
 
     def _call(self, items: list) -> Reply:
+        """The model's response, streamed (it is done sooner so): its words before a tool call go to before_tool as
+        soon as it starts on the call. A stream that breaks off is asked for again, as the SDK does with a response
+        that comes whole, unless its words were handed over already: they are never said twice."""
+        from openai import APIConnectionError
+
         kwargs = {"previous_response_id": self.previous} if self.previous else {}
-        resp = self.client.responses.create(model=self.model, instructions=self.instructions,
-                                            input=items, tools=self.tools, **kwargs)
+        if THINKS.match(self.model):
+            kwargs["reasoning"] = REASONING
+        for attempt in range(self.client.max_retries + 1):
+            handed = []
+            try:
+                resp = self._stream(items, kwargs, handed)
+                break
+            except (APIConnectionError, BrokenOff):
+                if handed or attempt == self.client.max_retries:
+                    raise
         self.previous = resp.id
         calls = [ToolCall(o.call_id, o.name, _parse_args(o.arguments))
                  for o in resp.output if getattr(o, "type", "") == "function_call"]
         return Reply(resp.output_text or "", calls)
+
+    def _stream(self, items: list, kwargs: dict, handed: list):
+        """One streamed response, whole once it is over; handed gets the words given to before_tool."""
+        resp, words, told = None, "", False
+        for event in self.client.responses.create(model=self.model, instructions=self.instructions, input=items,
+                                                  tools=self.tools, stream=True, **kwargs):
+            if event.type == "response.output_text.delta":
+                words += event.delta
+            elif event.type == "response.output_item.added" and event.item.type == "function_call" and not told:
+                told = True
+                if words.strip() and self.before_tool:
+                    handed.append(words.strip())
+                    self.before_tool(words.strip(), event.item.name)
+            elif event.type in {"response.completed", "response.incomplete"}:
+                resp = event.response
+            elif event.type in {"response.failed", "error"}:
+                error = getattr(getattr(event, "response", None), "error", None) or event
+                raise RuntimeError(f"the model failed: {getattr(error, 'message', error)}")
+        if resp is None:
+            raise BrokenOff("the model's response ended before it was complete")
+        return resp
 
     def send_user(self, text: str) -> Reply:
         self.turn_start = self.previous
@@ -100,6 +144,7 @@ class AnthropicChat:
                       for t in tools]
         self.messages: list[dict] = []
         self.turn_start = 0
+        self.before_tool = None  # as OpenAIChat's; never called, the response coming whole
 
     def _call(self) -> Reply:
         resp = self.client.messages.create(model=self.model, max_tokens=2000, system=self.instructions,
