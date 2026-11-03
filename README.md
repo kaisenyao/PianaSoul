@@ -258,6 +258,8 @@ Set these in `~/.zshrc`.
 - `OPENAI_API_KEY`: the chat model and speech recognition.
 - `ELEVENLABS_API_KEY` and `PIANASOUL_VOICE_ID`: her voice.
 - `PIANASOUL_LANGUAGES`: the languages you speak, such as `zh,en`.
+- `PIANASOUL_TRANSCRIBE`: `0` turns transcription and online search off though the advanced extra is installed, with
+  her still on (the Mac app's Online Search & Transcription).
 - `PIANASOUL_PORT`: the MIDI output, by part of its name, until one is chosen in the Mac app. Default `pianasoul`.
 - `PIANASOUL_LEAD`: seconds each note leaves early (see Timing). Default `1` for a network session, `0` otherwise.
 - `PIANASOUL_MUSIC`, `PIANASOUL_DATA` and `PIANASOUL_CACHE`: other places for the library folder, its data and work

@@ -1033,8 +1033,9 @@ def main(argv=None):
     version = running()
     features = core.features()
     print('Features: ' + '; '.join([
-        f'transcription and online search '
-        f'{"on" if features["transcribe"] else "off (the advanced extra is not installed)"}',
+        'transcription and online search ' + ('on' if features['transcribe'] else 'off (turned off)'
+                                               if installed('transkun', 'yt_dlp') else
+                                               'off (the advanced extra is not installed)'),
         f'her {"on" if her else f"off ({why})"}']), flush=True)
     tls = DATA_DIR / 'phone-tls'
     try:

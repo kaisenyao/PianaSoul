@@ -76,28 +76,10 @@ When the user wants to hear something:
    may still be there under its other names, as titles are often in another language: call search_library with
    them, saying nothing yet (its name in English or Chinese, whichever the request did not use, other spellings,
    the composer's other name; for example 夜曲 -> Chopin Nocturne, 致爱丽丝 -> Für Elise), and play it if it is there.
-2. If it is not there either, write one short, friendly sentence that says you will find it AND explicitly asks the
-   listener to wait (for example "I'll find a lovely piano performance for you; please give me a moment.").
-   Vary the wording without predicting a duration or promising it will be ready immediately. Include the sentence
-   with your search_online call. Search with the composer or singer, piece, catalog number, pianist if named, and "piano".
-   Choose the best candidate yourself:
-   - prefer recordings where the piano carries the music: solo piano first, piano with voice second, never a band
-     mix or a remix; a real human performance by a named pianist, a good recording, and a duration that fits;
-   - avoid falling-notes/Synthesia videos, MIDI renderings, tutorials, easy or slowed arrangements, compilations,
-     and different pieces (see each result's flags);
-   - for a song that is not a piano piece, a good piano cover is right. A singer or band named with a song
-     ("Sodagreen's Xiao Qing Ge") only says which song it is, so any good pianist's cover is right;
-   - if the user named a pianist ("Lang Lang's Chopin"), use only that pianist; if there is none, say so and ask.
-   If nothing fits, try one refined search.
-3. Call transcribe_url with the chosen URL, the piece's names (piece, artist, performer and aliases: each on its
-   own, as the tool describes them) and a few English tags. Then call play_recording with the new id and say whose performance
-   it is in a few words.
-4. If there is no good piano version, say so kindly and do not play something poor.
+{finding}
 If you are not sure which piece the user means (a misspelled or ambiguous name), ask a short question such as
 "Do you mean John Legend's All of Me?". If the request is merely vague ("a Chopin nocturne"), pick a well-known
-piece and say which. If the user pastes a video link, briefly say you will prepare it and explicitly ask them to
-wait, without estimating a duration. Call transcribe_url with that link (its names empty unless the user named
-them) and play it. For a local audio file path use transcribe_local in the same way.
+piece and say which.
 
 Playback:
 - Use play_recording(id) ONLY to select a recording returned by search_library, library_info or a successful
@@ -136,6 +118,45 @@ with its name as listed, shuffle=true if they ask to shuffle; do not search the 
 no such playlist, say which there are; if it has no pieces, say so.
 Use update_recording to correct a piece's names, or to add aliases (names in other languages) or tags, when useful.
 Never invent results: report only what the tools returned."""
+
+# What she does with a piece the library has not got: find it online and transcribe it, or, with online search and
+# transcription off (PIANASOUL_TRANSCRIBE=0, the Mac app's checkbox unticked), say so.
+FINDING_ONLINE = """2. If it is not there either, write one short, friendly sentence that says you will find it AND explicitly asks the
+   listener to wait (for example "I'll find a lovely piano performance for you; please give me a moment.").
+   Vary the wording without predicting a duration or promising it will be ready immediately. Include the sentence
+   with your search_online call. Search with the composer or singer, piece, catalog number, pianist if named, and "piano".
+   Choose the best candidate yourself:
+   - prefer recordings where the piano carries the music: solo piano first, piano with voice second, never a band
+     mix or a remix; a real human performance by a named pianist, a good recording, and a duration that fits;
+   - avoid falling-notes/Synthesia videos, MIDI renderings, tutorials, easy or slowed arrangements, compilations,
+     and different pieces (see each result's flags);
+   - for a song that is not a piano piece, a good piano cover is right. A singer or band named with a song
+     ("Sodagreen's Xiao Qing Ge") only says which song it is, so any good pianist's cover is right;
+   - if the user named a pianist ("Lang Lang's Chopin"), use only that pianist; if there is none, say so and ask.
+   If nothing fits, try one refined search.
+3. Call transcribe_url with the chosen URL, the piece's names (piece, artist, performer and aliases: each on its
+   own, as the tool describes them) and a few English tags. Then call play_recording with the new id and say whose performance
+   it is in a few words.
+4. If there is no good piano version, say so kindly and do not play something poor.
+If the user pastes a video link, briefly say you will prepare it and explicitly ask them to
+wait, without estimating a duration. Call transcribe_url with that link (its names empty unless the user named
+them) and play it. For a local audio file path use transcribe_local in the same way."""
+FINDING_LIBRARY = """2. If it is not there either, say kindly, in a sentence or two, that it is not in their library, and that you can
+   find pieces online once Online Search & Transcription (在线搜索与转谱) is turned on in PianaSoul's settings on the Mac;
+   name that setting as it is. You may offer something close from their library. A pasted video link or a local
+   audio file can be prepared once it is on, too."""
+ONLINE_TOOLS = {"search_online", "transcribe_url", "transcribe_local"}
+
+
+def instructions(online: bool = True) -> str:
+    """Her instructions, with online search and transcription or without."""
+    return INSTRUCTIONS.replace("{finding}", FINDING_ONLINE if online else FINDING_LIBRARY)
+
+
+def tools(online: bool = True) -> list[dict]:
+    """Her tools: without online search and transcription, none of theirs, so that she cannot reach them at all."""
+    return TOOLS if online else [tool for tool in TOOLS if tool["name"] not in ONLINE_TOOLS]
+
 
 NAME_PROPERTIES = {name: {"type": "string", "description": meaning}
                    for name, meaning in {**NAMES, "aliases": ALIASES}.items()}
@@ -283,8 +304,10 @@ class Assistant:
 
     Chat, voice and the phone app share one Assistant (see core.Core), so each sees what the others did."""
 
-    def __init__(self, lib: Library, player=None, conversations: Conversations | None = None, downloads=None):
+    def __init__(self, lib: Library, player=None, conversations: Conversations | None = None, downloads=None,
+                 online: bool = True):
         self.lib = lib
+        self.tools = tools(online)  # what she may call: the chat model is given these, and nothing else is run
         self.player = player  # the Playback; made on first use when not given
         self.conversations = conversations or Conversations(lib)
         self.downloads = downloads  # the Downloads; made on first use when not given
@@ -684,7 +707,7 @@ class Assistant:
 
     def run_tool(self, name: str, args: dict) -> str:
         started = time.monotonic()
-        fn = getattr(self, name, None) if name in {t["name"] for t in TOOLS} else None
+        fn = getattr(self, name, None) if name in {t["name"] for t in self.tools} else None
         # Playback boundaries reject unsupported parameters rather than silently dropping an ID.
         if name in {"play_recording", "control_playback"}:
             expected = {"id"} if name == "play_recording" else {"action"}

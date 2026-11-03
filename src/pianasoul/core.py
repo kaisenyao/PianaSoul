@@ -18,7 +18,7 @@ import threading
 from pathlib import Path
 
 from . import online, play
-from .chat import INSTRUCTIONS, TOOLS, Assistant, Worker
+from .chat import Assistant, Worker, instructions
 from .conversations import Conversations
 from .downloads import Downloads
 from .folder import Folder
@@ -35,7 +35,7 @@ REPO = "https://github.com/kaisenyao/PianaSoul"
 
 class Core:
     def __init__(self, note: str = "", lib: Library | None = None, chat=None, assistant: bool = True):
-        """note: what the chat model is told besides INSTRUCTIONS (voice says that replies are spoken).
+        """note: what the chat model is told besides her instructions (voice says that replies are spoken).
         chat: (chat, label) to use instead of the configured model. assistant=False: without her."""
         self.lib = lib or Library()
         self.playback = Playback(self.lib)
@@ -48,8 +48,9 @@ class Core:
         if assistant:
             from .llm import make_chat
 
-            self.chat, self.label = chat or make_chat(INSTRUCTIONS + note, TOOLS)
-            self.assistant = Assistant(self.lib, self.playback, self.conversations, self.downloads)
+            online = transcription_on()
+            self.assistant = Assistant(self.lib, self.playback, self.conversations, self.downloads, online=online)
+            self.chat, self.label = chat or make_chat(instructions(online) + note, self.assistant.tools)
             self.assistant.restore(self.chat)
             self.assistant.on_message = lambda message: self.emit({"type": "message", "message": message})
             self.assistant.on_busy = self._busy_changed
@@ -104,8 +105,8 @@ class Core:
 
     def _fill_in_videos(self) -> None:
         """Pieces downloaded before the library kept their videos' details get them, in the background, one at a
-        time (a second or two each, as online search reads a video's page); with the advanced extra only."""
-        if not installed("yt_dlp"):
+        time (a second or two each, as online search reads a video's page); with online search only."""
+        if not transcription_on():
             return
         for r in [r for r in self.lib.all() if not r["video_title"] and online.video_id(r["source_url"])]:
             if self._closed:
@@ -197,8 +198,8 @@ class Core:
     # ---- what the app shows -----------------------------------------------------------------------
     def features(self) -> dict:
         """What this Mac can do beyond the library and the piano: transcribe, which brings online search by name or
-        link (the advanced extra is installed: SPEC 9.4), and her."""
-        return {"transcribe": installed("transkun", "yt_dlp"), "assistant": self.assistant is not None}
+        link (transcription_on), and her."""
+        return {"transcribe": transcription_on(), "assistant": self.assistant is not None}
 
     def recordings(self) -> list[dict]:
         return [recording(r) for r in self.lib.all() if r["file_exists"]]
@@ -333,6 +334,12 @@ def recording(rec: dict) -> dict:
     parts = title_parts(rec["title"], rec["composer"], rec["performer"])
     return {**{k: rec.get(k) for k in keep}, "piece": parts["piece"], "artist": parts["artist"],
             "performer": parts["performer"]}
+
+
+def transcription_on() -> bool:
+    """Transcription and online search: with the advanced extra installed, unless turned off (PIANASOUL_TRANSCRIBE=0:
+    the Mac app's Online Search & Transcription unticked, her alone on that extra)."""
+    return os.environ.get("PIANASOUL_TRANSCRIBE") != "0" and installed("transkun", "yt_dlp")
 
 
 def installed(*modules: str) -> bool:

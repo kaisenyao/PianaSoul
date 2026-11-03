@@ -486,6 +486,17 @@ class WithoutHerTests(unittest.TestCase):
                 self.assertEqual((answer.status_code, answer.json()), (409, {'error': 'transcribe_off'}), path)
         self.assertEqual(self.core.downloads.snapshot(), [])
 
+    def test_transcription_turned_off_is_off_though_installed(self):
+        """The Mac app's Online Search & Transcription unticked (PIANASOUL_TRANSCRIBE=0): what needs it is off, as
+        without the advanced extra, and nothing is downloaded."""
+        with patch('pianasoul.core.installed', return_value=True), patch.dict(os.environ, {'PIANASOUL_TRANSCRIBE': '0'}):
+            self.assertFalse(self.client.get('/api/state').json()['features']['transcribe'])
+            for method, path, body in (('get', '/api/online?q=x', None),
+                                       ('post', '/api/downloads', {'url': 'https://youtu.be/abcdefghijk'})):
+                answer = getattr(self.client, method)(path, **({'json': body} if body else {}))
+                self.assertEqual((answer.status_code, answer.json()), (409, {'error': 'transcribe_off'}), path)
+        self.assertEqual(self.core.downloads.snapshot(), [])
+
 
 class UploadTests(unittest.TestCase):
     """Files from the phone go into the library folder as if put there by hand; deleting sends them to the Trash."""

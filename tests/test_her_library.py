@@ -4,7 +4,7 @@ import json
 from unittest.mock import Mock, patch
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
-from pianasoul.chat import TOOLS, Assistant
+from pianasoul.chat import ONLINE_TOOLS, TOOLS, Assistant
 from pianasoul.playback import Playback
 from test_app import Base
 from test_library import make_midi
@@ -79,6 +79,21 @@ class HerLibraryTests(Base):
         self.assertEqual(self.ask(about='rarely_played')['pieces'][0], {'id': new, 'piece': 'New', 'never_played': True})
         self.assertEqual(self.ask(about='overview')['most_played'][0]['id'], b)
         self.assertNotIn('error', json.loads(self.a.run_tool('play_recording', {'id': c})))
+
+    def test_without_online_search_she_keeps_the_library_and_cannot_reach_it(self):
+        """Online Search & Transcription off: her tools have none of it, and a call to one is not run, whatever the
+        model asks; the library is hers as before."""
+        her = Assistant(self.lib, self.p, online=False)
+        her.on_message = lambda message: None
+        self.assertEqual({t['name'] for t in TOOLS} - {t['name'] for t in her.tools}, ONLINE_TOOLS)
+        with patch('pianasoul.online.search') as search:
+            for name, arguments in (('search_online', {'query': 'Clair de Lune piano'}),
+                                    ('transcribe_url', {'url': 'https://youtu.be/abcdefghijk'}),
+                                    ('transcribe_local', {'path': '/tmp/a.mp3', 'piece': 'a'})):
+                self.assertEqual(json.loads(her.run_tool(name, arguments)), {'error': f'unknown tool {name}'})
+        search.assert_not_called()
+        self.assertNotIn('error', json.loads(her.run_tool('library_info', {'about': 'overview'})))
+        self.assertNotIn('error', json.loads(her.run_tool('play_recording', {'id': self.ids[0]})))
 
     def test_she_has_the_tool_and_it_changes_nothing(self):
         self.assertIn('library_info', {t['name'] for t in TOOLS})

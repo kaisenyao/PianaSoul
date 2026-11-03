@@ -2,6 +2,7 @@
 transcribe, each once on its own. No network, no transcription model."""
 import contextlib
 import io
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -231,6 +232,16 @@ class TranscribeOnceTests(unittest.TestCase):
         self.assertEqual(core.audio(), [{'id': item['id'], 'name': 'Clair de Lune', 'status': 'waiting', 'error': '',
                                          'added_at': item['added_at']}])
         self.assertEqual(core.downloads.snapshot(), [])
+
+    def test_transcription_turned_off_it_waits_as_without_the_extra(self):
+        """Online Search & Transcription unticked in the Mac app: a recording waits, shown as needing it, as when the
+        extra is missing; what was transcribed before stays and plays (it is in the library)."""
+        item = self.put('Clair de Lune.mp3')
+        with patch.dict(os.environ, {'PIANASOUL_TRANSCRIBE': '0'}):
+            core = self.core(transcribe=True)
+        self.assertEqual([a['status'] for a in core.audio()], ['waiting'])
+        self.assertEqual(core.downloads.snapshot(), [])
+        self.assertEqual(self.lib.audio_item(item['id'])['status'], 'waiting')
 
     def test_once_this_mac_can_transcribe_each_is_made_once_and_then_only_when_asked(self):
         item = self.put('Clair de Lune.mp3')

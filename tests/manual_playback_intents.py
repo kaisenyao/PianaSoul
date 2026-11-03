@@ -5,7 +5,7 @@ import json
 import mido
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
-from pianasoul.chat import INSTRUCTIONS, TOOLS
+from pianasoul.chat import TOOLS, instructions
 from pianasoul.llm import make_chat
 from test_playback_interactions import PlaybackTests
 
@@ -85,7 +85,7 @@ def main():
                     return json.dumps({'error': 'Only playback and the library are enabled in this test.'})
                 return original(name, arguments)
             fixture.a.run_tool = safe_tool
-            chat, label = make_chat(INSTRUCTIONS, TOOLS)
+            chat, label = make_chat(instructions(), TOOLS)
             answer = fixture.a.ask(chat, text)
             if fixture.player._thread: fixture.player._thread.join()
             player, pending = fixture.player, fixture.a.pending

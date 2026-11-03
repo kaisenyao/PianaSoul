@@ -3,6 +3,7 @@ No paid APIs, models or MIDI devices."""
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -606,6 +607,31 @@ class CoreTests(Base):
         core = Core(lib=self.lib, chat=(Scripted(), 'test'))
         self.addCleanup(core.close)
         return core
+
+    def test_she_is_made_with_online_search_only_when_it_is_on(self):
+        """Her alone, Online Search & Transcription unticked in the Mac app (PIANASOUL_TRANSCRIBE=0, the advanced extra
+        installed): the chat model is given her library-only instructions and tools, so she cannot search or
+        transcribe at all, and the page hears transcription is off. Ticked, she has all of it."""
+        from pianasoul.chat import ONLINE_TOOLS, TOOLS, instructions
+        from pianasoul.core import Core
+        for switch, online in (('0', False), (None, True)):
+            with self.subTest(online=online), patch('pianasoul.core.installed', return_value=True), \
+                    patch.dict(os.environ), patch('pianasoul.llm.make_chat', return_value=(Scripted(), 'test')) as made:
+                os.environ.pop('PIANASOUL_TRANSCRIBE', None)
+                if switch:
+                    os.environ['PIANASOUL_TRANSCRIBE'] = switch
+                lib = Library(self.root / f'{online}.db', self.root / f'Music {online}')  # each its own folder
+                self.addCleanup(lib.close)
+                core = Core(lib=lib)
+                self.addCleanup(core.close)
+                self.assertEqual(core.features(), {'transcribe': online, 'assistant': True})
+                told, given = made.call_args.args
+                self.assertEqual(told, instructions(online))
+                self.assertEqual(given, core.assistant.tools)
+                self.assertEqual(bool({t['name'] for t in given} & ONLINE_TOOLS), online)
+                self.assertEqual(given == TOOLS, online)
+                self.assertEqual('search_online' in told, online)
+                self.assertEqual('Online Search & Transcription' in told, not online)
 
     def test_one_core_for_chat_voice_and_the_app(self):
         core = self.core()
