@@ -286,6 +286,8 @@ class PlaybackTests(Base):
         self.assertAlmostEqual(play.begin(path, 0.0), 3.0 - play.LEAD_IN_S)
         self.assertAlmostEqual(play.begin(path, -2.0), 1.0 - play.LEAD_IN_S, msg='After a gap, the gap first')
         self.assertEqual(play.begin(path, 1.5), 1.5, 'From where it was: as it is')
+        self.assertAlmostEqual(play.begin(path, 0.0, lead=1.0), 3.0, msg='Sent a second early: heard after it anyway')
+        self.assertAlmostEqual(play.begin(path, 0.0, lead=0.5), 3.0 - play.LEAD_IN_S + 0.5)
         self.assertEqual(play.begin(self.lib.get(self.ids[0])['midi_path'], 0.0), 0.0, 'One that begins at once')
         self.p.select(rec, [rec])
         self.assertAlmostEqual(self.p.snapshot()['position'], 3.0 - play.LEAD_IN_S, delta=0.1)

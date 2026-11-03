@@ -39,7 +39,7 @@ log = logging.getLogger(__spec__.name)
 DEFAULT_PORT = "pianasoul"
 NETWORK_LEAD_S = 1.0  # how early each message leaves for a network session
 GAP_S = 2.0  # silence between pieces
-LEAD_IN_S = 0.8  # a piece played from its start begins this long before its first note: the silence before is skipped
+LEAD_IN_S = 0.8  # a piece played from its start is heard this long before its first note: the silence before skipped
 LOOK_EVERY_S = 1.0  # while playing, how often the player makes sure the piano is still there
 HEARD_LATE_S = 0.2  # notes leaving this much later than they should sound are heard late: said in the log
 SENT = {"note_on", "note_off", "control_change"}  # no program changes: they could switch the Pianoteq preset
@@ -334,17 +334,18 @@ def _first_note(path: str, changed: int) -> float:
     return 0.0
 
 
-def begin(path: Path, from_s: float) -> float:
-    """Where a piece starts: at from_s; played from its start (0, or below: after that much silence), LEAD_IN_S before
-    its first note, so that the silence a file may open with (a video's opening, say) is not waited through, and the
-    first note does not come at once either."""
+def begin(path: Path, from_s: float, lead: float = 0.0) -> float:
+    """Where a piece starts: at from_s; played from its start (0, or below: after that much silence), so that its
+    first note is heard LEAD_IN_S after it starts: the silence a file may open with (a video's opening, say) is not
+    waited through, and the first note does not come at once either. Notes sent a lead early (a network session) are
+    heard that long after anyway, which counts."""
     if from_s > 0:
         return from_s
     try:
         first = _first_note(str(path), Path(path).stat().st_mtime_ns)
     except Exception:  # a file that cannot be read fails where it is played, as it is
         return from_s
-    return from_s + max(0.0, first - LEAD_IN_S)
+    return from_s + max(0.0, first - max(0.0, LEAD_IN_S - lead))
 
 
 def clock(seconds: float) -> str:
@@ -455,7 +456,7 @@ class Player:
                 self.current, self.state = (path, title), "playing"
                 if on_start:
                     on_start(path, title)
-                if not self._play_file(path, begin(path, from_s if i == 0 else 0.0)):
+                if not self._play_file(path, begin(path, from_s if i == 0 else 0.0, self.lead)):
                     return  # pause() or stop() sets the state, or the piano went away (lost)
             self.state, self._offset = "stopped", 0.0
             if self.current and not self._stop.is_set():
@@ -577,7 +578,7 @@ class Player:
 
     def _launch(self, items: list[tuple[Path, str]], from_s: float) -> None:
         self._stop.clear()  # here, not in the thread, so an immediate pause() cannot be lost
-        start = begin(items[0][0], from_s)  # as the thread will find it (play), for the position meanwhile
+        start = begin(items[0][0], from_s, self.lead)  # as the thread will find it (play): the position meanwhile
         self.current, self.state, self._offset = items[0], "playing", start
         log.debug("plays %s from %s%s", items[0][1], clock(max(0.0, start)),
                   "" if self.volume is None else f" at volume {self.volume}%")

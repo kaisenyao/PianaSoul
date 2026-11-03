@@ -273,7 +273,7 @@ class Playback(Player):
             ids = self._live()
             i = ids.index(self.current_id) if self.current_id in ids else -1
             if direction < 0:
-                begun = self.position - play.begin(self.current[0], 0.0)  # heard of it, from where it begins
+                begun = self.position - play.begin(self.current[0], 0.0, self.lead)  # heard, from where it began
                 return (self.current_id if begun > RESTART_AFTER_S or i <= 0 else ids[i - 1]), "moved"
             if 0 <= i < len(ids) - 1:
                 return ids[i + 1], "moved"
