@@ -40,6 +40,7 @@ DEFAULT_PORT = "pianasoul"
 NETWORK_LEAD_S = 1.0  # how early each message leaves for a network session
 GAP_S = 2.0  # silence between pieces
 LOOK_EVERY_S = 1.0  # while playing, how often the player makes sure the piano is still there
+HEARD_LATE_S = 0.2  # notes leaving this much later than they should sound are heard late: said in the log
 SENT = {"note_on", "note_off", "control_change"}  # no program changes: they could switch the Pianoteq preset
 VOLUME_CONTROL = 7  # MIDI's volume controller: the listener sets it (Player.volume), a file's own is not sent
 ALL_NOTES_OFF = 123
@@ -648,6 +649,7 @@ class Player:
         self._from = self._sent_to = from_s
         at, restored = 0.0, from_s <= 0
         late: list[float] = []  # seconds each message left after its time, for the details
+        stall: tuple[float, float] | None = None  # notes heard late now: where it began in the piece, and the latest
         look_at = time.perf_counter() + LOOK_EVERY_S
         try:
             if self.volume is not None:
@@ -677,12 +679,20 @@ class Player:
                 self._send(msg, self._t0 + at)
                 self._sent_to = at
                 late.append(time.perf_counter() - due)
+                heard = late[-1] - self.lead  # what the lead does not make up for
+                if heard > HEARD_LATE_S:
+                    stall = (stall[0] if stall else at, max(heard, stall[1] if stall else 0.0))
+                elif stall:
+                    self._said_late(*stall)
+                    stall = None
                 if msg.type == "note_on" and msg.velocity > 0:
                     self._down.add((msg.channel, msg.note))
                 elif msg.type in {"note_on", "note_off"}:
                     self._down.discard((msg.channel, msg.note))
             return True
         finally:  # everything due to leave by now has left, so the music runs up to here
+            if stall:
+                self._said_late(*stall)
             self._sent_to = max(self._sent_to, time.perf_counter() - self._t0 + self.lead)
             if late and log.isEnabledFor(logging.DEBUG):
                 late = sorted(x * 1000 for x in late)
@@ -690,6 +700,13 @@ class Player:
                           len(late), late[len(late) // 2], late[int(len(late) * 0.99)], late[-1],
                           f"; sent {self.lead:g} s early, only a delay beyond that would be heard" if self.lead
                           else "")
+
+    def _said_late(self, at: float, heard: float) -> None:
+        """Notes that left so late they are heard late, said once each time it happens: whether a piece that stops
+        and then hurries on was this program's doing (the notes left late) or the way to the piano's (they left on
+        time, and nothing is said)."""
+        kind = f" ({self.output.kind})" if self.output else ""
+        print(f"  (notes left up to {heard:.1f} s late at {clock(at)}, on {self.port_name}{kind})", flush=True)
 
     def _wait_until(self, when: float) -> bool:
         """Sleep until perf_counter() reaches when. True if stopped meanwhile."""

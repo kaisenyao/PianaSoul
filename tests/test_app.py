@@ -241,6 +241,31 @@ class PlaybackTests(Base):
         player.play([self.p.item(self.ids[0])])
         self.assertEqual(told, [('paused', 'CoreMIDI could not send')])
 
+    def test_notes_that_leave_heard_late_are_said_once_in_the_log(self):
+        # The sending held up a third of a second at the second note: the notes after it hurry out late too, and it
+        # is said once, where it began. On time, nothing is said.
+        midi = mido.MidiFile()
+        track = mido.MidiTrack()
+        midi.tracks.append(track)
+        step = round(mido.second2tick(0.05, 480, 500000))
+        for i in range(8):
+            track.append(mido.Message('note_on', note=60 + i, velocity=64, time=0 if i == 0 else step))
+        path = self.root / 'steady.mid'
+        midi.save(path)
+        sends = iter(range(100))
+        port = Mock()
+        port.send.side_effect = lambda *a, **k: next(sends) == 1 and time.sleep(0.35)
+        player = Player(port=port)
+        with patch('builtins.print') as said:
+            player.play([(path, 'steady')])
+        lines = [c.args[0] for c in said.call_args_list if 'late' in str(c.args[0])]
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn('notes left up to 0.', lines[0])
+        self.assertIn('at 0:00', lines[0])
+        with patch('builtins.print') as said:
+            Player(port=Mock()).play([(path, 'steady')])
+        self.assertFalse([c for c in said.call_args_list if 'late' in str(c.args[0])])
+
     def test_the_phone_is_told_when_the_position_is_heard(self):
         self.p.lead = 1.0  # the notes leave a second early
         self.p.select(self.ids[0], self.ids)
