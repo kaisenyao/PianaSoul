@@ -101,10 +101,10 @@ function draw(now) {
   for (const o of orbs) {
     o.quiet += (o.target() - o.quiet) * gently;  // off screen too, so each is as it should be when it shows
     if (!o.shown()) continue;
-    const level = o === home ? volume : 0;
+    const level = o === home || o.voiced ? volume : 0;
     o.render(clock, reduced.matches ? 0 : level, o.quiet, page);
     if (o.render.fallback) o.element.style.setProperty('--quiet', o.quiet.toFixed(3));
-    o.element.style.setProperty('--scale', reduced.matches ? '1' : String(breath + level * .11 * (o === home)));
+    o.element.style.setProperty('--scale', reduced.matches ? '1' : String(breath + level * .11));
   }
 }
 
@@ -158,9 +158,10 @@ export function homeColor() {
   return home ? 1 - home.target() : 0;
 }
 
-// Another orb: color() says how much it is in color, from 0 (gray) to 1.
-export function addOrb(element, color, shown) {
-  register(element, () => 1 - color(), shown);
+// Another orb: color() says how much it is in color, from 0 (gray) to 1. voiced: it moves with the voices as the orb
+// at home does (the one that flies home lands on it, the same size whatever is said meanwhile).
+export function addOrb(element, color, shown, voiced = false) {
+  register(element, () => 1 - color(), shown).voiced = voiced;
 }
 
 // At once as another orb looks now: the orb that flies home sets off as the one you pulled.

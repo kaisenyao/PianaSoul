@@ -2113,7 +2113,7 @@ function enterVoice(id) {
   flying = true;
   sameLook(fly, $('#pull .porb'));
   const dx = r.left + r.width / 2 - (home.left + home.width / 2), dy = r.top + r.height / 2 - (home.top + home.height / 2);
-  fly.animate([{transform: `translate(${dx}px, ${dy}px) scale(${r.width / home.width})`}, {transform: 'none'}],
+  fly.animate([{transform: `translate(${dx}px, ${dy}px) scale(${r.width / home.width})`}],  // to its own size: home's
     {duration: 560, easing: 'cubic-bezier(.32, .72, 0, 1)'});
   voice.on();  // inside the gesture, as a tap on the orb would be
   dark.animate([{opacity: 0}, {opacity: 1}], {duration: 200, fill: 'forwards'}).finished.then(() => {
@@ -2785,7 +2785,7 @@ voice = makeVoice(orbElement, $('#voice-toggle'), animateOrb(orbElement, () => h
                   createCues(), () => T.orb);
 const pulled = () => parseFloat($('#pull').style.getPropertyValue('--pull') || 0);
 addOrb($('#pull .porb'), () => homeColor() * pulled(), () => state.view === 'session' && pulled() > 0);
-addOrb($('#fly-orb'), homeColor, () => flying);
+addOrb($('#fly-orb'), homeColor, () => flying, true);
 addOrb($('#her-orb'), () => !voice.off(), () => herOn() && state.view === 'settings');
 
 applyFeatures();
