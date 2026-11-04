@@ -55,9 +55,10 @@ INSTRUCTIONS = """You are the PianaSoul assistant. The user asks for music; you 
 play it on their piano. Talk like a friend who loves the piano: warm, cheerful and a little playful, never like a
 program.
 
-Language: answer in the language the user writes in. When a message mixes Chinese and English, Chinese is usually
-right. Write Chinese in simplified characters unless the user clearly writes traditional ones. Do not force it;
-follow the user's habit.
+Language: answer in the language of the user's latest request, whatever it is, every sentence of yours in it, also
+those said while you look; your instructions, the examples in them and the library may be in another language. The
+application state says which (answer_in), as the application's own lines take it. Write Chinese in simplified
+characters unless the user clearly writes traditional ones.
 
 Style: one or two short, natural sentences (a few more when the user wants to chat or asks about their music),
 plain text without Markdown. Vary your wording; never repeat a sentence
@@ -142,9 +143,12 @@ FINDING_ONLINE = """2. If it is not there either, write one short, friendly sent
    own, as the tool describes them) and a few English tags. The piece is prepared in the background and plays by
    itself once it is ready, unless something else is chosen to play meanwhile, in this request or later (the user
    is then told it is ready); of several sent at once, only the first ready plays by itself, and the others are
-   said to be ready. Do not call play_recording for it. Say in a few words whose performance you are getting ready
-   and that it will play once it is, without predicting a duration; the user may chat or ask for more meanwhile. If
-   transcribe_url says it is done (it was prepared before), call play_recording with its id instead.
+   said to be ready. Do not call play_recording for it. Your sentence before the search already asked them to wait,
+   so now share the news in a few words: you found it, whose performance it is, and that it will play once it is
+   ready ("找到啦，是 Jason Piano 弹的《黑色幽默》，准备好就弹给你～"; "Found it: Jason Piano's Black Humor. It'll
+   play as soon as it's ready."), without predicting a duration and without saying again that you are getting it
+   ready. If transcribe_url says it is done (it was prepared before),
+   call play_recording with its id instead.
 4. If there is no good piano version, say so kindly and do not play something poor.
 If the user pastes a video link, call transcribe_url with it (its names empty unless the user named them) and say
 briefly that you are getting it ready, as above. For a local audio file path use transcribe_local in the same way.
@@ -376,6 +380,10 @@ class Assistant:
         """Whether she speaks Chinese now: as the last request (typed or said) was, and before there is one."""
         return is_chinese(self.request) if self.request.strip() else True
 
+    def answer_in(self) -> str:
+        """The language of her answer, as her ready-made lines take it (chinese), for the model."""
+        return "Chinese" if self.chinese() else "the language of the request, which is not Chinese"
+
     def keep(self, role: str, text: str = "", recording_id: int | None = None) -> None:
         """Keep a line, or a piece she played, in the current conversation (made on its first line)."""
         if self.conversation_id is None:
@@ -469,7 +477,8 @@ class Assistant:
         return {"status": "preparing", "title": job.public()["title"],
                 "instruction": "It is being prepared in the background. It plays by itself once ready (of several sent "
                                "at once, the first ready), unless something else is chosen to play meanwhile; then "
-                               "the user is told it is ready. Do not call play_recording for it."}
+                               "the user is told it is ready. Do not call play_recording for it. Answer in "
+                               f"{self.answer_in()}."}  # (found and prepared, she was slipping into Chinese)
 
     def _asked(self) -> None:
         """As a request ends: what it sent to be prepared starts once ready if nothing changes from now on, and not if
@@ -978,6 +987,7 @@ class Assistant:
         try:
             model_text = text
             state = {"typed": True} if typed else {}
+            state["answer_in"] = self.answer_in()
             state["library_matches"] = {"matched_on": "the request's own words only, not the piece's other names",
                                         "recordings": self.library_matches(text)}
             if self.pending:

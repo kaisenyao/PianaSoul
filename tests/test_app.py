@@ -680,6 +680,14 @@ class AssistantTests(Base):
         self.a.ask(chat, '你好', typed=True)
         self.assertIn('"typed": true', chat.send_user.call_args.args[0])
 
+    def test_she_is_told_the_language_to_answer_in_as_her_own_lines_take_it(self):
+        chat = Mock()
+        chat.send_user.return_value = SimpleNamespace(text='好。', tool_calls=[])
+        for text, language in (('弹一首 Viva la Vida', '"answer_in": "Chinese"'),
+                               ('Play Viva la Vida by Coldplay', '"answer_in": "the language of the request, which is not Chinese"')):
+            self.a.ask(chat, text)
+            self.assertIn(language, chat.send_user.call_args.args[0])
+
     def test_a_short_answer_is_an_answer_typed_or_in_the_terminal(self):
         for typed in (True, False):
             self.kept.clear()
