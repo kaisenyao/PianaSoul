@@ -778,7 +778,7 @@ def online_search(q: str, source: str = ''):
     from .download import video_details, video_info
     from .downloads import clean_url
     q = q.strip()
-    link = q.startswith(('http://', 'https://'))
+    link = q.lower().startswith(('http://', 'https://'))  # as the phone's isLink: an iPhone may type Https://
     if not link and source not in online.SOURCES:
         raise HTTPException(400)
     try:

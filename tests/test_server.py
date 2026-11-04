@@ -264,6 +264,13 @@ class AppTests(unittest.TestCase):
                           for r in found], [('https://www.youtube.com/watch?v=abcdefghijk', 242, 'https://yt3/c.jpg',
                                              'https://i.ytimg.com/l.jpg', '2024-01-02', 'youtube')])
 
+    def test_a_link_typed_with_a_capital_first_letter_is_a_link_as_the_phone_takes_it(self):
+        from pianasoul import online
+        url = 'https://www.youtube.com/watch?v=abcdefghijk'
+        with patch.object(online, 'details', return_value={url: {'video_title': '晴天'}}):
+            found = signed_in(self.client).get('/api/online', params={'q': 'Https://youtu.be/abcdefghijk'})
+        self.assertEqual((found.status_code, [r['url'] for r in found.json()]), (200, [url]), 'As an iPhone may type it')
+
     def test_a_search_on_bilibili_offers_its_piano_versions(self):
         from test_online import PAGE, Site, asked
         site = Site(PAGE)
