@@ -1276,6 +1276,75 @@ class DownloadTests(Base):
         self.assertEqual(jobs[0].status, 'stopped')
         self.assertEqual(self.lib.count(), 3)
 
+    def versions(self, *failing):
+        """Downloads whose videos with these ids cannot be had (one too long, say); the others are made. Returns
+        them, and the videos asked for, in order."""
+        audio = self.root / 'a.m4a'
+        audio.write_bytes(b'x')
+        asked = []
+
+        def download(url, folder, progress):
+            asked.append(url[-11:])
+            if url[-11:] in failing:
+                raise ValueError('the video is longer than 20 minutes')
+            return audio, {'video_title': url[-11:]}
+        convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
+        for made in (patch('pianasoul.download.download_audio', side_effect=download),
+                     patch('pianasoul.pipeline.convert_apart', side_effect=convert),
+                     patch('pianasoul.downloads._video_page', return_value={})):
+            made.start()
+            self.addCleanup(made.stop)
+        return self.downloads(), asked
+
+    def test_a_piece_that_cannot_be_made_is_made_from_its_next_version_in_its_place_in_the_queue(self):
+        d, asked = self.versions('aaaaaaaaaaa', 'bbbbbbbbbbb')
+        versions = [{'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': 'B'},
+                    {'url': 'https://youtu.be/ccccccccccc', 'performer': 'Kassia'},
+                    {'url': 'https://youtu.be/ddddddddddd', 'performer': 'D'}]
+        seen = []
+        d.listeners.append(lambda: seen.extend(j['title'] for j in d.snapshot()))
+        job = d.add('https://youtu.be/aaaaaaaaaaa', piece='卡农', artist='Pachelbel', performer='A', versions=versions)
+        after = d.add('https://youtu.be/eeeeeeeeeee', piece='晴天')
+        job.finished.wait(5)
+        after.finished.wait(5)
+        self.assertEqual((job.status, job.result['title'], job.result['source_url']),
+                         ('done', 'Pachelbel - 卡农 (Kassia)', 'https://www.youtube.com/watch?v=ccccccccccc'))
+        self.assertEqual(asked, ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc', 'eeeeeeeeeee'], 'Before the next piece')
+        self.assertIn('Pachelbel - 卡农 (Kassia)', seen, 'The phone shows the version being made')
+
+    def test_a_piece_fails_only_once_none_of_its_versions_could_be_made(self):
+        d, asked = self.versions('aaaaaaaaaaa', 'bbbbbbbbbbb')
+        job = d.add('https://youtu.be/aaaaaaaaaaa', piece='卡农',
+                    versions=[{'url': 'https://youtu.be/aaaaaaaaaaa', 'performer': ''},
+                              {'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': ''}])
+        job.finished.wait(5)
+        self.assertEqual((job.status, job.result), ('failed', None))
+        self.assertEqual(asked, ['aaaaaaaaaaa', 'bbbbbbbbbbb'], 'The version it was is not tried again')
+        self.assertIn('longer than 20 minutes', job.error)
+
+    def test_a_version_in_the_library_already_is_the_piece_at_once(self):
+        self.lib.execute("UPDATE recordings SET source_type = 'url', source_url = ? WHERE id = ?",
+                         ('https://www.youtube.com/watch?v=bbbbbbbbbbb', self.ids[0]))
+        d, asked = self.versions('aaaaaaaaaaa')
+        job = d.add('https://youtu.be/aaaaaaaaaaa', piece='晴天',
+                    versions=[{'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': 'MappleZS'}])
+        job.finished.wait(5)
+        self.assertEqual((job.status, job.result['id'], asked), ('done', self.ids[0], ['aaaaaaaaaaa']))
+
+    def test_a_piece_stopped_tries_no_other_version(self):
+        gate = threading.Event()
+        def download(url, folder, progress):
+            gate.wait(2)
+            raise ValueError('stopped meanwhile')
+        with patch('pianasoul.download.download_audio', side_effect=download) as downloaded:
+            d = self.downloads()
+            job = d.add('https://youtu.be/aaaaaaaaaaa', versions=[{'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': ''}])
+            time.sleep(0.1)
+            d.stop(job.id)
+            gate.set()
+            job.finished.wait(2)
+        self.assertEqual((job.status, downloaded.call_count), ('stopped', 1))
+
     def test_a_stopped_piece_leaves_nothing(self):
         gate = threading.Event()
         def download(url, folder, progress):
