@@ -1,5 +1,6 @@
 """Her chat model's client: responses streamed, the words written before a tool call handed over as the model starts
-on it, thinking a little on the models that think; her model line (OpenAI, Qwen or Anthropic) and the keys it needs.
+on it, thinking a little on the models that think; her model line (OpenAI, Model Studio or Anthropic) and the keys it
+needs.
 No paid APIs: the responses are made up."""
 import contextlib
 import json
@@ -212,24 +213,24 @@ class ModelLineTests(unittest.TestCase):
         for values, chosen in (({"OPENAI_API_KEY": "o"}, ("openai", "gpt-6-luna")),
                                ({"ANTHROPIC_API_KEY": "a"}, ("anthropic", "claude-haiku-5-5")),
                                ({"OPENAI_API_KEY": "o", "ANTHROPIC_API_KEY": "a"}, ("openai", "gpt-6-luna")),
-                               ({"PIANASOUL_MODEL": "qwen"}, ("qwen", "qwen3.8-flash")),
-                               ({"PIANASOUL_MODEL": "Qwen:qwen3.7-flash", "OPENAI_API_KEY": "o"},
-                                ("qwen", "qwen3.7-flash")),
+                               ({"PIANASOUL_MODEL": "bailian"}, ("bailian", "deepseek-v4.1-flash")),
+                               ({"PIANASOUL_MODEL": "Bailian:qwen3.8-max", "OPENAI_API_KEY": "o"},
+                                ("bailian", "qwen3.8-max")),
                                ({"PIANASOUL_MODEL": "openai:gpt-4.1"}, ("openai", "gpt-4.1"))):
             with line(**values):
                 self.assertEqual(llm.model_spec(), chosen, values)
-        with line(DASHSCOPE_API_KEY="d"), self.assertRaisesRegex(ValueError, "or PIANASOUL_MODEL=qwen and"):
-            llm.model_spec()  # a DashScope key alone does not choose Qwen
-        with line(PIANASOUL_MODEL="gemini", OPENAI_API_KEY="o"), self.assertRaisesRegex(ValueError, "openai, qwen or"):
+        with line(DASHSCOPE_API_KEY="d"), self.assertRaisesRegex(ValueError, "or PIANASOUL_MODEL=bailian and"):
+            llm.model_spec()  # a DashScope key alone does not choose Model Studio
+        with line(PIANASOUL_MODEL="gemini", OPENAI_API_KEY="o"), self.assertRaisesRegex(ValueError, "openai, bailian"):
             llm.chosen_provider()
 
     def test_each_provider_needs_its_own_key_and_anthropic_openai_s_too_to_hear(self):
-        self.assertEqual([llm.keys_needed(p) for p in ("openai", "qwen", "anthropic")],
+        self.assertEqual([llm.keys_needed(p) for p in ("openai", "bailian", "anthropic")],
                          [["OPENAI_API_KEY"], ["DASHSCOPE_API_KEY"], ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]])
         with line(OPENAI_API_KEY="o"), self.assertRaisesRegex(ValueError, "^DASHSCOPE_API_KEY is not set$"):
-            llm.openai_client("qwen")  # never OpenAI's key instead
+            llm.openai_client("bailian")  # never OpenAI's key instead
 
-    def test_qwen_is_asked_in_the_region_its_key_was_made_in(self):
+    def test_model_studio_is_asked_in_the_region_its_key_was_made_in(self):
         for region, host in (("", "dashscope.aliyuncs.com"), ("beijing", "dashscope.aliyuncs.com"),
                              (" Singapore ", "dashscope-intl.aliyuncs.com")):
             with line(DASHSCOPE_REGION=region):
@@ -239,7 +240,8 @@ class ModelLineTests(unittest.TestCase):
 
     def test_the_start_up_lines_name_the_provider_and_its_model(self):
         for values, label in (({"OPENAI_API_KEY": "o"}, "OpenAI gpt-6-luna"),
-                              ({"PIANASOUL_MODEL": "qwen", "DASHSCOPE_API_KEY": "d"}, "Qwen qwen3.8-flash"),
+                              ({"PIANASOUL_MODEL": "bailian", "DASHSCOPE_API_KEY": "d"},
+                               "Model Studio deepseek-v4.1-flash"),
                               ({"PIANASOUL_MODEL": "anthropic", "ANTHROPIC_API_KEY": "a"},
                                "Anthropic claude-haiku-5-5")):
             with line(**values):
@@ -249,10 +251,10 @@ class ModelLineTests(unittest.TestCase):
 
 
 class ModelStudioTests(unittest.TestCase):
-    """Qwen on Model Studio, and OpenAI as before, through a made-up server."""
+    """Her model on Model Studio, and OpenAI as before, through a made-up server."""
 
-    def test_qwen_answers_streamed_with_its_own_key_and_address_and_never_thinks(self):
-        with line(PIANASOUL_MODEL="qwen", DASHSCOPE_API_KEY="dashscope-test", OPENAI_API_KEY="openai-test",
+    def test_model_studio_answers_streamed_with_its_own_key_and_address_and_never_thinks(self):
+        with line(PIANASOUL_MODEL="bailian", DASHSCOPE_API_KEY="dashscope-test", OPENAI_API_KEY="openai-test",
                   OPENAI_BASE_URL="https://elsewhere.example/v1"), Server(said("好呀。"), said("在呢。", "r2")) as server:
             chat, _ = llm.make_chat("instructions", [])
             self.assertEqual(chat.send_user("你好").text, "好呀。")
@@ -261,7 +263,7 @@ class ModelStudioTests(unittest.TestCase):
         self.assertEqual((where, key), ("https://dashscope.aliyuncs.com/compatible-mode/v1/responses",
                                         "Bearer dashscope-test"), 'Never OPENAI_BASE_URL or OpenAI\'s key')
         self.assertEqual((body["model"], body["stream"], body["reasoning"]),
-                         ("qwen3.8-flash", True, {"effort": "none"}))
+                         ("deepseek-v4.1-flash", True, {"effort": "none"}))
         self.assertEqual(server.sent()[2]["previous_response_id"], "r1")
 
     def test_openai_is_asked_as_before(self):
@@ -274,18 +276,18 @@ class ModelStudioTests(unittest.TestCase):
             self.assertEqual(places.REAL_COMPLETE_JSON("Name it."), {"a": 1})
         self.assertEqual(server.sent()[2], {"model": "gpt-6-luna", "input": "Name it."}, 'Naming pieces, as before')
 
-    def test_naming_pieces_asks_qwen_in_its_region_not_to_think(self):
-        with line(PIANASOUL_MODEL="qwen", DASHSCOPE_API_KEY="dashscope-test", DASHSCOPE_REGION="singapore"), \
+    def test_naming_pieces_asks_her_model_on_model_studio_in_its_region_not_to_think(self):
+        with line(PIANASOUL_MODEL="bailian", DASHSCOPE_API_KEY="dashscope-test", DASHSCOPE_REGION="singapore"), \
                 Server(httpx2.Response(200, json=completed('{"piece": "晴天"}'))) as server:
             self.assertEqual(places.REAL_COMPLETE_JSON("Name it."), {"piece": "晴天"})
         self.assertEqual(server.sent(), ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/responses",
-                                         "Bearer dashscope-test", {"model": "qwen3.8-flash", "input": "Name it.",
+                                         "Bearer dashscope-test", {"model": "deepseek-v4.1-flash", "input": "Name it.",
                                                                    "reasoning": {"effort": "none"}}))
 
     def test_words_model_studio_refuses_fail_that_request_saying_why_and_are_not_asked_again(self):
         mid_answer = streamed({"type": "response.output_text.delta", "delta": "好"}, {"error": {
             "code": "DataInspectionFailed", "message": "Output data may contain inappropriate content."}})
-        with line(PIANASOUL_MODEL="qwen", DASHSCOPE_API_KEY="dashscope-test"), \
+        with line(PIANASOUL_MODEL="bailian", DASHSCOPE_API_KEY="dashscope-test"), \
                 Server(said("好呀。"), refused(), mid_answer, refused()) as server:
             chat, _ = llm.make_chat("instructions", [])
             chat.send_user("你好")
@@ -301,14 +303,14 @@ class ModelStudioTests(unittest.TestCase):
     def test_an_error_model_studio_streams_without_a_type_is_said_as_it_is_and_not_asked_again(self):
         unsupported = streamed({"code": "InvalidParameter", "message": "Unsupported model: MiniMax/MiniMax-M3.",
                                 "request_id": "r"})  # as Model Studio streams it, 2026-11-04
-        with line(PIANASOUL_MODEL="qwen:MiniMax/MiniMax-M3", DASHSCOPE_API_KEY="dashscope-test"), \
+        with line(PIANASOUL_MODEL="bailian:MiniMax/MiniMax-M3", DASHSCOPE_API_KEY="dashscope-test"), \
                 Server(unsupported) as server:
             with self.assertRaisesRegex(RuntimeError, "^the model failed: Unsupported model: MiniMax/MiniMax-M3"):
                 llm.make_chat("instructions", [])[0].send_user("你好")
         self.assertEqual(len(server.requests), 1, 'Not taken for a stream that broke off')
 
     def test_a_model_that_always_thinks_is_told_to_think_least(self):
-        with line(PIANASOUL_MODEL="qwen:glm-5.3", DASHSCOPE_API_KEY="dashscope-test"), \
+        with line(PIANASOUL_MODEL="bailian:glm-5.3", DASHSCOPE_API_KEY="dashscope-test"), \
                 Server(said("好呀。"), httpx2.Response(200, json=completed("{}"))) as server:
             llm.make_chat("instructions", [])[0].send_user("你好")
             places.REAL_COMPLETE_JSON("Name it.")
@@ -319,7 +321,7 @@ class ModelStudioTests(unittest.TestCase):
                                                         "message": "Input data may contain inappropriate content."}})
         mid_answer = streamed({"type": "response.output_text.delta", "delta": "好"}, {
             "type": "error", "code": "data_inspection_failed", "message": "Output data may contain inappropriate content."})
-        with line(PIANASOUL_MODEL="qwen", DASHSCOPE_API_KEY="dashscope-test"), Server(in_error, mid_answer):
+        with line(PIANASOUL_MODEL="bailian", DASHSCOPE_API_KEY="dashscope-test"), Server(in_error, mid_answer):
             with self.assertRaisesRegex(llm.Refused, "^DataInspectionFailed: .*Input data may contain"):
                 places.REAL_COMPLETE_JSON("Name it.")
             with self.assertRaisesRegex(llm.Refused, "^DataInspectionFailed: Output data may contain"):

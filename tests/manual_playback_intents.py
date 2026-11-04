@@ -3,7 +3,7 @@ made-up results shaped as the sites give them, and a stand-in for the transcribe
 Each request is said as to her voice; what she says, the tools she calls, when her first words come and when she
 is done, and the tokens read and written are kept for each, with a summary for each model.
 
-    tests/manual_playback_intents.py --model qwen:qwen3.8-flash --model openai --rounds 3 --save runs.jsonl
+    tests/manual_playback_intents.py --model bailian --model openai --rounds 3 --save runs.jsonl
     tests/manual_playback_intents.py --summary runs.jsonl
 """
 import argparse

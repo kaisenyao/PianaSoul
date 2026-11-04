@@ -4,13 +4,13 @@ with ears and a voice.
     ./run.sh voice
 
 Her names, 小茗同学 and Jasmine, are heard on this computer by sherpa-onnx keyword spotting, which takes a name
-without training. Speech recognition follows the chat model: OpenAI gpt-transcribe (OPENAI_API_KEY), or Qwen with
-PIANASOUL_MODEL=qwen (DASHSCOPE_API_KEY). Replies are spoken by ElevenLabs (ELEVENLABS_API_KEY and
-PIANASOUL_VOICE_ID), by Qwen with PIANASOUL_VOICE=qwen (DASHSCOPE_VOICE_API_KEY), or by the macOS voice without
-them. Pause after the name and she says she is listening; or say the name and the request in one breath. After her
-reply you may go on without the name, unless the piano plays. Add --debug to see what happens in detail, with times
-(her name heard, how long recognition and her answer took), or --lines to hear her ready-made lines (lines.py) once
-each.
+without training. Speech recognition follows the chat model: OpenAI gpt-transcribe (OPENAI_API_KEY), or Alibaba
+Cloud Model Studio's with PIANASOUL_MODEL=bailian (DASHSCOPE_API_KEY). Replies are spoken by ElevenLabs
+(ELEVENLABS_API_KEY and PIANASOUL_VOICE_ID), by Model Studio with PIANASOUL_VOICE=bailian (DASHSCOPE_VOICE_API_KEY),
+or by the macOS voice without them. Pause after the name and she says she is listening; or say the name and the
+request in one breath. After her reply you may go on without the name, unless the piano plays. Add --debug to see
+what happens in detail, with times (her name heard, how long recognition and her answer took), or --lines to hear
+her ready-made lines (lines.py) once each.
 Install the extras once: uv pip install --python .venv/bin/python -e ".[voice]"
 """
 
@@ -79,18 +79,18 @@ STEADY = ("louder", "softer", "loudest", "silent")
 STEADY_SETTINGS = {**VOICE_SETTINGS, "stability": 0.85}
 # Her ready-made lines (lines.py) and how each is said: made once with her cloud voice and kept in the data folder
 # (voice/), each voice's apart. The greetings and the lines about a setting as above; the rest as her replies are, so
-# that a ready-made line and the reply after it sound like one person. How is given in ElevenLabs' settings; Qwen
-# takes what it can of them (QwenVoice.how). Without a cloud voice the macOS voice says them.
+# that a ready-made line and the reply after it sound like one person. How is given in ElevenLabs' settings; Model
+# Studio takes what it can of them (BailianVoice.how). Without a cloud voice the macOS voice says them.
 READY = {**{text: GREETING_SETTINGS for lines in LINES["greet"].values() for text in lines},
          **{text: VOICE_SETTINGS for text in recorded()},
          **{text: STEADY_SETTINGS for key in STEADY for lines in LINES[key].values() for text in lines}}
-# Her voice by Qwen on Model Studio, streamed as server-sent events. Unless PIANASOUL_VOICE_ID names another, one of
-# the women's voices that speak many languages: Model Studio has those in both regions, its Mandarin ones only in
-# Beijing.
+# Her voice on Model Studio, by its Qwen voice model, streamed as server-sent events. Unless PIANASOUL_VOICE_ID names
+# another, one of the women's voices that speak many languages: Model Studio has those in both regions, its Mandarin
+# ones only in Beijing.
 QWEN_TTS_MODEL = "qwen-audio-3.1-tts-flash"
-QWEN_TTS_PATH = "/api/v1/services/audio/tts/SpeechSynthesizer"
+DASHSCOPE_TTS_PATH = "/api/v1/services/audio/tts/SpeechSynthesizer"
 QWEN_VOICE = "longanhuan_v3.1"
-QWEN_DEBT = "Arrearage"  # Model Studio's code (HTTP 400) for an account that owes money: no sentence is said
+STUDIO_DEBT = "Arrearage"  # Model Studio's code (HTTP 400) for an account that owes money: no sentence is said
 # Silero voice activity detection tells speech from silence and the piano.
 VAD_MODEL = "silero_vad.onnx"
 VAD_URL = f"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/{VAD_MODEL}"
@@ -112,13 +112,13 @@ PROMPT_ECHOES = {STT_PROMPT, STT_PROMPT.split("。", 1)[-1], "暂停。继续。
 # Spelling hints besides the library's names: the commands that are easiest to mishear ("小声一点" was heard as
 # "小心一点"), as the short commands have them (playback_commands.COMMANDS).
 STT_COMMAND_HINTS = ["暂停", "停止播放", "继续播放", "从头弹", "大声一点", "小声一点", "louder", "softer"]
-# Qwen's hearing, through Model Studio's own API. The words to expect go with each request twice: as context, of
-# which Qwen reads 400 characters and cuts the rest from the end, and as hot words, up to 2000, each weighing 1 to 5
-# (Model Studio says to begin at 4).
+# Her hearing on Model Studio, by its Qwen speech recognition model, through Model Studio's own API. The words to
+# expect go with each request twice: as context, of which the model reads 400 characters and cuts the rest from the
+# end, and as hot words, up to 2000, each weighing 1 to 5 (Model Studio says to begin at 4).
 QWEN_STT_MODEL = "qwen-audio-3.1-asr-flash"
-QWEN_STT_PATH = "/api/v1/services/aigc/multimodal-generation/generation"
+DASHSCOPE_STT_PATH = "/api/v1/services/aigc/multimodal-generation/generation"
 QWEN_CONTEXT, QWEN_HOT_WORDS, HOT_WORD_WEIGHT = 400, 2000, 4
-NO_WORDS = "ASR_RESPONSE_HAVE_NO_WORDS"  # Qwen's answer (HTTP 400) to audio with no words in it
+NO_WORDS = "ASR_RESPONSE_HAVE_NO_WORDS"  # Model Studio's answer (HTTP 400) to audio with no words in it
 
 VOICE_NOTE = """
 
@@ -494,16 +494,16 @@ def studio_why(answer: dict) -> str:
     return ": ".join(str(answer[k]) for k in ("code", "message") if answer.get(k))
 
 
-class QwenTranscriber:
-    """Qwen speech recognition on Model Studio, the request uploaded whole once it has ended: it is not heard as it
+class BailianTranscriber:
+    """Speech recognition on Model Studio, the request uploaded whole once it has ended: it is not heard as it
     is said. Her names, the commands and the library's names go with it as the words to expect."""
 
     def __init__(self, model: str = QWEN_STT_MODEL):
         from .llm import api_key, dashscope_host
 
-        self.key, self.model = api_key("qwen"), model
-        self.url = f"https://{dashscope_host()}{QWEN_STT_PATH}"
-        self.label = f"Qwen {model}, once you have finished"
+        self.key, self.model = api_key("bailian"), model
+        self.url = f"https://{dashscope_host()}{DASHSCOPE_STT_PATH}"
+        self.label = f"Model Studio {model}, once you have finished"
 
     def hints(self, lib) -> tuple[str, dict]:
         """The words to expect: as context, the first that fit (her names, the commands, then the library's names,
@@ -523,7 +523,7 @@ class QwenTranscriber:
         return None
 
     def __call__(self, audio: np.ndarray, lib) -> str:
-        """The whole request, uploaded once it has ended; "" when Qwen hears no words in it."""
+        """The whole request, uploaded once it has ended; "" when no words are heard in it."""
         return spell_names(clean_transcript(self._recognize(to_wav(audio), *self.hints(lib))))
 
     def _recognize(self, wav: bytes, context: str = "", vocabulary: dict | None = None) -> str:
@@ -546,17 +546,18 @@ class QwenTranscriber:
             why = studio_why(answer) or exc.reason
             if NO_WORDS in why:
                 return ""
-            if exc.code == 400 and (context or vocabulary) and answer.get("code") != QWEN_DEBT:  # owing is owing
-                print(f"  (Qwen refused the words to expect: {why}; heard without them)", flush=True)
+            if exc.code == 400 and (context or vocabulary) and answer.get("code") != STUDIO_DEBT:  # owing is owing
+                print(f"  (Model Studio refused the words to expect: {why}; heard without them)", flush=True)
                 return self._recognize(wav)
-            raise RuntimeError(f"Qwen error {exc.code}: {why}") from None
+            raise RuntimeError(f"Model Studio error {exc.code}: {why}") from None
 
 
 def make_transcriber():
-    """Her ears, as her model line has them: Qwen's with Qwen, otherwise OpenAI's (Anthropic's chat included)."""
+    """Her ears, as her model line has them: Model Studio's with Model Studio, otherwise OpenAI's (Anthropic's chat
+    included)."""
     from .llm import PROVIDERS, chosen_provider
 
-    return {"openai": Transcriber, "qwen": QwenTranscriber}[PROVIDERS[chosen_provider()].hears]()
+    return {"openai": Transcriber, "bailian": BailianTranscriber}[PROVIDERS[chosen_provider()].hears]()
 
 
 class VoiceError(RuntimeError):
@@ -603,24 +604,24 @@ class ElevenLabsVoice:
         return json.dumps([VOICE_ID, TTS_MODEL, settings, text])
 
 
-class QwenVoice:
-    """Her voice made by Qwen on Model Studio, with a key of its own (DASHSCOPE_VOICE_API_KEY, made in the region
+class BailianVoice:
+    """Her voice made on Model Studio, with a key of its own (DASHSCOPE_VOICE_API_KEY, made in the region
     DASHSCOPE_VOICE_REGION names) and the voice PIANASOUL_VOICE_ID names (QWEN_VOICE without it). It arrives as
     server-sent events, each with a piece of 24 kHz PCM in Base64."""
 
-    name = "Qwen"
+    name = "Model Studio"
 
     def __init__(self):
         from .llm import dashscope_host
 
         self.key, self.voice = os.environ.get("DASHSCOPE_VOICE_API_KEY", ""), VOICE_ID or QWEN_VOICE
-        self.url = f"https://{dashscope_host('DASHSCOPE_VOICE_REGION')}{QWEN_TTS_PATH}"
+        self.url = f"https://{dashscope_host('DASHSCOPE_VOICE_REGION')}{DASHSCOPE_TTS_PATH}"
         self.missing = "" if self.key else "DASHSCOPE_VOICE_API_KEY"
-        self.label = f"Qwen {QWEN_TTS_MODEL}, {self.voice}"
+        self.label = f"Model Studio {QWEN_TTS_MODEL}, {self.voice}"
 
     @staticmethod
     def how(settings: dict) -> dict:
-        """Qwen's way of saying what is said with these ElevenLabs settings. It has no stability or style: the speed
+        """Its way of saying what is said with these ElevenLabs settings. It has no stability or style: the speed
         alone carries over, as its rate (1.0 its own pace). Tuned by ear later."""
         return {"rate": settings["speed"]}
 
@@ -650,7 +651,7 @@ class QwenVoice:
                     heard = True
                     yield base64.b64decode(audio)
         if not heard:
-            raise VoiceError("Qwen sent no audio")
+            raise VoiceError("Model Studio sent no audio")
 
     def whole(self, resp) -> bytes:
         return b"".join(self.pieces(resp))
@@ -658,24 +659,24 @@ class QwenVoice:
     def clip_key(self, text: str, settings: dict) -> str:
         """What a recording of text is made of: the service, its model and the voice too, so that it is never one of
         ElevenLabs', and each voice's are kept: going back to one, none is made again."""
-        return json.dumps(["qwen", QWEN_TTS_MODEL, self.voice, self.how(settings), text])
+        return json.dumps(["bailian", QWEN_TTS_MODEL, self.voice, self.how(settings), text])
 
     @staticmethod
     def refusal(status: int, answer: dict) -> VoiceError:
         """Model Studio's error answer, with its HTTP status, as a VoiceError: refused for good for the key (401), a
         permission or the free quota (403), or a debt; anything else, words that did not pass its content inspection
         among them, for that sentence alone."""
-        return VoiceError(f"Qwen error {status}: {studio_why(answer) or 'no reason given'}",
-                          refused=status in (401, 403) or answer.get("code") == QWEN_DEBT)
+        return VoiceError(f"Model Studio error {status}: {studio_why(answer) or 'no reason given'}",
+                          refused=status in (401, 403) or answer.get("code") == STUDIO_DEBT)
 
 
 def voice_service():
-    """Her cloud voice, as PIANASOUL_VOICE chooses it: elevenlabs, qwen, or mac for none (None). Without it ElevenLabs,
-    which the macOS voice stands in for until its key and voice are set. ValueError for any other choice."""
+    """Her cloud voice, as PIANASOUL_VOICE chooses it: elevenlabs, bailian, or mac for none (None). Without it
+    ElevenLabs, which the macOS voice stands in for until its key and voice are set. ValueError for any other choice."""
     choice = os.environ.get("PIANASOUL_VOICE", "").strip().lower() or "elevenlabs"
-    services = {"elevenlabs": ElevenLabsVoice, "qwen": QwenVoice, "mac": lambda: None}
+    services = {"elevenlabs": ElevenLabsVoice, "bailian": BailianVoice, "mac": lambda: None}
     if choice not in services:
-        raise ValueError(f"PIANASOUL_VOICE must be mac, elevenlabs or qwen, got {choice!r}")
+        raise ValueError(f"PIANASOUL_VOICE must be mac, elevenlabs or bailian, got {choice!r}")
     return services[choice]()
 
 
@@ -793,7 +794,7 @@ def preview_lines(speaker: Speaker) -> None:
     import sounddevice as sd
 
     if not speaker.cloud:
-        print(f"Her lines are made with a cloud voice, ElevenLabs or Qwen; hers is {speaker.label}.")
+        print(f"Her lines are made with a cloud voice, ElevenLabs or Model Studio; hers is {speaker.label}.")
         return
     for text, how in READY.items():
         print(f"  {text}", flush=True)

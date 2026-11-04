@@ -1,9 +1,11 @@
-"""Thin wrapper over the OpenAI and Qwen (Responses API) and Anthropic (Messages API) tool-calling chat.
+"""Thin wrapper over the OpenAI and Alibaba Cloud Model Studio (Responses API) and Anthropic (Messages API)
+tool-calling chat.
 
-Choose the provider with PIANASOUL_MODEL: "openai", "qwen" or "anthropic", alone or with a model after a colon, e.g.
-"openai:gpt-6-luna" or "anthropic:claude-haiku-5-5". Without it, OpenAI is used when OPENAI_API_KEY is set, otherwise
-Anthropic. Qwen runs on Alibaba Cloud Model Studio with DASHSCOPE_API_KEY, in the region its key was made in
-(DASHSCOPE_REGION: beijing, the default, or singapore).
+Choose the provider with PIANASOUL_MODEL: "openai", "bailian" or "anthropic", alone or with a model after a colon,
+e.g. "openai:gpt-6-luna" or "bailian:qwen3.8-max". Without it, OpenAI is used when OPENAI_API_KEY is set, otherwise
+Anthropic. "bailian" is Alibaba Cloud Model Studio, by its name in China; its key is DASHSCOPE_API_KEY (DashScope
+being its API), and it is asked in the region the key was made in (DASHSCOPE_REGION: beijing, the default, or
+singapore).
 """
 
 from __future__ import annotations
@@ -31,10 +33,13 @@ class Provider:
 PROVIDERS = {
     "openai": Provider("OpenAI", "gpt-6-luna", "OPENAI_API_KEY", hears="openai"),
     "anthropic": Provider("Anthropic", "claude-haiku-5-5", "ANTHROPIC_API_KEY", hears="openai"),
-    # Model Studio's models think unless told not to: thinking, Qwen spent all 16 tokens of the app's key check on it
-    # (smoke test, 2026-11-03).
-    "qwen": Provider("Qwen", "qwen3.8-flash", "DASHSCOPE_API_KEY", hears="qwen",
-                     always={"reasoning": {"effort": "none"}}),
+    # Her model on Model Studio is DeepSeek's, chosen by her real-model check (2026-11-04): 104 of 108 against
+    # OpenAI's 105, nothing said and not done once the guard held such replies, and the cheapest of the models that
+    # passed. Model Studio has it through the Responses API in both regions (its DeepSeek page, 2026-10-27). Its models
+    # think unless told not to: thinking, Qwen spent all 16 tokens of the app's key check on it (smoke test,
+    # 2026-11-03); told none, DeepSeek does not think (2026-11-04).
+    "bailian": Provider("Model Studio", "deepseek-v4.1-flash", "DASHSCOPE_API_KEY", hears="bailian",
+                        always={"reasoning": {"effort": "none"}}),
 }
 # Model Studio's models that think whatever they are told, and the least they take: told none, GLM says it "does
 # not support 'reasoning.effort' to be 'none'" (2026-11-04).
@@ -83,7 +88,7 @@ def chosen_provider() -> str:
         return "anthropic" if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("OPENAI_API_KEY") else "openai"
     name = spec.partition(":")[0].lower()
     if name not in PROVIDERS:
-        raise ValueError(f"PIANASOUL_MODEL must be openai, qwen or anthropic, alone or with a model after a colon, "
+        raise ValueError(f"PIANASOUL_MODEL must be openai, bailian or anthropic, alone or with a model after a colon, "
                          f"got {spec!r}")
     return name
 
@@ -94,7 +99,7 @@ def model_spec() -> tuple[str, str]:
     spec = os.environ.get("PIANASOUL_MODEL", "").strip()
     provider = chosen_provider()
     if not spec and not os.environ.get(PROVIDERS[provider].key):
-        raise ValueError("set OPENAI_API_KEY or ANTHROPIC_API_KEY, or PIANASOUL_MODEL=qwen and DASHSCOPE_API_KEY")
+        raise ValueError("set OPENAI_API_KEY or ANTHROPIC_API_KEY, or PIANASOUL_MODEL=bailian and DASHSCOPE_API_KEY")
     return provider, spec.partition(":")[2] or PROVIDERS[provider].model
 
 
@@ -127,10 +132,10 @@ def dashscope_host(variable: str = "DASHSCOPE_REGION") -> str:
 
 def openai_client(provider: str):
     """An OpenAI SDK client for a provider with the Responses API: OpenAI's as the SDK makes it from the environment;
-    Qwen's with its own key and its region's address, never OPENAI_API_KEY or OPENAI_BASE_URL."""
+    Model Studio's with its own key and its region's address, never OPENAI_API_KEY or OPENAI_BASE_URL."""
     from openai import OpenAI
 
-    if provider == "qwen":
+    if provider == "bailian":
         return OpenAI(api_key=api_key(provider), base_url=f"https://{dashscope_host()}/compatible-mode/v1")
     return OpenAI()
 

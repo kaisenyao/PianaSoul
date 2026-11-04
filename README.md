@@ -73,8 +73,8 @@ manual edits. They play side by side, and the sound switches between them every 
 A Mac app for PianaSoul is in development and in private beta. Until it is released, the steps below run
 PianaSoul from source.
 
-You need a Mac and a piano that takes MIDI (or Pianoteq). For her you also need an OpenAI API key, or a Qwen one where
-OpenAI is out of reach; new pieces from YouTube or Bilibili need none (without one, they are named from the video's title). Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app and her voice on the Mac.
+You need a Mac and a piano that takes MIDI (or Pianoteq). For her you also need an OpenAI API key, or an Alibaba Cloud
+Model Studio one where OpenAI is out of reach; new pieces from YouTube or Bilibili need none (without one, they are named from the video's title). Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app and her voice on the Mac.
 
 ### 1. Install
 
@@ -113,12 +113,13 @@ echo 'export OPENAI_API_KEY="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Where OpenAI is out of reach, as in mainland China, Qwen does both instead, on Alibaba Cloud Model Studio: create an
-API key there ([how](https://www.alibabacloud.com/help/en/model-studio/get-api-key); not a Coding Plan key, which
-starts with `sk-sp-`) and set
+Where OpenAI is out of reach, as in mainland China, Alibaba Cloud Model Studio (Bailian) does both instead: DeepSeek
+understands the requests and Qwen hears them. Create an API key there
+([how](https://www.alibabacloud.com/help/en/model-studio/get-api-key); not a Coding Plan key, which starts with
+`sk-sp-`) and set
 
 ```bash
-echo 'export PIANASOUL_MODEL=qwen' >> ~/.zshrc
+echo 'export PIANASOUL_MODEL=bailian' >> ~/.zshrc
 echo 'export DASHSCOPE_API_KEY="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
@@ -208,16 +209,16 @@ echo 'export PIANASOUL_VOICE_ID="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Or let Qwen speak for her, on Alibaba Cloud Model Studio. Her voice has a key of its own, which may be the same key as
-her model's:
+Or let Alibaba Cloud Model Studio speak for her. Her voice has a key of its own, which may be the same key as her
+model's:
 
 ```bash
-echo 'export PIANASOUL_VOICE=qwen' >> ~/.zshrc
+echo 'export PIANASOUL_VOICE=bailian' >> ~/.zshrc
 echo 'export DASHSCOPE_VOICE_API_KEY="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Her Qwen voice is `longanhuan_v3.1`; `PIANASOUL_VOICE_ID` may name another of the
+Her voice there is `longanhuan_v3.1`; `PIANASOUL_VOICE_ID` may name another of the
 [voices](https://www.alibabacloud.com/help/en/model-studio/qwen-audio-tts-voice-list) of `qwen-audio-3.1-tts-flash`.
 For a key made in Singapore, also set `DASHSCOPE_VOICE_REGION=singapore`.
 
@@ -289,14 +290,14 @@ The app, voice and chat are one assistant, with one library and one set of conve
 Set these in `~/.zshrc`.
 
 - `OPENAI_API_KEY`: the chat model and speech recognition.
-- `DASHSCOPE_API_KEY`: the same with Qwen (`PIANASOUL_MODEL=qwen`), and `DASHSCOPE_REGION` the region the key was
-  made in: `beijing` (the default) or `singapore`.
-- `PIANASOUL_VOICE`: her voice: `elevenlabs`, `qwen` or `mac`. Without it, ElevenLabs once its key and a voice are
+- `DASHSCOPE_API_KEY`: the same with Alibaba Cloud Model Studio (`PIANASOUL_MODEL=bailian`), and `DASHSCOPE_REGION`
+  the region the key was made in: `beijing` (the default) or `singapore`.
+- `PIANASOUL_VOICE`: her voice: `elevenlabs`, `bailian` or `mac`. Without it, ElevenLabs once its key and a voice are
   set, and the Mac's own voice until then.
 - `ELEVENLABS_API_KEY` and `PIANASOUL_VOICE_ID`: her ElevenLabs voice.
-- `DASHSCOPE_VOICE_API_KEY`: her Qwen voice (`PIANASOUL_VOICE=qwen`), with a key of its own; `DASHSCOPE_VOICE_REGION`
-  the region the key was made in, `beijing` (the default) or `singapore`; and `PIANASOUL_VOICE_ID` the voice's name,
-  by default `longanhuan_v3.1`.
+- `DASHSCOPE_VOICE_API_KEY`: her voice on Model Studio (`PIANASOUL_VOICE=bailian`), with a key of its own;
+  `DASHSCOPE_VOICE_REGION` the region the key was made in, `beijing` (the default) or `singapore`; and
+  `PIANASOUL_VOICE_ID` the voice's name, by default `longanhuan_v3.1`.
 - `PIANASOUL_TRANSCRIBE`: `0` turns transcription and online search off though the advanced extra is installed, with
   her still on (the Mac app's Online Search & Transcription).
 - `PIANASOUL_PORT`: the MIDI output, by part of its name, until one is chosen in the Mac app. Default `pianasoul`.
@@ -306,10 +307,10 @@ Set these in `~/.zshrc`.
 - `PIANASOUL_MODELS`: a folder with the wake word and voice activity models, laid out as `models/` in the data folder
   is (the Mac app brings its own). They are read from there as they are, and never downloaded.
 - `PIANASOUL_WAKE_THRESHOLD`: how readily she hears her name; lower hears more. Default `0.2`.
-- `PIANASOUL_MODEL`: the chat model: `openai`, `qwen` or `anthropic`, alone or with a model after a colon. Default
-  `openai:gpt-6-luna`; `qwen` is `qwen3.8-flash`, and Qwen's `qwen-audio-3.1-asr-flash` then hears her requests.
-  After `qwen:` may come any model Model Studio serves through its Responses API, such as `qwen3.8-max`,
-  `deepseek-v4.1-flash`, `kimi-k3` or `glm-5.3`.
+- `PIANASOUL_MODEL`: the chat model: `openai`, `bailian` or `anthropic`, alone or with a model after a colon.
+  Default `openai:gpt-6-luna`; `bailian` is `deepseek-v4.1-flash`, and `qwen-audio-3.1-asr-flash` then hears her
+  requests. After `bailian:` may come any model Model Studio serves through its Responses API, such as
+  `qwen3.8-max`, `qwen3.8-flash`, `kimi-k3` or `glm-5.3`.
 - `PIANASOUL_STT_MODEL`: OpenAI's speech recognition model. Default `gpt-transcribe`.
 - `PIANASOUL_TTS_MODEL`: the ElevenLabs model. Default `eleven_v4_turbo`; `eleven_v4` is richer and slower.
 
@@ -391,12 +392,12 @@ The project can live on a dedicated Mac mini. To start it from any folder, add
 
 ## How it works
 
-- **Understanding requests and choosing pieces:** OpenAI `gpt-6-luna`, through its API; or Qwen `qwen3.8-flash`,
-  through Alibaba Cloud Model Studio's.
+- **Understanding requests and choosing pieces:** OpenAI `gpt-6-luna`, through its API; or DeepSeek
+  `deepseek-v4.1-flash`, through Alibaba Cloud Model Studio's.
 - **Speech to text:** OpenAI `gpt-transcribe`, heard as you speak through its realtime API, which also decides
-  when you have finished; if that connection fails, the request is uploaded whole once it has ended. With Qwen,
-  `qwen-audio-3.1-asr-flash`, the request uploaded whole once it has ended, with your library's names as the words
-  to expect.
+  when you have finished; if that connection fails, the request is uploaded whole once it has ended. With Model
+  Studio, Qwen `qwen-audio-3.1-asr-flash`, the request uploaded whole once it has ended, with your library's names as
+  the words to expect.
 - **Her voice:** ElevenLabs `eleven_v4_turbo`, through its API; or Qwen `qwen-audio-3.1-tts-flash`, through Model
   Studio's; or the Mac's own voice. Her ready-made lines are recorded once in each voice.
 - **A recording to MIDI:** Transkun `2.0.1`, on this Mac.
