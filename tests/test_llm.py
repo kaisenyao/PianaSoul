@@ -266,6 +266,22 @@ class ModelStudioTests(unittest.TestCase):
                 places.REAL_COMPLETE_JSON("Name it.")
         self.assertEqual(len(server.requests), 4, 'Each asked once: the SDK does not ask again')
 
+    def test_an_error_model_studio_streams_without_a_type_is_said_as_it_is_and_not_asked_again(self):
+        unsupported = streamed({"code": "InvalidParameter", "message": "Unsupported model: MiniMax/MiniMax-M3.",
+                                "request_id": "r"})  # as Model Studio streams it, 2026-11-04
+        with line(PIANASOUL_MODEL="qwen:MiniMax/MiniMax-M3", DASHSCOPE_API_KEY="dashscope-test"), \
+                Server(unsupported) as server:
+            with self.assertRaisesRegex(RuntimeError, "^the model failed: Unsupported model: MiniMax/MiniMax-M3"):
+                llm.make_chat("instructions", [])[0].send_user("你好")
+        self.assertEqual(len(server.requests), 1, 'Not taken for a stream that broke off')
+
+    def test_a_model_that_always_thinks_is_told_to_think_least(self):
+        with line(PIANASOUL_MODEL="qwen:glm-5.3", DASHSCOPE_API_KEY="dashscope-test"), \
+                Server(said("好呀。"), httpx2.Response(200, json=completed("{}"))) as server:
+            llm.make_chat("instructions", [])[0].send_user("你好")
+            places.REAL_COMPLETE_JSON("Name it.")
+        self.assertEqual([server.sent(i)[2]["reasoning"] for i in (0, 1)], [{"effort": "low"}] * 2)
+
     def test_a_refusal_spelt_as_in_compatible_mode_is_one_too(self):
         in_error = httpx2.Response(400, json={"error": {"code": "data_inspection_failed", "type": "data_inspection_failed",
                                                         "message": "Input data may contain inappropriate content."}})

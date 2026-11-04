@@ -36,6 +36,9 @@ PROVIDERS = {
     "qwen": Provider("Qwen", "qwen3.8-flash", "DASHSCOPE_API_KEY", hears="qwen",
                      always={"reasoning": {"effort": "none"}}),
 }
+# Model Studio's models that think whatever they are told, and the least they take: told none, GLM says it "does
+# not support 'reasoning.effort' to be 'none'" (2026-11-04).
+LEAST_THINKING = {"glm-5.3": {"reasoning": {"effort": "low"}}}
 # Model Studio's address in each region; a key works only in the region it was made in.
 DASHSCOPE_HOSTS = {"beijing": "dashscope.aliyuncs.com", "singapore": "dashscope-intl.aliyuncs.com"}
 # Model Studio's code for words that did not pass its content inspection, those asked or those written.
@@ -89,6 +92,11 @@ def model_spec() -> tuple[str, str]:
     if not spec and not os.environ.get(PROVIDERS[provider].key):
         raise ValueError("set OPENAI_API_KEY or ANTHROPIC_API_KEY, or PIANASOUL_MODEL=qwen and DASHSCOPE_API_KEY")
     return provider, spec.partition(":")[2] or PROVIDERS[provider].model
+
+
+def settings(provider: str, model: str) -> dict:
+    """What each request to this provider's model says besides (Responses API parameters)."""
+    return {**PROVIDERS[provider].always, **LEAST_THINKING.get(model, {})}
 
 
 def keys_needed(provider: str) -> list[str]:
@@ -148,7 +156,7 @@ def _parse_args(raw) -> dict:
 class OpenAIChat:
     def __init__(self, model: str, instructions: str, tools: list[dict], provider: str = "openai"):
         self.client, self.model, self.instructions = openai_client(provider), model, instructions
-        self.always = PROVIDERS[provider].always
+        self.always = settings(provider, model)
         self.tools = [{"type": "function", "name": t["name"], "description": t["description"],
                        "parameters": t["parameters"]} for t in tools]
         self.previous = self.turn_start = None
@@ -195,7 +203,7 @@ class OpenAIChat:
                     handed.append(words.strip())
             elif event.type in {"response.completed", "response.incomplete"}:
                 resp = event.response
-            elif event.type in {"response.failed", "error"}:
+            elif event.type in {"response.failed", "error"} or getattr(event, "code", None):  # Model Studio's: no type
                 error = getattr(getattr(event, "response", None), "error", None) or event
                 message = getattr(error, "message", error)
                 if is_refusal(getattr(error, "code", None)):
@@ -294,7 +302,7 @@ def complete_json(prompt: str) -> dict:
     else:
         with refusals():
             text = openai_client(provider).responses.create(model=model, input=prompt,
-                                                            **PROVIDERS[provider].always).output_text
+                                                            **settings(provider, model)).output_text
     match = re.search(r"\{.*\}", text or "", re.S)
     try:
         return json.loads(match.group(0)) if match else {}

@@ -305,6 +305,8 @@ Set these in `~/.zshrc`.
 - `PIANASOUL_WAKE_THRESHOLD`: how readily she hears her name; lower hears more. Default `0.2`.
 - `PIANASOUL_MODEL`: the chat model: `openai`, `qwen` or `anthropic`, alone or with a model after a colon. Default
   `openai:gpt-6-luna`; `qwen` is `qwen3.8-flash`, and Qwen's `qwen-audio-3.1-asr-flash` then hears her requests.
+  After `qwen:` may come any model Model Studio serves through its Responses API, such as `qwen3.8-max`,
+  `deepseek-v4.1-flash`, `kimi-k3` or `glm-5.3`.
 - `PIANASOUL_STT_MODEL`: OpenAI's speech recognition model. Default `gpt-transcribe`.
 - `PIANASOUL_TTS_MODEL`: the ElevenLabs model. Default `eleven_v4_turbo`; `eleven_v4` is richer and slower.
 
