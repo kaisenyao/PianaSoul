@@ -1216,6 +1216,17 @@ class PreparedTests(Base):
         self.assertFalse(self.a.piece_to_start())
         self.made('qingtian', rec_id)
 
+    def test_spoken_her_words_for_a_piece_made_before_are_said_at_once_and_name_it_in_place_of_her_line(self):
+        news = '找到啦，是 MappleZS 弹的《晴天》～'
+        job = self.queue.jobs['https://youtu.be/qingtian'] = Job(1, 'https://youtu.be/qingtian')
+        job.status, job.result = 'done', self.lib.get(self.ids[0])  # made before: there at once
+        job.finished.set()
+        answer = self.ask_aloud((news, [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')]),
+                                [self.call('play_recording', id=self.ids[0])], '')
+        self.assertEqual(self.p.current_id, self.ids[0])
+        self.assertEqual(self.said, [news, ''], 'Before it plays, and they named it: no line of hers (SPEC M5.5)')
+        self.assertEqual(answer, '', 'Nothing more for voice to say over it')
+
     def test_typed_her_news_shows_at_once_and_the_piece_has_her_line_as_it_starts(self):
         news = '找到啦，是 Jason Piano 弹的《晴天》～'
         with patch.object(chat_module, 'NEWS_WAIT_S', 30), patch.object(chat_module, 'TYPED_REPLY_S', 0):

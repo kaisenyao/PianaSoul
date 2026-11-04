@@ -1435,9 +1435,10 @@ class Assistant:
                 # piece she plays among others asked for, they are her sentence about them all, said as it begins
                 # (_start). Nor are those that come with looking online too soon, which she does not do, or once she
                 # has said a sentence: one only before her news. Spoken, those that come as she sends a piece to be
-                # prepared, none of this request's playing, are her news, said with her reply (_hold_news). Nor again
-                # what she said already, as the model went on to its tools. What she says as she looks in the library,
-                # or of several pieces, may name the piece she then plays (_named).
+                # prepared, none of this request's playing, are her news, said with her reply (_hold_news); with one
+                # made before, there at once, they are said once its tools have run, before it plays. Nor again what
+                # she said already, as the model went on to its tools. What she says as she looks in the library, as
+                # she finds one made before, or of several pieces, may name the piece she then plays (_named).
                 calls = reply.tool_calls
                 words = reply.text.strip()
                 said = said_ahead if said_ahead and words.startswith(said_ahead) else ""
@@ -1445,10 +1446,11 @@ class Assistant:
                 several = any(c.name == "play_recording" for c in calls) \
                     and sum(c.name in PIECE_CALLS for c in calls) > 1
                 online_again = progress_spoken and any(c.name == "search_online" for c in calls)
-                if words and self.speak and not several and not self.started_now \
-                        and any(c.name in PREPARES for c in calls):
-                    news = f"{news} {words}".strip()
-                elif words and not online_again and not any(c.name in ACTIONS or refused(c) for c in calls):
+                sent = len(self.preparing_now)
+                hold = bool(words) and self.speak and not several and not self.started_now \
+                    and any(c.name in PREPARES for c in calls)  # her news, if a piece is sent (below)
+                if not hold and words and not online_again \
+                        and not any(c.name in ACTIONS or refused(c) for c in calls):
                     self.tell(words, meanwhile=True)
                     progress_spoken, said = True, said + words
                 elif several:
@@ -1478,6 +1480,11 @@ class Assistant:
                         if played.get("error") in {"playback_connection_unavailable", "recording_unavailable", "recording_not_found"}:
                             chat.discard_turn()  # the unfinished tool exchange; earlier turns and the pending piece stay
                             return self.playback_reply(played)
+                if hold and len(self.preparing_now) > sent:
+                    news = f"{news} {words}".strip()
+                elif hold:  # nothing sent: made before (or not to be had), nothing waits for it
+                    self.tell(words, meanwhile=True)
+                    progress_spoken, self.looked_for = True, self.looked_for + words
                 self.held = ""
                 reply = model_reply(chat.send_tool_results, results)
             if reply.tool_calls:  # still calling tools after MAX_TOOL_ROUNDS: give this request up
