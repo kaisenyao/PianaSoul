@@ -450,6 +450,10 @@ class PlaybackTests(unittest.TestCase):
             self.assertIn('pause', text.lower())
             self.assertNotIn('stop', text.lower())
 
+    def test_the_end_of_what_played_is_not_said_as_one_piece(self):
+        # Said when the list that played has ended (finished_remark): a playlist's last piece, or a piece alone
+        self.assertEqual([t for t in LINES['finished']['zh'] if '这首' in t], [])
+
     def test_in_chinese_she_plays_never_puts_on(self):
         self.assertEqual([t for both in LINES.values() for t in both['zh'] if '放' in t], [], '"弹", never "放" or "播放"')
 

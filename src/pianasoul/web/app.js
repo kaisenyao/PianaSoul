@@ -2180,12 +2180,13 @@ async function transcribe() {
   d.abort = new AbortController();
   $('#compose').classList.add('transcribing');
   const audio = new Int16Array(d.chunks.reduce((n, c) => n + c.length, 0));
-  let at = 0, text = '';
+  let at = 0, text;  // stays undefined when not heard: the Mac out of reach, or its recognition failing
   for (const c of d.chunks) { audio.set(c, at); at += c.length; }
   try { ({text} = await (await fetch('/api/dictation', {method: 'POST', body: audio.buffer, signal: d.abort.signal})).json()); } catch {}
   if (dictation !== d) return;  // dropped with ✕, or you left the conversation
   endDictation();
   if (text) insertText(text);
+  else if (text === undefined) hud(T.dictationFailed);
 }
 // Between words of a language that spaces them, a space; none in Chinese or Japanese.
 const CJK = /[\u2E80-\u9FFF\u3000-\u303F\uAC00-\uD7AF\uFF00-\uFFEF]/;

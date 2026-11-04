@@ -21,7 +21,7 @@ from pianasoul.chat import Assistant
 from pianasoul.conversations import QUIET_S, Conversations
 from pianasoul.downloads import Downloads, Job
 from pianasoul.library import Library
-from pianasoul.lines import LINES
+from pianasoul.lines import LINES, every
 from pianasoul.play import GAP_S, Player
 from pianasoul.playback import Playback
 
@@ -842,11 +842,39 @@ class AssistantTests(Base):
             self.assertNotIn(text.split('，')[-1], told, "Her line before looking online does not end as the model's")
         for text in LINES['searching']['en']:
             self.assertNotIn(text.split('. ')[-1], told)
-        self.assertIn('never in\nthe third person', voice.VOICE_NOTE)
+        for given in (instructions(True), instructions(False), told):  # ./run.sh chat, online or not; voice, the app
+            self.assertEqual(given.count('Your names are 小茗同学 in Chinese and Jasmine in English'), 1)
+            self.assertEqual(given.count('never in the third person'), 1)
         self.assertIn('without Markdown or emoji', INSTRUCTIONS)
         for english in ('"play this\nchat\'s songs again from the start"', '"save these songs as a playlist"',
                         'Rename it anytime."'):
             self.assertIn(english, INSTRUCTIONS)
+        self.assertIn('as "在线搜索与转谱" when you answer in Chinese and "Online Search & Transcription" otherwise',
+                      ' '.join(instructions(False).split()), 'The setting she names, as the Mac names it')
+
+    def test_spoken_a_piece_that_begins_to_play_is_said_with_her_line_and_pause_and_cancel_in_her_words(self):
+        """As VOICE_NOTE tells her: through the model, resume, retry, restart, next and previous are introduced by
+        her line before the piece sounds, and her words after them are not said; pause and cancel are said in hers."""
+        from pianasoul.voice import VOICE_NOTE
+        note = ' '.join(VOICE_NOTE.split())
+        self.assertIn("resume, retry, restart, next, previous) is introduced by the application's own line", note)
+        self.assertIn('pause and cancel, you confirm yourself', note)
+        self.lib.new_playlist('睡前', self.ids)
+        self.a.ask(Scripted([SimpleNamespace(name='play_playlist', arguments={'name': '睡前'})], '好。'), '放我的睡前歌单')
+        introduced = {'resume': ['resume', 'playing'], 'retry': ['resume', 'playing'], 'restart': ['restart'],
+                      'next': ['next'], 'previous': ['previous']}  # (no notes go out: resumed at 0 s, as begun)
+        for action in ('pause', 'resume', 'pause', 'retry', 'restart', 'next', 'previous', 'cancel'):
+            with self.subTest(action=action):
+                said = []
+                answer = self.a.ask(Scripted([self.call('control_playback', action=action)], '嗯，好的。'),
+                                    '麻烦你帮我操作一下', speak=lambda text, meanwhile=False: said.append(text))
+                if action in introduced:
+                    piece = chat_module.spoken_title(self.p.current[1])
+                    self.assertEqual(answer, '')
+                    self.assertEqual(len(said), 1)
+                    self.assertIn(said[0], [t for key in introduced[action] for t in every(key, True, piece)])
+                else:
+                    self.assertEqual((said, answer), ([], '嗯，好的。'))
 
     def test_a_short_answer_is_an_answer_typed_or_in_the_terminal(self):
         for typed in (True, False):

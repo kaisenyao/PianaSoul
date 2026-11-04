@@ -1,8 +1,13 @@
 """Her ready-made lines: what she says when something always goes the same way (a control done, a notice, a wait
 she is starting on), in Chinese and in English. Everything else she says, the chat model words.
 
-Typed or spoken, it is the same line. Spoken, a line without a piece's name in it is said from a recording of her
-voice, made once (voice.READY): at once, and the same each time.
+A short request (playback_commands) is answered with her line, typed or spoken, and so are a notice
+(Assistant.piano_news), a wait she starts on, a piece that could not be played for want of the piano or of the piece,
+and a request the model could not answer. Otherwise, a spoken request's piece is introduced by her line as it begins
+to play (Assistant._start: a new piece or playlist, resume, retry, restart, next, previous), and the rest, pause and
+cancel among them, the model words, typed or spoken, with her line only when it wrote nothing. Spoken, a line
+without a piece's name in it is said from a recording of her voice, made once (voice.READY): at once, and the same
+each time.
 """
 
 from __future__ import annotations
@@ -105,7 +110,7 @@ LINES = {
                   "en": ["Sorry, I couldn't answer that just now. Could you ask me again?",
                          "Oops, I got stuck there. Would you mind saying that again?"]},
     # The list has played to its end, while she is on to say so; and goodbye
-    "finished": {"zh": ["这首弹完啦，希望你喜欢。", "余韵还在呢，想再听一首吗？", "谢谢你听我弹完，还想听点什么？"],
+    "finished": {"zh": ["弹完啦，希望你喜欢。", "余韵还在呢，想再听一首吗？", "谢谢你听我弹完，还想听点什么？"],
                  "en": ["That was lovely to play for you. Fancy another?",
                         "And that's the last note. I hope you enjoyed it.",
                         "Thanks for listening. What shall we play next?"]},

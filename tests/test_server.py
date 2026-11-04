@@ -334,6 +334,17 @@ class AppTests(unittest.TestCase):
         made.assert_called_once()
         self.assertEqual(len(ears.call_args.args[0]), 1600)
 
+    def test_dictation_not_heard_is_an_answer_for_the_page_and_one_line_here(self):
+        """Recognition refusing the audio, or not to be had: the page is told, and why shows in a line, no traceback."""
+        refused = RuntimeError('Error code: 400 - audio file might be corrupted or unsupported')
+        missing = RuntimeError('speech recognition needs OPENAI_API_KEY')
+        for why, made in ((refused, {'return_value': Mock(side_effect=refused)}), (missing, {'side_effect': missing})):
+            with self.subTest(why=str(why)), patch.object(server, '_parts', None), patch.object(server, '_stt', None), \
+                    patch('pianasoul.voice.make_transcriber', **made), contextlib.redirect_stdout(io.StringIO()) as out:
+                heard = signed_in(self.client).post('/api/dictation', content=np.zeros(1600, dtype='<i2').tobytes())
+            self.assertEqual((heard.status_code, heard.json()), (502, {'error': 'failed'}))
+            self.assertEqual(out.getvalue(), f'  (dictation failed: {why})\n')
+
 
 class VoiceTests(unittest.TestCase):
     def setUp(self):

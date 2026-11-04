@@ -807,15 +807,20 @@ def stop_download(job_id: int):
 
 @app.post('/api/dictation')
 async def dictation(request: Request):
-    """What was said, as text for the message field: 16 kHz mono PCM16."""
+    """What was said, as text for the message field: 16 kHz mono PCM16. Not heard (recognition out of reach, or
+    refusing the audio), it answers 502, for the page to say so, and why shows here in a line."""
     global _stt
     audio = np.frombuffer(await request.body(), dtype='<i2')
     if not len(audio):
         return {'text': ''}
-    if _stt is None:
-        from .voice import make_transcriber
-        _stt = _parts.stt if _parts else make_transcriber()
-    text = await asyncio.to_thread(_stt, audio.astype(np.float32) / 32768, core.lib)
+    try:
+        if _stt is None:
+            from .voice import make_transcriber
+            _stt = _parts.stt if _parts else make_transcriber()
+        text = await asyncio.to_thread(_stt, audio.astype(np.float32) / 32768, core.lib)
+    except Exception as exc:
+        print(f'  (dictation failed: {exc})', flush=True)
+        return JSONResponse({'error': 'failed'}, status_code=502)
     return {'text': text}
 
 

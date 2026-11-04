@@ -418,6 +418,17 @@ class ConversationTests(unittest.TestCase):
         stt.client.audio.transcriptions.create.return_value = '小明同学，我想听小明的歌。'
         self.assertEqual(stt(np.zeros(1600, dtype=np.float32), Mock()), '小茗同学，我想听小明的歌。')
 
+    def test_the_volume_commands_are_spelling_hints_as_the_short_commands_have_them(self):
+        # 小声一点 was heard as 小心一点. The hints are short commands, word for word; Qwen's go with its requests too.
+        from pianasoul.playback_commands import COMMANDS
+        self.assertTrue(all(any(w in words for words in COMMANDS.values()) for w in voice.STT_COMMAND_HINTS))
+        stt = voice.Transcriber.__new__(voice.Transcriber)
+        stt.model = 'gpt-transcribe'
+        keywords = stt.hints(Mock(playable=Mock(return_value=[])))['keywords']
+        for word in ('大声一点', '小声一点', 'louder', 'softer'):
+            self.assertIn(word, keywords)
+        self.assertTrue({'大声一点', 'louder'} <= COMMANDS['louder'] and {'小声一点', 'softer'} <= COMMANDS['softer'])
+
     def test_bad_pcm_is_rejected(self):
         with self.assertRaises(ValueError):
             self.c.frame(np.zeros(10, dtype=np.int16))
@@ -714,6 +725,7 @@ class QwenHearingTests(unittest.TestCase):
         self.assertLessEqual(timeout, 20, 'Bounded')
         self.assertEqual(body['model'], 'qwen-audio-3.1-asr-flash')
         expected = ['小茗同学', 'Hey Jasmine', '暂停', '停止播放', '继续播放', '从头弹',  # her names, the commands
+                    '大声一点', '小声一点', 'louder', 'softer',  # (小声一点 was heard as 小心一点)
                     'Chopin', '周杰伦', 'MappleZS', 'Nocturne Op. 9 No. 2', '晴天']  # the people, then the pieces
         context, audio = body['input']['messages']
         self.assertEqual(context, {'role': 'user', 'content': [{'type': 'input_text', 'text': '，'.join(expected)}]})
@@ -734,7 +746,7 @@ class QwenHearingTests(unittest.TestCase):
         self.assertEqual(said, vocabulary[:len(said)], 'The first words, whole')
         self.assertLessEqual(len(context), 400)
         self.assertGreater(len(context + '，' + vocabulary[len(said)]), 400, 'As many as fit')
-        self.assertEqual((len(vocabulary), vocabulary[6], vocabulary[-1]), (2000, '作曲家2499', '作曲家506'),
+        self.assertEqual((len(vocabulary), vocabulary[10], vocabulary[-1]), (2000, '作曲家2499', '作曲家510'),
                          'After her names and the commands, people first, the newest first')
 
     def test_no_words_heard_is_nothing_said_not_a_failure(self):

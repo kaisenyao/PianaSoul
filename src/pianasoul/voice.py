@@ -109,8 +109,9 @@ FOLLOW_UP_S = 6.0  # after her reply you may go on without her name, unless the 
 STT_PROMPT = "以下是普通话和英语的句子。我想听 Adele 的 Someone Like You。暂停。继续。"
 
 PROMPT_ECHOES = {STT_PROMPT, STT_PROMPT.split("。", 1)[-1], "暂停。继续。"}
-# Spelling hints besides the library's names: the commands that are easiest to mishear.
-STT_COMMAND_HINTS = ["暂停", "停止播放", "继续播放", "从头弹"]
+# Spelling hints besides the library's names: the commands that are easiest to mishear ("小声一点" was heard as
+# "小心一点"), as the short commands have them (playback_commands.COMMANDS).
+STT_COMMAND_HINTS = ["暂停", "停止播放", "继续播放", "从头弹", "大声一点", "小声一点", "louder", "softer"]
 # Qwen's hearing, through Model Studio's own API. The words to expect go with each request twice: as context, of
 # which Qwen reads 400 characters and cuts the rest from the end, and as hot words, up to 2000, each weighing 1 to 5
 # (Model Studio says to begin at 4).
@@ -121,11 +122,9 @@ NO_WORDS = "ASR_RESPONSE_HAVE_NO_WORDS"  # Qwen's answer (HTTP 400) to audio wit
 
 VOICE_NOTE = """
 
-Your names are 小茗同学 in Chinese and Jasmine in English; people say one of them to wake you, and you call yourself
-by the one that fits the language of the conversation. In anything you say, speak of yourself as "I" ("我"), never in
-the third person (not "小茗同学查到…" or "Jasmine is here"). Spoken requests are answered aloud by a young, cheerful
-voice, so sound natural and a little playful. Use one short sentence when you can and no lists. If the user asks
-for a link or a file path, say it is on the screen and include it; it is shown but not read aloud.
+People say one of your names to wake you. Spoken requests are answered aloud by a young, cheerful voice, so sound
+natural and a little playful. Use one short sentence when you can and no lists. If the user asks for a link or a file
+path, say it is on the screen and include it; it is shown but not read aloud.
 
 Speaking first: a spoken request (typed is not true) is answered aloud while the listener waits in silence. When you
 must look something up before you can answer (search_library with the piece's other names, search_online,
@@ -136,8 +135,10 @@ never that it is done, worked or failed. No question and no empty filler. Keep i
 characters, or eight English words). Only the sentence before search_online asks the listener to wait; before
 search_library or library_info, it says only what you are looking for. When library_matches already has the piece,
 call play_recording at once with no words before it, and for pause, resume, retry, restart, next, previous or cancel
-call control_playback at once: the application says a line once it is done. After the tools, say only what is new,
-and never a piece's name twice."""
+call control_playback at once. Spoken, a piece that begins to play (play_recording, play_playlist, replay_conversation;
+resume, retry, restart, next, previous) is introduced by the application's own line before it sounds, so add nothing
+about it; pause and cancel, you confirm yourself. A short request alone (暂停, 下一首, 大声一点) the application does
+and answers without you. After the tools, say only what is new, and never a piece's name twice."""
 
 
 def speakable(text: str) -> str:
