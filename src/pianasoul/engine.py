@@ -1,4 +1,5 @@
-"""Transkun piano transcription engine (loaded once, reused for every file)."""
+"""Transkun piano transcription engine: loaded once and reused for every file of a run (the command line), or once
+for a piece in a process of its own (pipeline.convert_apart: the service)."""
 
 from __future__ import annotations
 

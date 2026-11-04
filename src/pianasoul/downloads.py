@@ -96,12 +96,11 @@ class Job:
 
 
 class Downloads:
-    def __init__(self, lib, *, engine=None, name_piece=None):
+    def __init__(self, lib, *, name_piece=None):
         self.lib = lib
         self.jobs: list[Job] = []  # queued and running, in order
         self.listeners: list = []  # called after every change, on the downloads' thread or the caller's
         self.name_piece = name_piece  # (query, video, artists) -> {piece, artist, performer, aliases}, or None: the video's
-        self._engine = engine
         self._speed = SECONDS_PER_SECOND
         self._ids = itertools.count(1)
         self._cond = threading.Condition()
@@ -144,8 +143,8 @@ class Downloads:
         return job
 
     def stop(self, job_id: int) -> None:
-        """Stop a piece: it leaves the queue at once, and nothing it made stays (a transcription under way is
-        thrown away when it ends)."""
+        """Stop a piece: it leaves the queue at once, and nothing it made stays (a transcription under way ends at
+        once, with its process)."""
         with self._cond:
             job = next((j for j in self.jobs if j.id == job_id), None)
             if job is None:
@@ -263,12 +262,8 @@ class Downloads:
 
     def _transcribe(self, job: Job, audio: Path, seconds: float, named: threading.Thread) -> dict:
         """The piece made, then filed under its names once named is done (_file)."""
-        from .pipeline import Options, convert_file
+        from .pipeline import Options, convert_apart
 
-        if self._engine is None:
-            from .engine import TranskunEngine
-
-            self._engine = TranskunEngine()
         started, base = time.monotonic(), 0.0 if job.local else DOWNLOAD_SHARE
         ticking = threading.Event()
 
@@ -282,12 +277,16 @@ class Downloads:
             threading.Thread(target=tick, daemon=True).start()
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                info = convert_file(self._engine, audio, Path(tmp), Options(), output_name="piece")
+                try:  # in a process of its own: the piece playing meanwhile goes on undisturbed
+                    info = convert_apart(audio, Path(tmp), Options(), output_name="piece", stopped=job.stopped)
+                except InterruptedError:
+                    raise Stopped() from None
+                took = time.monotonic() - started
                 self._check(job)
                 named.join()
                 self._check(job)
-                if info.get("audio_duration_s"):
-                    self._speed = info["transcribe_seconds"] / info["audio_duration_s"]
+                if info.get("audio_duration_s"):  # the whole of it: its process and the model's loading too
+                    self._speed = took / info["audio_duration_s"]
                 return file_result(self.lib, Path(info["files"]["midi"]), job.title, composer=job.artist,
                                    performer=job.performer, aliases=job.aliases, tags=job.tags,
                                    source_type="local" if job.local else "url", source_url=job.source)

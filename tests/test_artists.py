@@ -85,9 +85,9 @@ class NewPieceTests(Base):
         audio = self.root / 'b.mp3'
         audio.write_bytes(b'x')
         asked = []
-        convert = lambda engine, audio, out, options, output_name: {'files': {'midi': str(make_midi(Path(out) / 'x.mid', note=75))}}
-        with patch('pianasoul.pipeline.convert_file', side_effect=convert):
-            d = Downloads(self.lib, engine=Mock(), name_piece=lambda query, video, artists: asked.append(artists) or
+        convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid', note=75))}}
+        with patch('pianasoul.pipeline.convert_apart', side_effect=convert):
+            d = Downloads(self.lib, name_piece=lambda query, video, artists: asked.append(artists) or
                                          {'piece': '稻香', 'artist': '周杰伦', 'performer': 'mapplezs'})
             rec = piece_made(d, str(audio))
         self.assertIn('周杰伦', asked[0], 'The model is told who is there already')

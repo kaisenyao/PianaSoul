@@ -224,7 +224,7 @@ class TranscribeOnceTests(unittest.TestCase):
         folder.scan(), folder.scan()
         return self.lib.audio_at(self.music / name)
 
-    def convert(self, engine, audio, out, options, output_name):
+    def convert(self, audio, out, options, output_name, stopped):
         return {'files': {'midi': str(make_midi(Path(out) / f'{output_name}.mid'))}}
 
     def test_without_transcription_it_waits_and_shows_as_needing_it(self):
@@ -246,8 +246,8 @@ class TranscribeOnceTests(unittest.TestCase):
 
     def test_once_this_mac_can_transcribe_each_is_made_once_and_then_only_when_asked(self):
         item = self.put('Clair de Lune.mp3')
-        with patch('pianasoul.pipeline.convert_file', side_effect=self.convert), \
-             patch('pianasoul.engine.TranskunEngine'), patch('pianasoul.core.installed', return_value=True):
+        with patch('pianasoul.pipeline.convert_apart', side_effect=self.convert), \
+             patch('pianasoul.core.installed', return_value=True):
             core = self.core(transcribe=True)
             deadline = time.monotonic() + 5
             while self.lib.audio_item(item['id'])['status'] != 'done' and time.monotonic() < deadline:
@@ -271,14 +271,14 @@ class TranscribeOnceTests(unittest.TestCase):
     def test_what_was_asked_for_goes_before_what_is_transcribed_on_its_own(self):
         order, gate = [], threading.Event()
 
-        def convert(engine, audio, out, options, output_name):
+        def convert(audio, out, options, output_name, stopped):
             gate.wait(5)
             order.append(Path(audio).name)
-            return self.convert(engine, audio, out, options, output_name)
+            return self.convert(audio, out, options, output_name, stopped)
         for name in ('a.mp3', 'b.mp3', 'c.mp3'):
             self.put(name)
-        with patch('pianasoul.pipeline.convert_file', side_effect=convert):
-            d = Downloads(self.lib, engine=object())
+        with patch('pianasoul.pipeline.convert_apart', side_effect=convert):
+            d = Downloads(self.lib)
             for name in ('a.mp3', 'b.mp3'):
                 d.add(str(self.music / name), auto=True)
             d.add(str(self.music / 'c.mp3'))  # asked for
@@ -291,8 +291,8 @@ class TranscribeOnceTests(unittest.TestCase):
 
     def test_a_failed_transcription_says_why(self):
         item = self.put('Noise.mp3')
-        with patch('pianasoul.pipeline.convert_file', side_effect=RuntimeError('could not decode audio')):
-            d = Downloads(self.lib, engine=object())
+        with patch('pianasoul.pipeline.convert_apart', side_effect=RuntimeError('could not decode audio')):
+            d = Downloads(self.lib)
             piece_made(d, str(self.music / 'Noise.mp3'))
         failed = self.lib.audio_item(item['id'])
         self.assertEqual((failed['status'], failed['error']), ('failed', 'RuntimeError: could not decode audio'))

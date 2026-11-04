@@ -1,11 +1,20 @@
-"""The transcription engine's devices: a piece the GPU fails is transcribed again on the CPU; no model is loaded."""
+"""The transcription engine's devices: a piece the GPU fails is transcribed again on the CPU (no model is loaded);
+and a piece transcribed in a process of its own (pipeline.convert_apart), with the real model once."""
 import contextlib
 import io
+import tempfile
 import threading
+import time
 import unittest
+import wave
+from importlib.util import find_spec
+from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
+
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
+from pianasoul import pipeline
 from pianasoul.engine import TranskunEngine
 
 
@@ -36,6 +45,57 @@ class EngineTests(unittest.TestCase):
         with patch.object(e, '_transcribe', side_effect=RuntimeError('bad audio')):
             with self.assertRaises(RuntimeError):
                 e.transcribe('audio')
+
+
+class ApartTests(unittest.TestCase):
+    """convert_apart, with a stand-in for the process (a shell script in Python's place) or with the real model."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+
+    def child(self, script):
+        fake = self.root / 'python'
+        fake.write_text('#!/bin/sh\n' + script)
+        fake.chmod(0o755)
+        return patch.object(pipeline.sys, 'executable', str(fake))
+
+    def test_its_info_is_its_last_line_and_what_it_said_before_is_passed_on(self):
+        said = io.StringIO()
+        with self.child('echo "transcription on the GPU failed; this piece again on the CPU"\n'
+                        'echo \'{"device": "cpu", "files": {"midi": "piece.mid"}}\'\n'), contextlib.redirect_stdout(said):
+            info = pipeline.convert_apart('a.m4a', self.root, pipeline.Options(), output_name='piece')
+        self.assertEqual(info, {'device': 'cpu', 'files': {'midi': 'piece.mid'}})
+        self.assertIn('again on the CPU', said.getvalue())
+
+    def test_its_failure_is_said_by_its_last_line(self):
+        with self.child('echo "Traceback (most recent call last):" >&2\necho "RuntimeError: could not decode audio" >&2\n'
+                        'exit 1\n'), self.assertRaisesRegex(RuntimeError, '^RuntimeError: could not decode audio$'):
+            pipeline.convert_apart('a.m4a', self.root, pipeline.Options())
+
+    def test_stopped_it_ends_at_once(self):
+        stopped = threading.Event()
+        threading.Timer(0.3, stopped.set).start()
+        started = time.monotonic()
+        with self.child('exec sleep 30\n'), self.assertRaises(InterruptedError):
+            pipeline.convert_apart('a.m4a', self.root, pipeline.Options(), stopped=stopped)
+        self.assertLess(time.monotonic() - started, 3)
+
+    @unittest.skipUnless(find_spec('transkun'), 'the advanced extra is not installed')
+    def test_the_real_model_in_its_own_process(self):
+        audio = self.root / 'a.wav'
+        t = np.arange(44100 * 2) / 44100
+        tone = (0.3 * np.sin(2 * np.pi * 440 * t) * np.exp(-2 * (t % 0.5))).astype(np.float32)
+        with wave.open(str(audio), 'wb') as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(44100)
+            w.writeframes((tone * 32767).astype('<i2').tobytes())
+        info = pipeline.convert_apart(audio, self.root / 'out', pipeline.Options(), output_name='piece')
+        self.assertTrue(Path(info['files']['midi']).is_file())
+        self.assertEqual(Path(info['files']['midi']).name, 'piece.mid')
+        self.assertAlmostEqual(info['audio_duration_s'], 2.0, delta=0.1)
 
 
 if __name__ == '__main__':

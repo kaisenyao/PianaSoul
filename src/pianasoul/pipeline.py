@@ -1,11 +1,15 @@
-"""Audio file -> raw MIDI -> cleaned MIDI + info.json."""
+"""Audio file -> raw MIDI -> cleaned MIDI + info.json; in this process (convert_file), or in one of its own
+(convert_apart, which runs this module)."""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import subprocess
+import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,6 +85,34 @@ def unique_path(path: Path, overwrite: bool) -> Path:
     raise RuntimeError(f"too many existing copies of {path}")
 
 
+def convert_apart(audio_path, out_dir, options: Options, *, output_name: str | None = None,
+                  stopped: threading.Event | None = None) -> dict:
+    """convert_file in a process of its own, which ends with the piece (the model's memory with it): its loading and
+    its work then never hold this process's interpreter, where the thread that sends the piano its notes must run on
+    time (in the service's own process, a transcription held it for seconds at a time and the piece playing
+    stalled). What it says (the GPU failing over to the CPU, say) is passed on. InterruptedError once stopped is
+    set: the process is ended at once. RuntimeError with its error when it fails."""
+    child = subprocess.Popen([sys.executable, "-I", "-B", "-m", __spec__.name, str(audio_path), str(out_dir),
+                              json.dumps(vars(options)), output_name or ""],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    while True:
+        try:
+            out, err = child.communicate(timeout=0.25)
+            break
+        except subprocess.TimeoutExpired:
+            if stopped is not None and stopped.is_set():
+                child.kill()
+                child.communicate()
+                raise InterruptedError("stopped") from None
+    lines = out.splitlines()
+    if child.returncode != 0 or not lines:
+        said = [line for line in err.splitlines() if line.strip()]
+        raise RuntimeError(said[-1] if said else f"the transcription ended with {child.returncode}")
+    for line in lines[:-1]:
+        print(line, flush=True)
+    return json.loads(lines[-1])
+
+
 def convert_file(engine, audio_path, out_dir, options: Options, overwrite: bool = False,
                  *, output_name: str | None = None) -> dict:
     audio_path, out_dir = Path(audio_path), Path(out_dir)
@@ -106,3 +138,14 @@ def convert_file(engine, audio_path, out_dir, options: Options, overwrite: bool 
         os.replace(stage / "info.json", info_path)
         os.replace(stage / "final.mid", midi_path)
     return info
+
+
+if __name__ == "__main__":  # convert_apart's process: one piece, then its info as the last line
+    import warnings
+
+    warnings.filterwarnings("ignore")  # the model's notes on stderr would read as its error
+    from .engine import TranskunEngine
+
+    audio_path, out_dir, options, name = sys.argv[1:5]
+    made = convert_file(TranskunEngine(), audio_path, out_dir, Options(**json.loads(options)), output_name=name or None)
+    print(json.dumps(made, ensure_ascii=False), flush=True)
