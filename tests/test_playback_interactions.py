@@ -186,7 +186,7 @@ class PlaybackTests(unittest.TestCase):
         self.assertIn('timed out', result['error'])
         self.assertIn('search_online failed: YouTube: Unable to download API page: timed out', out.getvalue())
 
-    def test_she_is_told_why_each_site_could_not_be_searched(self):
+    def test_she_is_told_why_each_site_could_not_be_searched_and_which_are_off(self):
         self.lib.set_setting('search_sources', 'bilibili')
         refused = online.OnlineError('HTTP Error 412: Precondition Failed', 'refused', 'bilibili')
         with patch('pianasoul.online.search', side_effect=refused) as searched, \
@@ -194,7 +194,9 @@ class PlaybackTests(unittest.TestCase):
             result = json.loads(self.a.run_tool('search_online', {'query': '月光 piano'}))
         searched.assert_called_once_with('月光 钢琴', 8, 'bilibili')
         self.assertEqual(result, {'error': 'Bilibili: HTTP Error 412: Precondition Failed',
-                                  'unavailable': [{'site': 'Bilibili', 'reason': 'refused'}]})
+                                  'unavailable': [{'site': 'Bilibili', 'reason': 'refused'}],
+                                  'searched': ['Bilibili'], 'off': ['YouTube']},
+                         'YouTube is off: for the user to turn on, not for her to search')
         self.assertIn('search_online failed: Bilibili: HTTP Error 412', out.getvalue())
         self.lib.set_setting('search_sources', 'youtube,bilibili')
 
@@ -205,6 +207,7 @@ class PlaybackTests(unittest.TestCase):
             result = json.loads(self.a.run_tool('search_online', {'query': '月光 piano'}))
         self.assertEqual(result['unavailable'], [{'site': 'YouTube', 'reason': 'unreachable'},
                                                  {'site': 'Bilibili', 'reason': 'refused'}], 'Both searched: why, each')
+        self.assertEqual((result['searched'], result['off']), (['YouTube', 'Bilibili'], []))
 
     def test_she_searches_every_site_chosen_at_once_each_in_its_own_words(self):
         chat = ScriptedChat('好呀。')

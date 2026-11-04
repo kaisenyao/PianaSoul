@@ -237,7 +237,8 @@ TOOLS = [
      "description": "Search videos online, only once search_library, with the piece's other names, has "
                     "not found it. Returns url, title, site, channel, duration_s, views, description, warning flags, "
                     "and in_library when that video was already transcribed; and the sites that could not be "
-                    "searched this time, with why (unavailable).",
+                    "searched this time, with why (unavailable). When none could be, it fails, with the sites "
+                    "searched (searched) and those turned off (off), which only the user can turn on.",
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string"},
          "max_results": {"type": "integer", "description": "1-15, default 8"}}, "required": ["query"]}},
@@ -556,13 +557,16 @@ class Assistant:
     def search_online(self, query: str, max_results: int = 8) -> dict:
         """On the sites chosen for her and the phones (online.chosen_sources), all at once and merged, as the phone
         shows them: she does not choose the sites herself. Those that could not be searched are in unavailable, with
-        why; when none could be, it is an error, which she says (FINDING_ONLINE)."""
+        why; when none could be, it is an error, which she says (FINDING_ONLINE), with the sites searched and those
+        turned off, which only the user can turn on: she does not say she tries one of them herself."""
         sources = online.chosen_sources(self.lib)
         print(f"  · searching {', '.join(online.SOURCES[s] for s in sources)}: {query}", flush=True)
         results, failed = online.search_sites(query, max_results, sources)
         unavailable = [{"site": online.SOURCES[e.source], "reason": e.reason} for e in failed]
         if len(failed) == len(sources):
-            return {"error": "; ".join(f"{online.SOURCES[e.source]}: {e}" for e in failed), "unavailable": unavailable}
+            return {"error": "; ".join(f"{online.SOURCES[e.source]}: {e}" for e in failed), "unavailable": unavailable,
+                    "searched": [online.SOURCES[s] for s in sources],
+                    "off": [name for s, name in online.SOURCES.items() if s not in sources]}
         print(f"    {len(results)} found", flush=True)
         for e in failed:
             print(f"    {online.SOURCES[e.source]} not searched ({e.reason}): {e}", flush=True)
