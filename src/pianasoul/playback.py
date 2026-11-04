@@ -246,7 +246,9 @@ class Playback(Player):
         self.changed()
 
     def waited(self) -> None:
-        self.changed()
+        # On a thread of its own, as after_run's next piece: what is told takes the lock (snapshot), which a start or
+        # a pause holds while it waits for the playing thread to end.
+        threading.Thread(target=self.changed, daemon=True).start()
 
     def pause(self) -> None:
         with self._lock:

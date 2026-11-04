@@ -199,6 +199,20 @@ class PlayingTests(unittest.TestCase):
         self.assertEqual([m.note for _, m in self.sent[before:] if m.type == 'note_on' and m.velocity], [65],
                          'From 2.0 on')
 
+    def test_going_on_after_its_music_waited_it_never_waits_for_a_start_or_a_pause_meanwhile(self):
+        told = []
+        self.p.listeners.append(lambda: told.append(self.p.snapshot()))  # as the service tells the phones
+        self.piece.add(midi_of([(0.0, 0.1, 60, 80)]), 0.5, 3.0)
+        self.p.select(self.rec['id'])
+        self.assertTrue(self.wait(lambda: self.p.position >= 0.5))
+        time.sleep(0.2)  # its music waits at 0.5
+        with self.p._lock:  # a start or a pause, which waits for the playing thread to end before it goes on
+            self.piece.add(midi_of([(0.5, 0.6, 64, 80)]), math.inf, 3.0)
+            self.assertTrue(self.wait(lambda: any(m.note == 64 for _, m in self.sent if m.type == 'note_on'), 1),
+                            'On with its notes, never waiting for that lock on the playing thread')
+            told.clear()
+        self.assertTrue(self.wait(lambda: told), 'The phones are told that it goes on')
+
     def test_not_made_after_all_it_stops(self):
         self.piece.add(midi_of([(0.0, 0.1, 60, 80)]), 0.5, 3.0)
         self.p.select(self.rec['id'])
