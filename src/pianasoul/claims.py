@@ -38,24 +38,27 @@ DONE = re.compile("|".join([
     r"先[^，。]{0,12}?(?:停|暂停|暫停)|停在这|停在這",  # 先停在这儿: she keeps it paused
     r"(?:改名|改成|改为|改為|改叫|命名|取消|调到|調到|调成|調成|调大|調大|调小|調小|调高|调低|换成|換成|切到|整理成|存成)"
     r"[^，。]*(?:了|啦|咯)$",  # 歌单改名为「晚安曲」啦
-    r"\bI'?ll (?:play|replay|pause|stop|resume|continue|carry on|pick up|restart|start|retry|try|cancel|rename|make"
-    r"|create|save|turn|set|skip|shuffle|put|go on)\b",
+    r"\bI'?ll (?:play|replay|pause|stop|resume|continue|carry on|pick up|restart|start|retry|try (?:it |that |this )?"
+    r"(?:again|once more)|cancel|rename|make(?! sure)|create|save|turn|set|skip|shuffle|put|go on)\b",  # not "try to"
     r"\b(?:I'm|I am) (?:now |already )?(?:playing|replaying|pausing|stopping|resuming|continuing|restarting|starting"
     r"|retrying|cancell?ing|renaming|making|creating|saving|turning|setting|skipping|shuffling|putting)\b",
-    r"\bI(?:'ve| have) (?:just |now )?(?:played|replayed|paused|stopped|resumed|continued|restarted|started|retried"
-    r"|cancell?ed|renamed|made|created|saved|turned|set|skipped|shuffled|put)\b",
-    r"\blet me (?:play|replay|pause|stop|resume|continue|carry on|restart|start|retry|try|cancel|rename|make|save"
-    r"|turn|set|skip|shuffle)\b",
+    r"\bI(?:'ve| have) (?:just |now )?(?:replayed|paused|stopped|resumed|continued|restarted|started|retried"
+    r"|cancell?ed|renamed|made|created|saved|turned|set|skipped|shuffled|put)\b",  # not "I've played", as before
+    r"\blet me (?:play|replay|pause|stop|resume|continue|carry on|restart|start|retry|try (?:it |that |this )?"
+    r"(?:again|once more)|cancel|rename|make(?! sure)|save|turn|set|skip|shuffle)\b",
     r"\blet's (?:carry on|continue|start|begin|play|go on|pick up|listen)\b",
-    r"^(?:okay|ok|sure|alright|all right|of course|got it|great)?[\s!.—–-]*(?:playing|replaying|pausing|paused"
-    r"|stopping|stopped|resuming|continuing|restarting|starting|retrying|cancell?ing|cancell?ed|renaming|renamed"
-    r"|skipping|shuffling|done|next one|back to)\b",
+    # Not what the sentence is about ("Playing piano before bed is a lovely habit").
+    r"^(?:okay|ok|sure|alright|all right|of course|got it|great)?[\s!.—–-]*(?:(?:playing|replaying|pausing|stopping"
+    r"|resuming|continuing|restarting|starting|retrying|cancell?ing|renaming|skipping|shuffling)\b"
+    r"(?![^.!?]*\b(?:is|are|was|were)\b)|(?:paused|stopped|cancell?ed|renamed|done|next one|back to)\b)",
     r"\b(?:retrying|trying again|picking up|carrying on|coming up|here we go|from the (?:top|start)|now playing"
     r"|all done)\b",
-    r"\bhere's\b(?! (?:what|how|a |an |the list|everything|all|why|where|who|some))",
+    r"\bhere's\b(?! (?:what|how|why|where|who|a |an |the |my |your |our |some|everything|all))"
+    r"|\bhere's (?:the|your) (?:piece|song)\b",  # not "here's your most played", "here's the story"
     r"\b(?:is|it's) now (?:called|named)\b|\bnow called\b",
     r"\bvolume (?:up|down)\b|\bturn(?:ed|ing)? (?:it )?(?:up|down)\b|\bvolume (?:is )?(?:now )?(?:set )?(?:at|to) \d",
-    r"\b(?:is|are) (?:now )?playing\b|\bplaying (?:it |this |that )?(?:now|again|for you)\b",
+    # Not what plays, as asked ("Clair de Lune is playing right now").
+    r"\b(?:is|are) (?:now )?playing\b(?! right now)|\bplaying (?:it |this |that )?(?:now|again|for you)\b",
     r"\bplaylist (?:is )?(?:ready|made|saved|created)\b",
 ]), re.I)
 # Of those, what says only that the piece is paused where it is ("先停在这儿", "停住啦", "paused"), not stopped: true
@@ -76,14 +79,15 @@ GOING = re.compile("|".join([
 # "你在手机上把哔哩哔哩也打开，我再帮你找一版", "连好了跟我说一声，我接着弹", "稍后再让我试试"); in English, the whole
 # sentence ("I'll go on when you're ready").
 WAITS_ON = re.compile(r"如果|要是|的话|的話|只要|一旦|你连|你連|等你|等您|等(?![我待])[^，。]{0,10}?(?:后|後|再|了|好|时|時)"
-                      r"|打开|打開|告诉我|告訴我|说一声|說一聲|叫我|之后|之後|稍后|稍後|过会|過會|回头|回頭")
+                      r"|打开|打開|告诉我|告訴我|说一声|說一聲|叫我|之后|之後|稍后|稍後|过会|過會|等会|等會|回头|回頭"
+                      r"|等我们|等我們")
 WAITS_ON_EN = re.compile(r"\b(?:if|when you|whenever|once (?:you|it|the|your)|as soon as|until|unless|after you"
                          r"|and I'll)\b", re.I)
 # A part of a sentence that offers or asks, says what was not done, or what the user did (你 first, as its subject;
 # not 你的), or what follows from something else first ("好了就弹给你", "连好了我就继续"; not "这就弹").
 CLAIMS_NOTHING = re.compile(
     r"可以|能|要不要|要我|需要我|想不想|想听|想聽|想要|随时|隨時|愿意|願意|(?:[吗嗎]|(?<![什怎这這那多])么)$"
-    r"|(?:了|好|后|後|声|聲|去|来|來)[^，。]{0,3}?就"
+    r"|(?:了|好|后|後|完|声|聲|去|来|來)[^，。]{0,3}?就"
     r"|(?<!差)(?:不|没|沒|别|別|未|无法|無法)(?![过過错錯少久妨仅僅但然只断斷])"
     r"|^(?:不过|不過|对了|對了|那|而且|其实|其實|可是|但是?|好|嗯)?[你您](?![的们們])"
     r"|\b(?:can|could|would|shall|should|may|might|want me|happy to|feel free|any ?time|just say|say the word"

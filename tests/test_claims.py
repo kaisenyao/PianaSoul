@@ -52,6 +52,21 @@ SAID_NOTHING_DONE = [
     "It's not in your library. Once Online Search & Transcription is on, I can find it online.",
     "Here's what you've listened to most lately: Clair de Lune, five times.", "Nothing is playing right now.",
     "This is the only piece in the list. Name another and I'll play it.", "Shall I play you something?",
+    # In words her claims use too: an answer, what she has played before, or chat; and, a piece paused only while
+    # she listens, that it plays on after her reply, as she is told it does.
+    "Here's your most played: Clair de Lune.", "Here's the story behind Clair de Lune: Debussy wrote it young.",
+    "Here's the thing: it was never meant to be loud.", "Clair de Lune is playing right now, by Lang Lang.",
+    "Debussy's Clair de Lune is playing right now.", "I've played Chopin for you three times this week!",
+    "Happy to chat! Starting a new hobby is fun.", "Playing piano before bed is a lovely habit.",
+    "Let me try to explain it simply.", "I'll try my best to keep you company.", "I'll make sure it stays gentle.",
+    "这首是《月光》哦，聊完就接着弹给你～", "等会儿接着弹～", "等我们聊完它会接着弹。",
+]
+# What any model may write to say it does something at once, in the words of the replies above: found all the same.
+SAID_DONE_IN_THEIR_WORDS = [
+    "Playing Clair de Lune for you now.", "Here's Clair de Lune for you!", "Here's 贝加尔湖畔～", "Here's your song!",
+    "Clair de Lune is now playing.", "Okay, Clair de Lune is playing.", "Starting Clair de Lune now.",
+    "Sure, starting it over.", "Let me try again.", "I'll try that once more.", "I've started Clair de Lune for you.",
+    "Next one is Chopin's Nocturne.", "Clair de Lune is playing again from 0:22.", "这就接着弹～",
 ]
 
 
@@ -62,6 +77,10 @@ class ClaimTests(unittest.TestCase):
 
     def test_what_a_model_says_as_it_does_something_would_claim_it_alone(self):
         for words in SAID_WITH_A_TOOL:
+            self.assertTrue(claims(words), words)
+
+    def test_what_any_model_may_write_to_say_it_does_something_in_words_that_also_say_other_things_is_found(self):
+        for words in SAID_DONE_IN_THEIR_WORDS:
             self.assertTrue(claims(words), words)
 
     def test_questions_offers_what_waits_on_the_user_and_what_was_not_done_claim_nothing(self):
