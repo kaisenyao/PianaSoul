@@ -91,7 +91,8 @@ def convert_apart(audio_path, out_dir, options: Options, *, output_name: str | N
     its work then never hold this process's interpreter, where the thread that sends the piano its notes must run on
     time (in the service's own process, a transcription held it for seconds at a time and the piece playing
     stalled). What it says (the GPU failing over to the CPU, say) is passed on. InterruptedError once stopped is
-    set: the process is ended at once. RuntimeError with its error when it fails."""
+    set: the process is ended at once; it also ends by itself when this one does. RuntimeError with its error when it
+    fails."""
     child = subprocess.Popen([sys.executable, "-I", "-B", "-m", __spec__.name, str(audio_path), str(out_dir),
                               json.dumps(vars(options)), output_name or ""],
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -105,11 +106,11 @@ def convert_apart(audio_path, out_dir, options: Options, *, output_name: str | N
                 child.communicate()
                 raise InterruptedError("stopped") from None
     lines = out.splitlines()
-    if child.returncode != 0 or not lines:
-        said = [line for line in err.splitlines() if line.strip()]
-        raise RuntimeError(said[-1] if said else f"the transcription ended with {child.returncode}")
-    for line in lines[:-1]:
+    done = child.returncode == 0 and bool(lines)
+    for line in lines[:-1] if done else lines:
         print(line, flush=True)
+    if not done:
+        raise RuntimeError(err.strip() or f"the transcription ended with {child.returncode}")
     return json.loads(lines[-1])
 
 
@@ -141,11 +142,25 @@ def convert_file(engine, audio_path, out_dir, options: Options, overwrite: bool 
 
 
 if __name__ == "__main__":  # convert_apart's process: one piece, then its info as the last line
+    import signal
     import warnings
 
-    warnings.filterwarnings("ignore")  # the model's notes on stderr would read as its error
-    from .engine import TranskunEngine
+    signal.signal(signal.SIGINT, signal.SIG_IGN)  # Control+C is for the program that started it, which ends it
+    parent = os.getppid()
 
-    audio_path, out_dir, options, name = sys.argv[1:5]
-    made = convert_file(TranskunEngine(), audio_path, out_dir, Options(**json.loads(options)), output_name=name or None)
-    print(json.dumps(made, ensure_ascii=False), flush=True)
+    def orphaned():  # the program that started it gone (quit, restarted, killed): this one goes too
+        while os.getppid() == parent:
+            time.sleep(1)
+        os._exit(1)
+
+    threading.Thread(target=orphaned, daemon=True).start()
+    warnings.filterwarnings("ignore")  # the model's notes on stderr would read as its error
+    try:
+        from .engine import TranskunEngine
+
+        audio_path, out_dir, options, name = sys.argv[1:5]
+        made = convert_file(TranskunEngine(), audio_path, out_dir, Options(**json.loads(options)),
+                            output_name=name or None)
+    except Exception as exc:
+        sys.exit(str(exc))  # its error, whole, for convert_apart to say
+    print(json.dumps(made), flush=True)

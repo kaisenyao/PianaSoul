@@ -282,6 +282,8 @@ class Downloads:
                 except InterruptedError:
                     raise Stopped() from None
                 took = time.monotonic() - started
+                log.debug("transcribed in %.1f s on %s: %.0f s of music", took, info.get("device"),
+                          info.get("audio_duration_s") or 0)
                 self._check(job)
                 named.join()
                 self._check(job)

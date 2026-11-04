@@ -69,9 +69,9 @@ class ApartTests(unittest.TestCase):
         self.assertEqual(info, {'device': 'cpu', 'files': {'midi': 'piece.mid'}})
         self.assertIn('again on the CPU', said.getvalue())
 
-    def test_its_failure_is_said_by_its_last_line(self):
-        with self.child('echo "Traceback (most recent call last):" >&2\necho "RuntimeError: could not decode audio" >&2\n'
-                        'exit 1\n'), self.assertRaisesRegex(RuntimeError, '^RuntimeError: could not decode audio$'):
+    def test_its_failure_is_said_whole(self):
+        with self.child('echo "could not decode audio: [mp3] Failed to find two frames" >&2\necho "Invalid data" >&2\n'
+                        'exit 1\n'), self.assertRaisesRegex(RuntimeError, '^could not decode audio: .+\nInvalid data$'):
             pipeline.convert_apart('a.m4a', self.root, pipeline.Options())
 
     def test_stopped_it_ends_at_once(self):
@@ -83,15 +83,36 @@ class ApartTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 3)
 
     @unittest.skipUnless(find_spec('transkun'), 'the advanced extra is not installed')
-    def test_the_real_model_in_its_own_process(self):
-        audio = self.root / 'a.wav'
-        t = np.arange(44100 * 2) / 44100
+    def test_its_error_is_its_own_and_it_ends_when_the_program_that_started_it_does(self):
+        with self.assertRaisesRegex(RuntimeError, '^could not decode audio'):
+            pipeline.convert_apart(self.root / 'missing.mp3', self.root / 'out', pipeline.Options())
+        import subprocess
+        import sys
+        long = self.tone('long.wav', 120)  # some ten seconds to transcribe
+        self.addCleanup(subprocess.run, ['pkill', '-f', str(long)])
+        starter = subprocess.Popen([sys.executable, '-c', 'import subprocess, sys, time; subprocess.Popen([sys.executable, '
+                                    '"-I", "-B", "-m", "pianasoul.pipeline", sys.argv[1], sys.argv[2], "{}", ""]); time.sleep(1)',
+                                    str(long), str(self.root / 'out')])
+        starter.wait()
+        time.sleep(3)  # the starter gone: its child sees it within a second
+        left = subprocess.run(['pgrep', '-f', str(long)], capture_output=True, text=True).stdout
+        self.assertEqual(left, '', 'Nothing left running')
+
+    def tone(self, name, seconds):
+        """A note struck twice a second, as audio to transcribe."""
+        audio = self.root / name
+        t = np.arange(int(44100 * seconds)) / 44100
         tone = (0.3 * np.sin(2 * np.pi * 440 * t) * np.exp(-2 * (t % 0.5))).astype(np.float32)
         with wave.open(str(audio), 'wb') as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(44100)
             w.writeframes((tone * 32767).astype('<i2').tobytes())
+        return audio
+
+    @unittest.skipUnless(find_spec('transkun'), 'the advanced extra is not installed')
+    def test_the_real_model_in_its_own_process(self):
+        audio = self.tone('a.wav', 2)
         info = pipeline.convert_apart(audio, self.root / 'out', pipeline.Options(), output_name='piece')
         self.assertTrue(Path(info['files']['midi']).is_file())
         self.assertEqual(Path(info['files']['midi']).name, 'piece.mid')
