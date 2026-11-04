@@ -12,6 +12,7 @@ import places  # noqa: F401  (first: the library, data and cache folders are thr
 from pianasoul import server
 from pianasoul.chat import Assistant
 from pianasoul.library import Library
+from pianasoul.lines import LINES, every
 from pianasoul.playback import Playback
 from test_app import Base, Scripted
 from test_server import ORIGIN, signed_in
@@ -211,6 +212,17 @@ class HerPlaylistTests(Base):
         self.assertEqual(results['文件没了'], {'error': 'playlist_empty'})
         self.assertIsNone(self.p.current_id)
         self.assertTrue(self.lib.playlist(gone)['ids'], 'The playlist keeps it, for when its file is back')
+        # Her words for it, when the model has none: what happened, not that it did not start
+        self.assertIn(self.ask('放不存在的歌单', [self.call('play_playlist', name='不存在')], ''), LINES['no_playlist']['zh'])
+        self.assertIn(self.ask('放空的歌单', [self.call('play_playlist', name='空的')], ''), LINES['playlist_empty']['zh'])
+
+    def test_a_playlist_that_gave_way_to_the_phone_is_said_as_a_playlist(self):
+        a, b, c = self.ids
+        self.lib.new_playlist('睡前', [a, b])
+        self.a.taps_asked, self.a.taps = 0, 1  # the phone's player, used meanwhile
+        result = self.a.play_playlist('睡前')
+        self.assertEqual((result['status'], result['playlist']), ('not_started', '睡前'))
+        self.assertIn(self.a.playback_reply(result), every('playlist_ready', True, '睡前'), 'Not "《睡前》准备好啦"')
 
     def chat_with(self, *pieces):
         """A conversation in which she played these pieces, in this order."""
@@ -278,7 +290,7 @@ class HerPlaylistTests(Base):
         self.a.keep('user', '你好')
         for result in (self.a.replay_conversation(), self.a.save_conversation_as_playlist('空')):
             self.assertEqual(result, {'error': 'conversation_empty'})
-        self.assertEqual(self.a.playback_reply({'error': 'conversation_empty'}), '这段聊天里还没弹过曲子呢，想听什么告诉我～')
+        self.assertEqual(self.a.playback_reply({'error': 'conversation_empty'}), '这段聊天里还没弹过曲子呢，先挑一首开始吧～')
         self.assertEqual(self.lib.playlists(), [])
 
     def test_with_the_piano_away_she_plays_the_playlist_once_it_is_back(self):

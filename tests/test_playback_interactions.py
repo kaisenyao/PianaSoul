@@ -4,6 +4,7 @@ import dataclasses
 import io
 import json
 from pathlib import Path
+import re
 from types import SimpleNamespace
 import tempfile
 import threading
@@ -350,9 +351,20 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(self.player._from, 0)
 
     def test_no_current_control_requests_selection_without_claiming_missing_file(self):
-        result = self.ask(ScriptedChat([call('control_playback', action='resume')]), '能继续吗')
-        self.assertIn('曲名', result)
+        chat = ScriptedChat([call('control_playback', action='resume')], '现在没有能接着弹的，想听哪首呀？')
+        result = self.ask(chat, '能继续吗')
+        self.assertEqual(chat.results[0]['error'], 'nothing_to_play')
+        self.assertIn('ask what they would like to hear', chat.results[0]['instruction'])
+        self.assertEqual(result, '现在没有能接着弹的，想听哪首呀？', 'Her own words, after the model was told')
         self.assertNotIn('文件', result)
+        self.assertIn(self.ask(ScriptedChat(), '继续'), LINES['what_to_play']['zh'], 'Without the model: her line')
+
+    def test_going_on_with_a_piece_named_when_none_is_paused_plays_it(self):
+        chat = ScriptedChat([call('control_playback', action='resume')],
+                            [call('play_recording', id=self.records[1]['id'])])
+        self.ask(chat, '我想继续听月光')
+        self.assertIn('play it as a new piece', chat.results[0]['instruction'])
+        self.assertEqual(self.player.current[1], '月光', 'Not "which piece?": she was told its name')
 
     def test_only_actual_file_loss_reports_unavailable(self):
         self.prime(); self.player.current[0].unlink()
@@ -383,7 +395,7 @@ class PlaybackTests(unittest.TestCase):
         self.assertIn(self.ask(ScriptedChat(), '暂停'), LINES['pause']['zh'])  # paused already: still paused
         self.assertEqual((self.player.state, self.player._offset), ('paused', 22))
         self.player.stop()
-        self.assertEqual(self.ask(ScriptedChat(), '暂停'), LINES['nothing_playing']['zh'][0])
+        self.assertIn(self.ask(ScriptedChat(), '暂停'), LINES['nothing_playing']['zh'])
         self.assertEqual(self.player.state, 'stopped')
         self.a.play(); self.player._thread.join()
         self.player.state = 'playing'
@@ -413,11 +425,46 @@ class PlaybackTests(unittest.TestCase):
         self.assertNotIn(LINES['greet']['zh'][0], recorded(), 'Greetings are said differently')
         self.assertFalse([t for t in recorded() if '{' in t], 'A piece\'s name is said as it is made')
 
+    def test_no_two_of_her_moments_end_with_the_same_sentence(self):
+        # "Never repeat a sentence" (INSTRUCTIONS) holds for her own lines too: 下一首 with nothing after it, then 播放,
+        # say two different things.
+        for language in ('zh', 'en'):
+            endings = {}
+            for key, both in LINES.items():
+                self.assertEqual(len(both['zh']), len(both['en']), f'{key}: as many in Chinese as in English')
+                for text in both[language]:
+                    endings.setdefault(re.split(r'(?<=[。！？!?.～])\s*(?=\S)', text)[-1], set()).add(key)
+            self.assertEqual({end: keys for end, keys in endings.items() if len(keys) > 1}, {}, language)
+
+    def test_what_comes_again_and_again_is_said_in_more_than_one_way(self):
+        for key in ('piano_missing', 'piano_lost', 'failed', 'file_missing', 'nothing_playing', 'nothing_next',
+                    'what_to_play', 'no_answer'):
+            self.assertGreater(len(LINES[key]['zh']), 1, key)
+
+    def test_a_pause_is_said_as_just_done_and_never_as_a_stop(self):
+        for text in LINES['pause']['zh']:
+            self.assertIn('暂停', text)
+            self.assertNotIn('已经', text, 'Not "it was paused already"')
+            self.assertNotIn('停下来', text, "Cancel's words")
+        for text in LINES['pause']['en']:
+            self.assertIn('pause', text.lower())
+            self.assertNotIn('stop', text.lower())
+
+    def test_in_chinese_she_plays_never_puts_on(self):
+        self.assertEqual([t for both in LINES.values() for t in both['zh'] if '放' in t], [], '"弹", never "放" or "播放"')
+
     def test_her_fixed_lines_are_chinese_for_chinese_and_english_for_any_other_language(self):
-        from pianasoul.playback_commands import is_chinese
+        from pianasoul.playback_commands import in_chinese, is_chinese
         self.assertTrue(is_chinese('弹一首晴天'))
         self.assertFalse(is_chinese('月光を弾いて'), 'Japanese, with its kana')
         self.assertFalse(is_chinese('Play Clair de Lune'))
+        # The names a request gives are not its language: a Chinese title in English is English, and the other way
+        for text, names, chinese in (('play 晴天', ['晴天'], False), ('Play my playlist 雨天', ['雨天'], False),
+                                     ('小茗同学，play Clair de Lune', [], False), ('小明同学，play it again', [], False),
+                                     ('弹 Clair de Lune', ['Clair de Lune'], True), ('我想听晴天', ['晴天'], True),
+                                     ('晴天', ['晴天'], True), ('Clair de Lune', ['Clair de Lune'], False),
+                                     ('周杰伦 Mojito', ['周杰伦', 'Mojito'], True), ('Hey Jasmine, 弹月光', [], True)):
+            self.assertEqual(in_chinese(text, names), chinese, text)
 
     def test_pause_next_and_previous_said_these_ways_are_short_requests(self):
         for text, action in (('暂停一下。', 'pause'), ('先暂停一下吧', 'pause'), ('下一首', 'next'), ('切歌', 'next'),
@@ -636,7 +683,7 @@ class ReconnectTests(unittest.TestCase):
             a.pause()
             self.outputs = []
             result = a.play()
-            self.assertIn('还没连上琴', a.playback_reply(result))
+            self.assertIn(a.playback_reply(result), LINES['piano_missing']['zh'])
             self.assertEqual(a.pending.from_s, 22)
             self.outputs = [self.SESSION]
             result = a.play()

@@ -388,16 +388,14 @@ class ConversationTests(unittest.TestCase):
         self.assertIsNone(player.lost)
 
     def test_the_piano_going_away_while_playing_is_said_once(self):
-        from pianasoul.chat import Assistant
-        self.assistant.playback_reply = Assistant(Mock(), conversations=Mock()).playback_reply
-        self.assistant.request = '我想听搁浅'
+        self.assistant.piano_news.return_value = LINES['piano_lost']['zh'][1]
         player = self.assistant.player = Mock(state='paused', completed=None, current=('p', '搁浅'), position=41.0,
                                               lost='no MIDI output matching "pianasoul"')
         self.frames(1)
         self.assertEqual(len(self.out.spoken), 1)
-        self.assistant.piano_news.assert_not_called()  # the conversation has her line already (Core)
-        self.parts.speaker.stream.assert_called_once_with(
-            Assistant(Mock(), conversations=Mock()).playback_reply({'error': 'playback_connection_lost'}))
+        # Said as the line in the conversation: the one Core sent there already (piano_news makes it once)
+        self.assistant.piano_news.assert_called_once_with({'error': 'playback_connection_lost'})
+        self.parts.speaker.stream.assert_called_once_with(LINES['piano_lost']['zh'][1])
         self.assertIsNone(player.lost)
         self.c.sleep()
         self.frames(5)
@@ -471,6 +469,19 @@ class ConversationTests(unittest.TestCase):
         self.c.respond('弹传奇')
         self.chat.reset.assert_not_called()
         player.go_on.assert_called_once_with(3.0)  # at once, not after the follow-up window
+
+    def test_a_model_failure_is_said_not_met_with_silence(self):
+        self.assistant.ask.side_effect = RuntimeError('model down')
+        self.assistant.could_not_answer.return_value = LINES['no_answer']['zh'][0]
+        self.c.respond('弹传奇')
+        self.assistant.could_not_answer.assert_called_once_with()  # kept in the conversation there, for the phone
+        self.parts.speaker.stream.assert_called_once_with(LINES['no_answer']['zh'][0])
+        self.assertEqual(len(self.out.spoken), 1)
+
+    def test_she_never_reads_out_an_emoji(self):
+        for text, said in (('一共听了 3 次。🎹', '一共听了 3 次。'), ('好呀\u2764\ufe0f，弹给你听\u2728', '好呀，弹给你听'),
+                           ('Bravo 👏🏽 well played', 'Bravo well played'), ('第 1\ufe0f\u20e3 首', '第 1 首')):
+            self.assertEqual(voice.speakable(text), said)
 
     def test_a_piece_paused_while_she_listened_stays_as_the_phone_left_it(self):
         # The phone's player used since the piece was paused for her (paused, a piece chosen): her reply does not

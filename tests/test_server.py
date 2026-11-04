@@ -21,6 +21,7 @@ from starlette.websockets import WebSocketDisconnect
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import server, voice
 from pianasoul.chat import Worker
+from pianasoul.lines import LINES
 from pianasoul.playback import Playback
 from test_app import Scripted, make_midi
 
@@ -129,8 +130,8 @@ class AppTests(unittest.TestCase):
             for _ in range(3):  # tapped again and again
                 self.assertEqual(self.client.post('/api/play', json={'id': self.ids[0]}).status_code, 409)
         said = self.core.conversations.messages(self.core.assistant.conversation_id)
-        self.assertEqual([(m['role'], m['text']) for m in said],
-                         [('assistant', self.core.assistant.playback_reply({'error': 'playback_connection_unavailable'}))])
+        self.assertEqual([m['role'] for m in said], ['assistant'])
+        self.assertIn(said[0]['text'], LINES['piano_missing']['zh'])
 
     def test_a_piece_is_renamed_favorited_and_deleted(self):
         a, b = self.ids

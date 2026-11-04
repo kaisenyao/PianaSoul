@@ -76,7 +76,7 @@ const zh = {
     ]},
     {id: 'talk', icon: 'mic', title: '和小茗同学说话', items: [
       ['开始和停止', '轻点球使其亮起，第一句直接说，不用叫她（钢琴正在弹时，曲目会先暂停，和叫她时一样）；之后说新的请求，要先叫“小茗同学”（她回答完6秒内、钢琴没在弹时，可以直接接着说）。球亮着时屏幕不会自动熄灭；再轻点一下，球变灰，她不听也不说，屏幕照常熄灭，钢琴照常弹。离开球的界面时她也安静，回来后接着听。'],
-      ['她的名字', '叫“小茗同学”或者“Jasmine”都可以。'],
+      ['她的名字', '叫“小茗同学”或者“Hey Jasmine”都可以。'],
       ['能说什么', '弹哪首、放哪个歌单、暂停、继续、从头弹、下一首、上一首、大声一点、小声一点、换个版本、这是谁弹的；也可以让她把当前对话中的曲目按顺序从头再弹一遍，或整理成歌单。'],
       ['她弹哪个版本', '指定了演奏者时弹他的版本；曲库中有多个版本时，先弹收藏的，其次是最近弹过的，然后是最新添加的。'],
       ['她记得多久', '30分钟内接着说，她都记得刚才聊的。'],
@@ -164,7 +164,7 @@ const zh = {
 
 const en = {
   name: 'Jasmine', you: 'You', saidBy: who => `${who}: `, andMore: names => `${names} …`,
-  intro: "I'm Jasmine. Name a piece, I'll play it~",
+  intro: 'I’m Jasmine (小茗同学). Name a piece and I’ll play it for you.',
   search: 'Search', searchAll: 'Search conversations and pieces', searchPieces: 'Search pieces', clearText: 'Clear text',
   cancel: 'Cancel', done: 'Done', save: 'Save', ok: 'OK',
   library: 'Library', favorites: 'Favorites', recent: 'Recently Played', artists: 'Artists', seeAll: 'See All',

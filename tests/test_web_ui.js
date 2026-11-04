@@ -413,5 +413,15 @@ function harness(options = {}) {
   await insecure.tap();
   assert.equal(insecure.mics + insecure.sockets.length, 0, 'No microphone outside a secure page');
   assert.equal(insecure.active(), 'false');
-  console.log('Voice passed: gray start, tap feedback, listening and replies, gray is off (quiet at once, all let go after the end sound), afresh when back on, away from the orb, on from elsewhere, refusals, the screen kept awake only while she is on, ends, a start whose audio never wakes.');
+  // Her names, as the words for her give them: both, and as said to wake her (playback_commands.WAKE_WORDS).
+  const sandbox = {};
+  vm.runInNewContext(fs.readFileSync('src/pianasoul/web/strings.js', 'utf8').replace(/^export const LANGUAGES/m, 'this.LANGUAGES'), sandbox);
+  const wake = [...fs.readFileSync('src/pianasoul/playback_commands.py', 'utf8').match(/^WAKE_WORDS = \[(.*)\]/m)[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+  for (const T of Object.values(sandbox.LANGUAGES)) {
+    const named = T.helpTopics.find(topic => topic.id === 'talk').items[1][1];
+    assert.ok(wake.every(word => named.includes(`“${word}”`)), `Her names as they wake her: ${named}`);
+    assert.ok(['小茗同学', 'Jasmine'].every(name => T.intro.includes(name)), T.intro);
+  }
+  assert.ok(!sandbox.LANGUAGES.en.intro.includes('~'), 'English ends as English does');
+  console.log('Voice passed: gray start, tap feedback, listening and replies, gray is off (quiet at once, all let go after the end sound), afresh when back on, away from the orb, on from elsewhere, refusals, the screen kept awake only while she is on, ends, a start whose audio never wakes; her names in her words.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

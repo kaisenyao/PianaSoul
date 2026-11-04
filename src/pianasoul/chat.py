@@ -31,9 +31,9 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 from . import online
 from .conversations import QUIET_S as NEW_CONVERSATION_AFTER_S, Conversations, seconds_since
 from .library import ALIASES, DB_PATH, NAMES, Library, artist_key, enrich, format_row, title_parts
-from .lines import line
+from .lines import every, line
 from .play import clock
-from .playback_commands import is_chinese, match_command, strip_fillers
+from .playback_commands import in_chinese, match_command, strip_fillers
 
 log = logging.getLogger(__spec__.name)
 
@@ -45,6 +45,7 @@ ACTIONS = {"play_recording", "control_playback", "play_playlist", "replay_conver
            "save_conversation_as_playlist", "rename_playlist"}  # tools that do something she then confirms
 PLAYS = {"play_recording", "control_playback", "play_playlist", "replay_conversation"}  # their result, said with her line (playback_reply)
 WAITS = {"search_online": "searching"}  # a long step, and her line for it
+ANSWERED_IN = {"search_library", "search_online", "library_info"}  # their results bring words in other languages
 PREPARED_KEPT = 5  # the latest pieces she prepared in the background, remembered to be asked for
 # Typed to, she answers as a person texting would: her reply after a moment at least (the dots show meanwhile), and
 # what she plays starts once it is there, a little after it.
@@ -58,12 +59,13 @@ play it on their piano. Talk like a friend who loves the piano: warm, cheerful a
 program.
 
 Language: answer in the language of the user's latest request, whatever it is, every sentence of yours in it, also
-those said while you look; your instructions, the examples in them and the library may be in another language. The
-application state says which (answer_in), as the application's own lines take it. Write Chinese in simplified
-characters unless the user clearly writes traditional ones.
+those said while you look; your instructions, the examples in them and the library may be in another language, and a
+name in the request does not change it ("play 晴天" is English). The application state says which (answer_in), as the
+application's own lines take it, and so do the results that bring the library's or the web's words. Write Chinese in
+simplified characters unless the user clearly writes traditional ones.
 
 Style: one or two short, natural sentences (a few more when the user wants to chat or asks about their music),
-plain text without Markdown. Vary your wording; never repeat a sentence
+plain text without Markdown or emoji. Vary your wording; never repeat a sentence
 you used earlier in the conversation, and say the same thing a different way each time (a small interjection or a
 light, cute touch is welcome). Do not mention tools, video sites, downloads, transcription, MIDI, note counts, ids or
 file paths unless the user asks how it works or where something is; then answer truthfully. Describe the music
@@ -124,23 +126,25 @@ When the user asks for one of their own playlists (歌单; the application state
 with its name as listed, shuffle=true if they ask to shuffle; do not search the library or online for it. If there is
 no such playlist, say which there are; if it has no pieces, say so.
 The pieces of this conversation are those you played in it, in that order (not those only asked about, found
-missing, or prepared and not played). When the user asks to hear them again ("把这段聊天里的歌从头放一遍"), call
-replay_conversation. When they ask to keep them as a playlist ("把这段聊天里的歌整理成歌单"), choose a short name that
-fits them, in the language you answer in, and call save_conversation_as_playlist; it does not change what plays. Then
-tell them its name and how many pieces it has, and that they can rename it anytime, here or on their phone
-("歌单建好啦，我暂时叫它《雨天的钢琴》，一共 8 首，想换名字随时告诉我～"). To rename one of their playlists, call
-rename_playlist. If this conversation has no pieces yet, say so.
+missing, or prepared and not played). When the user asks to hear them again ("把这段聊天里的歌从头放一遍"; "play this
+chat's songs again from the start"), call replay_conversation. When they ask to keep them as a playlist
+("把这段聊天里的歌整理成歌单"; "save these songs as a playlist"), choose a short name that fits them, in the language
+you answer in, and call save_conversation_as_playlist; it does not change what plays. Then tell them its name and how
+many pieces it has, and that they can rename it anytime, here or on their phone
+("歌单建好啦，我暂时叫它《雨天的钢琴》，一共 8 首，想换名字随时告诉我～"; "Your playlist is ready: I've called it Rainy
+Day Piano for now, 8 pieces. Rename it anytime."). To rename one of their playlists, call rename_playlist. If this
+conversation has no pieces yet, say so.
 Use update_recording to correct a piece's names, or to add aliases (names in other languages) or tags, when useful.
 Never invent results: report only what the tools returned."""
 
 # What she does with a piece the library has not got: find it online and transcribe it, or, with online search and
 # transcription off (PIANASOUL_TRANSCRIBE=0, the Mac app's checkbox unticked), say so.
 FINDING_ONLINE = """2. If it is not there either, write one short, friendly sentence that says it is not in their library and you will
-   find one online, AND explicitly asks the listener to wait ("曲库里没有，我去网上找一版，稍等我一下～"; "It's not in
-   your library, so I'll find one online. Just a moment."). It says only what you have not said yet: no piece's name
-   again, no "looking for it" twice; if you said all of it already, write nothing more. Vary the wording without
-   predicting a duration or promising it will be ready immediately. Include the sentence with your search_online
-   call. Search with few words:
+   find one online, AND explicitly asks the listener to wait: the only sentence of yours that does
+   ("曲库里没有，我去网上找一版，稍等我一下～"; "It's not in your library, so I'll find one online. Just a moment."). It
+   says only what you have not said yet: no piece's name again, no "looking for it" twice; if you said all of it
+   already, write nothing more. Vary the wording without predicting a duration or promising it will be ready
+   immediately. Include the sentence with your search_online call. Search with few words:
    the singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once ("钢琴" when
    the application state says online_search is Bilibili); more words ("cover", "solo", "piano" again) find less,
    often nothing.
@@ -342,7 +346,8 @@ def _choice(rec: dict) -> dict:
 
 REPLY_LINES = {  # a playback result, its error or status, and her line for it
     "playback_connection_unavailable": "piano_missing", "playback_connection_lost": "piano_lost",
-    "recording_unavailable": "file_missing", "recording_not_found": "which_piece", "nothing_to_play": "what_to_play",
+    "recording_unavailable": "file_missing", "recording_not_found": "not_in_library", "nothing_to_play": "what_to_play",
+    "playlist_not_found": "no_playlist", "playlist_empty": "playlist_empty",
     "paused": "pause", "stopped": "cancel", "nothing is playing": "nothing_playing", "not_started": "ready",
     "not_ready": "not_ready", "link_not_ready": "link_not_ready", "nothing_next": "nothing_next",
     "conversation_empty": "conversation_empty",
@@ -409,11 +414,25 @@ class Assistant:
         self.on_busy = None  # called with True when she starts on a request, False when she has answered
         self.on_playlists = None  # called when she made or renamed a playlist
         self._turn = threading.RLock()  # one request at a time, typed or spoken
+        self._news = threading.Lock()  # one line about the piano at a time (piano_news): from Core, the phone or voice
+        self._language = ("", True)  # a request, and whether it is in Chinese: worked out once (chinese)
 
     # ---- the conversation ------------------------------------------------------------------------
     def chinese(self) -> bool:
-        """Whether she speaks Chinese now: as the last request (typed or said) was, and before there is one."""
-        return is_chinese(self.request) if self.request.strip() else True
+        """Whether she speaks Chinese now: as the last request in this conversation (typed or said) was, the names it
+        gives aside ("play 晴天" is in English); and before there is one. Asked often (voice, for each moment she
+        waits), it is worked out once for each request."""
+        if self._language[0] != self.request:
+            self._language = self.request, in_chinese(self.request, self._names()) if self.request.strip() else True
+        return self._language[1]
+
+    def _names(self) -> set[str]:
+        """The names a request may give: the library's pieces (and their other names), artists and pianists, and its
+        playlists."""
+        rows = self.lib.execute("SELECT title, composer, performer, aliases FROM recordings")
+        names = {name for title, composer, performer, aliases in rows
+                 for name in (*title_parts(title, composer, performer).values(), *re.split(r"[;,；，]", aliases))}
+        return names | {row[0] for row in self.lib.execute("SELECT name FROM playlists")}
 
     def answer_in(self) -> str:
         """The language of her answer, as her ready-made lines take it (chinese), for the model."""
@@ -443,14 +462,17 @@ class Assistant:
             self.conversation_id = None
 
     def pick_up(self, chat, conversation_id: int) -> bool:
-        """Make an earlier conversation the current one: she knows it again as it was."""
+        """Make an earlier conversation the current one: she knows it again as it was, and speaks as its last request
+        did (chinese)."""
         with self._turn:
             if self.conversations.get(conversation_id) is None:
                 return False
             if conversation_id != self.conversation_id:
+                history = self.conversations.history(conversation_id)
                 chat.reset()
-                chat.load(self.conversations.history(conversation_id))
+                chat.load(history)
                 self.conversation_id = conversation_id
+                self.request = next((text for role, text in reversed(history) if role == "user"), self.request)
             self.replied_at = self.clock()
             return True
 
@@ -599,7 +621,9 @@ class Assistant:
             position = self.player.position if self.player.state in {"paused", "playing"} and not from_start else 0.0
             return self._start(PlaybackRequest(path, title, position, self.player.current_id), from_start,
                                going_on=self.player.state == "playing" and not from_start)
-        return {"error": "nothing_to_play"}
+        return {"error": "nothing_to_play", "instruction": "No piece is paused or waiting to go on. If the user named "
+                "one, play it as a new piece (library_matches, or search_library first); if not, ask what they would "
+                "like to hear."}
 
     def _start(self, request: PlaybackRequest, from_start: bool = False, going_on: bool = False) -> dict:
         """Play the request, saying so first: a piece from its list (a playlist's, or else alone), a step in the
@@ -618,7 +642,7 @@ class Assistant:
                     **({"playlist": request.playlist} if request.playlist else {}),
                     "instruction": "While you were getting it, the user changed what plays on their phone, so it was "
                                    "not started. Do not start it: say in a few words that it is ready whenever they "
-                                   "want it."}
+                                   f"want it. Answer in {self.answer_in()}."}
         how = request.moved or ("replay" if request.replay else
                                 ("playlist_shuffled" if request.mode == "shuffle" else "playlist") if request.playlist
                                 else "restart" if from_start else "resume" if request.from_s > 0 else "playing")  # lines.py
@@ -942,13 +966,18 @@ class Assistant:
     def piano_news(self, result: dict) -> str:
         """Her line about the piano (playback_reply) when no request to her brought it up: a tap in the app, the piano
         going away while playing, a piece paused for her that could not go on, a piece she prepared in the background
-        (_ready). She sends it to the conversation, as she would text it, but not again while it is the last thing
-        there. Returns it, for where she speaks."""
-        line = self.playback_reply(result)
-        if self.last_kept != (self.conversation_id, "assistant", line):
-            print(f"assistant> {line}\n", flush=True)
-            self.keep("assistant", line)
-        return line
+        (_ready). She sends it to the conversation, as she would text it, but not again while a line of hers for it is
+        the last thing there (the piano gone, Core sends it and voice says it): that one is the line. Returns it, for
+        where she speaks."""
+        (key, piece), chinese = self._reply_line(result), self.chinese()
+        with self._news:
+            kept = self.last_kept
+            if kept and kept[:2] == (self.conversation_id, "assistant") and kept[2] in every(key, chinese, piece):
+                return kept[2]
+            text = line(key, chinese, piece)
+            print(f"assistant> {text}\n", flush=True)
+            self.keep("assistant", text)
+            return text
 
     def piano_missing(self, reason) -> dict:
         """The piano is not there. Why shows here, once; the listener gets a brief reminder (playback_reply)."""
@@ -990,6 +1019,8 @@ class Assistant:
         # The model words a failure for the listener; the reason stays visible here (piano_missing gives its own).
         if result.get("error") and result["error"] != "playback_connection_unavailable":
             print(f"  · {name} failed: {result['error']}", flush=True)
+        if name in ANSWERED_IN and not result.get("error"):  # words in other languages: hers stay in the request's
+            result["answer_in"] = self.answer_in()
         if name in {"search_library", "transcribe_url", "transcribe_local"}:
             offered = result.get("results", []) if name == "search_library" else [result]
             self.selectable_ids.update(rec["id"] for rec in offered
@@ -1006,11 +1037,19 @@ class Assistant:
         or said; empty when she said it already, as she began to play."""
         if result.get("introduction_spoken"):
             return ""
+        key, piece = self._reply_line(result)
+        return line(key, self.chinese(), piece)
+
+    def _reply_line(self, result: dict) -> tuple[str, str]:
+        """Which of her lines a playback result takes (REPLY_LINES), and the name it says: the playlist's, or the
+        piece's."""
         if result.get("error"):
             key = REPLY_LINES.get(result["error"], "failed")
         else:
             key = REPLY_LINES.get(result.get("status"), result.get("how", "now_playing"))
-        return line(key, self.chinese(), result.get("playlist") or spoken_title(result.get("title", "")))
+        if key == "ready" and result.get("playlist"):  # a playlist is not prepared: it gave way to the phone
+            key = "playlist_ready"
+        return key, result.get("playlist") or spoken_title(result.get("title", ""))
 
     # ---- conversation ------------------------------------------------------------------------
     def ask(self, chat, text: str, speak=None, typed: bool = False, taps: int | None = None) -> str:
@@ -1052,13 +1091,21 @@ class Assistant:
                 if self.on_busy:
                     self.on_busy(False)
 
+    def could_not_answer(self) -> str:
+        """The model failed (ask raised; the request is forgotten): she says so, in the conversation too, unless what
+        was asked for plays already. Returns her line, for where she speaks, or "" then."""
+        if self.started_now:
+            return ""
+        text = line("no_answer", self.chinese())
+        self.keep("assistant", text)
+        return text
+
     def _answer(self, chat, text: str, typed: bool) -> str:
         self.request = text
         self.selectable_ids.clear()
         progress_spoken = False
         playback_announced = False
         confirms = False  # an action besides playing (a playlist made, the volume): her words say it
-        chinese = is_chinese(text)
         action = match_command(text)
         if action is not None:
             log.debug("a short request, no model: %s", action)
@@ -1150,7 +1197,7 @@ class Assistant:
                         results.append((call, ONLINE_TOO_SOON))
                         continue
                     if not progress_spoken and call.name in WAITS:  # a long step is not started silently
-                        self.tell(line(WAITS[call.name], chinese), meanwhile=True)
+                        self.tell(line(WAITS[call.name], self.chinese()), meanwhile=True)
                         progress_spoken = True
                     raw = self.run_tool(call.name, call.arguments)
                     confirms = confirms or call.name in ACTIONS - PLAYS
@@ -1158,7 +1205,7 @@ class Assistant:
                     results.append((call, raw))
                     if call.name in PLAYS:
                         playback_result = json.loads(raw)
-                        if playback_result.get("error") in {"playback_connection_unavailable", "recording_unavailable", "recording_not_found", "nothing_to_play"}:
+                        if playback_result.get("error") in {"playback_connection_unavailable", "recording_unavailable", "recording_not_found"}:
                             chat.discard_turn()  # the unfinished tool exchange; earlier turns and the pending piece stay
                             return self.playback_reply(playback_result)
                 if playback_result and playback_result.get("introduction_spoken"):
@@ -1253,7 +1300,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         except Exception as exc:
             print(f"  (model error: {exc}; that request is dropped)")
-            continue
+            answer = assistant.could_not_answer()
         if answer:
             print(f"\nassistant> {answer}\n")
 

@@ -71,6 +71,17 @@ def spell_names(text: str) -> str:
     return text
 
 
+def in_chinese(text: str, names=()) -> bool:
+    """Whether a request is in Chinese (is_chinese), the names it gives aside (a piece's, an artist's or a playlist's,
+    and hers): "play 晴天" and "小茗同学, play Clair de Lune" are in English, "弹 Clair de Lune" in Chinese. Of names
+    alone, it is in the language they are."""
+    rest = spell_names(text).casefold()
+    for name in sorted({n.strip().casefold() for n in (*names, *WAKE_WORDS, *assistant_names(WAKE_WORDS))} - {""},
+                       key=len, reverse=True):
+        rest = rest.replace(name, " ")
+    return is_chinese(rest if re.search(r"[^\W\d_]", rest) else text)
+
+
 def strip_fillers(text: str) -> str:
     """The request without the name, "uh", "please" and the like around it, lower-case, no punctuation."""
     t = spell_names(unicodedata.normalize("NFKC", text)).casefold()

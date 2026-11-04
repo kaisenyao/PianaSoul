@@ -756,6 +756,98 @@ class AssistantTests(Base):
             self.a.ask(chat, text)
             self.assertIn(language, chat.send_user.call_args.args[0])
 
+    def test_a_request_in_english_that_names_a_chinese_piece_or_playlist_is_in_english(self):
+        self.lib.new_playlist('雨天', self.ids[:1])
+        chat = Mock()
+        chat.send_user.return_value = SimpleNamespace(text='OK.', tool_calls=[])
+        for text, chinese in (('play 晴天', False), ('Play my playlist 雨天', False), ('Hey Jasmine, play 周杰伦', False),
+                              ('弹 Nocturne', True), ('晴天', True)):
+            self.a.ask(chat, text)
+            self.assertEqual(self.a.chinese(), chinese, text)
+            self.assertEqual('"answer_in": "Chinese"' in chat.send_user.call_args.args[0], chinese, text)
+
+    def test_the_language_comes_back_with_its_conversation(self):
+        chat = Scripted()
+        self.a.ask(chat, 'Play something calm, please')
+        english = self.a.conversation_id
+        again = Assistant(self.lib, self.p)  # the service started again
+        self.assertTrue(again.chinese(), 'Nothing asked yet')
+        again.restore(chat)
+        self.assertFalse(again.chinese(), 'As the conversation it picked up')
+        again.new_conversation(chat)
+        again.ask(chat, '弹一首轻松的')
+        chinese = again.conversation_id
+        again.pick_up(chat, english)
+        self.assertFalse(again.chinese())
+        self.assertIn(again.playback_reply({'error': 'playback_connection_unavailable'}), LINES['piano_missing']['en'])
+        again.pick_up(chat, chinese)
+        self.assertTrue(again.chinese())
+
+    def test_results_in_other_languages_say_which_to_answer_in(self):
+        self.a.request = 'play 晴天'
+        english = '"answer_in": "the language of the request, which is not Chinese"'
+        with patch('pianasoul.online.search', return_value=[]):
+            for name, arguments in (('search_library', {'query': '晴天'}), ('library_info', {'about': 'overview'}),
+                                    ('search_online', {'query': '晴天 piano'})):
+                self.assertIn(english, self.a.run_tool(name, arguments), name)
+        self.assertNotIn('answer_in', self.a.run_tool('library_info', {'about': 'artist', 'name': 'Liszt'}))
+        self.a.selectable_ids.add(self.ids[0])
+        self.a.taps_asked, self.a.taps = 0, 1  # the phone's player, used while she got it
+        self.assertIn('Answer in the language of the request', self.a.play_recording(self.ids[0])['instruction'])
+
+    def test_her_line_about_the_piano_is_made_once(self):
+        # The piano gone while playing: Core sends her line, and voice says it; tapped again and again on the phone,
+        # the same. Not again while hers is the last thing there, and the same line, whichever of hers it was.
+        said = [self.a.piano_news({'error': 'playback_connection_lost'}) for _ in range(3)]
+        self.assertEqual(len(set(said)), 1)
+        self.assertEqual([(m['role'], m['text']) for m in self.kept], [('assistant', said[0])])
+        self.a.keep('user', '好了吗')
+        self.a.piano_news({'error': 'playback_connection_lost'})
+        self.assertEqual(len(self.kept), 3, 'After something else, again')
+        self.a.piano_news({'error': 'playback_connection_unavailable'})
+        self.assertIn(self.kept[-1]['text'], LINES['piano_missing']['zh'], 'Other news is told')
+
+    def test_a_model_failure_is_said_and_shown_unless_what_was_asked_plays(self):
+        chat = Mock()
+        chat.send_user.side_effect = TimeoutError('model down')
+        with self.assertRaises(TimeoutError):
+            self.a.ask(chat, '弹晴天')
+        said = self.a.could_not_answer()
+        self.assertIn(said, LINES['no_answer']['zh'])
+        self.assertEqual(self.kept[-1]['text'], said, 'In the conversation, for the phone')
+
+        class Failing(Scripted):
+            def send_tool_results(self, results):
+                raise OSError('the model did not answer')
+        with self.assertRaises(OSError):
+            self.a.ask(Failing([self.call('play_recording', id=self.ids[0])]), '弹一下晴天', typed=True)
+        self.assertEqual(self.a.could_not_answer(), '', 'It plays: nothing to excuse')
+
+    def test_her_lines_for_what_went_wrong_say_what_did(self):
+        self.assertIn(self.a.playback_reply({'error': 'recording_not_found'}), LINES['not_in_library']['zh'])
+        self.assertIn('曲库', LINES['not_in_library']['zh'][0], 'A piece gone from the library, not one misheard')
+        for text in [*LINES['ready']['zh'], *LINES['playlist_ready']['zh']]:
+            self.assertIn('没弹', text, 'Why what she said would play did not')
+        for text in [*LINES['ready']['en'], *LINES['playlist_ready']['en']]:
+            self.assertIn("didn't want to interrupt", text)
+
+    def test_her_instructions_ask_her_to_wait_once_speak_as_herself_and_give_both_languages(self):
+        from pianasoul import voice
+        from pianasoul.chat import INSTRUCTIONS, instructions
+        told = instructions(True) + voice.VOICE_NOTE
+        self.assertIn('the only sentence of yours that does', told)
+        self.assertIn('Only the sentence before search_online asks the listener to wait', voice.VOICE_NOTE)
+        self.assertNotIn('takes a moment', voice.VOICE_NOTE)
+        for text in LINES['searching']['zh']:
+            self.assertNotIn(text.split('，')[-1], told, "Her line before looking online does not end as the model's")
+        for text in LINES['searching']['en']:
+            self.assertNotIn(text.split('. ')[-1], told)
+        self.assertIn('never in\nthe third person', voice.VOICE_NOTE)
+        self.assertIn('without Markdown or emoji', INSTRUCTIONS)
+        for english in ('"play this\nchat\'s songs again from the start"', '"save these songs as a playlist"',
+                        'Rename it anytime."'):
+            self.assertIn(english, INSTRUCTIONS)
+
     def test_a_short_answer_is_an_answer_typed_or_in_the_terminal(self):
         for typed in (True, False):
             self.kept.clear()
@@ -1237,6 +1329,21 @@ class CoreTests(Base):
                          {'language': 'en', 'appearance': 'dark', 'search_source': 'youtube', 'output': None})
         self.assertEqual(core.set_settings(language='system')['language'], 'en', 'Only Chinese or English')
 
+    def test_typed_to_when_the_model_fails_she_says_so_on_the_phone(self):
+        class Failing(Scripted):
+            def send_user(self, text):
+                raise TimeoutError('model down')
+        from pianasoul.core import Core
+        core = Core(lib=self.lib, chat=(Failing(), 'test'))
+        self.addCleanup(core.close)
+        events, done = [], threading.Event()
+        core.listeners.append(lambda e: (events.append(e), e['type'] == 'conversations' and done.set()))
+        core.type('Play Clair de Lune')
+        self.assertTrue(done.wait(2))
+        said = [e['message'] for e in events if e['type'] == 'message']
+        self.assertEqual([m['role'] for m in said], ['user', 'assistant'])
+        self.assertIn(said[1]['text'], LINES['no_answer']['en'], 'Shown, in the language asked in')
+
     def test_with_her_pieces_get_their_other_names_at_the_start_and_as_they_come(self):
         def model(prompt):
             return {line.split(':')[0]: {'artist': '', 'aliases': '夜曲' if 'Nocturne' in line else 'x', 'tags': ''}
@@ -1274,9 +1381,10 @@ class CoreTests(Base):
                 core.playback.after_run()
                 if not _:
                     core.assistant.keep('user', '好了吗')
-        line = core.assistant.playback_reply({'error': 'playback_connection_lost'})
-        said = core.conversations.messages(core.assistant.conversation_id)
-        self.assertEqual([m['text'] for m in said], [line, '好了吗', line])
+        said = [m['text'] for m in core.conversations.messages(core.assistant.conversation_id)]
+        self.assertEqual(said[1:2], ['好了吗'])
+        self.assertEqual(len(said), 3)
+        self.assertTrue(set(said[::2]) <= set(LINES['piano_lost']['zh']))
 
     def test_pieces_deleted_together_are_one_change(self):
         core = self.core()

@@ -122,7 +122,8 @@ NO_WORDS = "ASR_RESPONSE_HAVE_NO_WORDS"  # Qwen's answer (HTTP 400) to audio wit
 VOICE_NOTE = """
 
 Your names are 小茗同学 in Chinese and Jasmine in English; people say one of them to wake you, and you call yourself
-by the one that fits the language of the conversation. Spoken requests are answered aloud by a young, cheerful
+by the one that fits the language of the conversation. In anything you say, speak of yourself as "I" ("我"), never in
+the third person (not "小茗同学查到…" or "Jasmine is here"). Spoken requests are answered aloud by a young, cheerful
 voice, so sound natural and a little playful. Use one short sentence when you can and no lists. If the user asks
 for a link or a file path, say it is on the screen and include it; it is shown but not read aloud.
 
@@ -131,17 +132,19 @@ must look something up before you can answer (search_library with the piece's ot
 library_info), begin that response with one short sentence in the listener's language, written before those tool
 calls in the same response: it is said at once while you look, and it comes instead of "saying nothing yet" above.
 It answers what they just said, naming the piece or the thing as they said it, and says what you are about to do,
-never that it is done, worked or failed. No question, no empty filler, and never about yourself in the third person.
-Keep it short (about twelve Chinese characters, or eight English words); before a search online, it may also say that
-this takes a moment. When library_matches already has the piece, call play_recording at once with no words before
-it, and for pause, resume, retry, restart, next, previous or cancel call control_playback at once: the application
-says a line once it is done. After the tools, say only what is new, and never a piece's name twice."""
+never that it is done, worked or failed. No question and no empty filler. Keep it short (about twelve Chinese
+characters, or eight English words). Only the sentence before search_online asks the listener to wait; before
+search_library or library_info, it says only what you are looking for. When library_matches already has the piece,
+call play_recording at once with no words before it, and for pause, resume, retry, restart, next, previous or cancel
+call control_playback at once: the application says a line once it is done. After the tools, say only what is new,
+and never a piece's name twice."""
 
 
 def speakable(text: str) -> str:
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)  # [title](link) -> title
     text = re.sub(r"https?://\S+", "", text)
     text = re.sub(r"[`*_#>\[\]]", "", text)
+    text = re.sub("[\U0001F000-\U0001FAFF\u2300-\u23FF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D\u20E3]", "", text)  # emoji
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -1018,9 +1021,9 @@ class Conversation:
         self.end_turn(sleep=False)
 
     def piano_unavailable(self) -> None:
-        """The piano went away while playing: the piece waits where it stopped, and she says so (her line is in the
-        conversation already: Core)."""
-        notice = self.assistant.playback_reply({"error": "playback_connection_lost"})
+        """The piano went away while playing: the piece waits where it stopped, and she says so, as the line in the
+        conversation (Core sends it too: piano_news makes it once)."""
+        notice = self.assistant.piano_news({"error": "playback_connection_lost"})
         self.status("speaking")
         self.say(notice)
         self.follow_up_s = FOLLOW_UP_S
@@ -1203,8 +1206,9 @@ class Conversation:
         try:
             answer = self.assistant.ask(self.chat, text, speak=self.say)
             log.debug("answered in %.1f s", time.monotonic() - started)
-        except Exception as exc:  # that request is dropped; the conversation goes on, and a paused piece plays on
+        except Exception as exc:  # that request is dropped, and she says so; a paused piece plays on
             print(f"  (model error: {exc}; that request is dropped)", flush=True)
+            answer = self.assistant.could_not_answer()
         self.status("speaking")
         self.finish_playback(answer)
         self.follow_up_s = FOLLOW_UP_S
