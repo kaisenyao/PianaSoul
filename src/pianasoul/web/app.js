@@ -6,6 +6,7 @@ import {LANGUAGES} from './strings.js';
 import {addOrb, animateOrb, homeColor, sameLook} from './orb.js';
 import {createCues} from './cues.js';
 import {SOURCES, onlineSearch} from './online.js';
+import {tapPreparing} from './preparing.js';
 import {uploader} from './upload.js';
 import {voice as makeVoice} from './voice.js';
 
@@ -723,6 +724,16 @@ function onJobs(jobs) {
   for (const j of jobs) document.querySelectorAll(`[data-ring="${j.id}"] .arc`).forEach(a => a.setAttribute('stroke-dashoffset', RING * (1 - j.progress)));
 }
 const stopJob = id => api(`/api/downloads/${id}`, 'DELETE').catch(() => {});
+// A piece being prepared, tapped in the library or in Add Pieces: once it can play, as it is made, it plays in the
+// library's list (tapPreparing), Add Pieces closing as for a piece made there; before, a word says it is still being
+// prepared. Gone meanwhile (made, or stopped), its row is about to go: nothing.
+function playPreparing(job, from) {
+  if (!job) return;
+  const tapped = tapPreparing(job, listIds($('#library-list')));
+  if (!tapped) return hud(T.stillPreparing);
+  if (openSheet === $('#sheet-add')) closeOverlays();
+  play(tapped.id, tapped.ids, {kind: 'library'}, from);
+}
 
 // One search box: it filters the library as you type, and the last row takes the same words online.
 let libQ = '';
@@ -2047,7 +2058,13 @@ $('#add-body').addEventListener('click', e => {
     play(+made.dataset.play, listIds($('#library-list')), {kind: 'library'}, made);
     return;
   }
-  if (e.target.closest('.cand > a')) pausePiano();  // the video plays on its site, the piano waits
+  const video = e.target.closest('.cand > a'), job = video && jobFor({url: video.getAttribute('href')});
+  if (job) {  // one being prepared plays, as in the library, rather than its video
+    e.preventDefault();
+    playPreparing(job, video);
+    return;
+  }
+  if (video) pausePiano();  // the video plays on its site, the piano waits
 });
 
 // ---------- Talking in a conversation ----------
@@ -2765,7 +2782,8 @@ function rowGestures(list, {tap, remove, hold, ask}) {
 }
 const isJob = key => String(key).startsWith('j'), isAudio = key => String(key).startsWith('a');
 rowGestures($('#library-list'), {
-  tap: (id, row) => isJob(id) || (isAudio(id) && (state.selecting || data.features.transcribe)) ? null
+  tap: (id, row) => isJob(id) ? state.selecting || playPreparing(data.jobs.find(j => jobKey(j) === id), row)
+    : isAudio(id) && (state.selecting || data.features.transcribe) ? null
     : isAudio(id) ? audioInfo() : state.selecting ? toggleSelect(+id) : play(+id, listIds($('#library-list')), {kind: 'library'}, row),
   remove: id => isJob(id) ? stopJob(+id.slice(1)) : isAudio(id) ? trashAudio(+id.slice(1)) : deletePieces([+id]),
   hold: (id, row) => pieceMenu(id, row),
