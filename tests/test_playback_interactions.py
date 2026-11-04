@@ -271,6 +271,26 @@ class PlaybackTests(unittest.TestCase):
         searched.assert_called_once()  # once the library was searched
         self.assertEqual(self.spoken, [line], 'Her word for looking online, only when she does')
 
+    def test_she_searches_the_library_and_online_in_one_response_a_round_of_hers_fewer(self):
+        line = '好呀，我去找一版《红豆》～'
+        library, online_ = call('search_library', query='Red Bean'), call('search_online', query='红豆 piano')
+        for calls in ([library, online_], [online_, library]):  # in whichever order she writes them
+            with self.subTest(first=calls[0].name):
+                chat = ScriptedChat((line, calls), '没找到呢。')
+                with patch.object(self.a, 'search_online', return_value={'results': []}) as searched:
+                    self.ask(chat, '我想听红豆')
+                searched.assert_called_once()
+                self.assertEqual(len(chat.results), 2, 'Both run, and answered together')
+                self.assertNotIn('error', chat.results[calls.index(online_)], 'Not too soon: the library is searched')
+                self.assertEqual(self.spoken, [line], 'Her sentence for both, once')
+                self.spoken.clear()
+        chat = ScriptedChat([online_], [library, online_], '没找到呢。')
+        with patch.object(self.a, 'search_online', return_value={'results': []}) as searched:
+            self.ask(chat, '我想听红豆')
+        self.assertEqual(chat.results[0]['error'], 'library_not_searched', 'Alone, before the library: not yet')
+        self.assertIn('same response', chat.results[0]['instruction'])
+        searched.assert_called_once()
+
     def test_a_line_about_what_she_will_do_is_said_while_she_does_it(self):
         said = []
         chat = ScriptedChat([call('search_library', query='Red Bean')],

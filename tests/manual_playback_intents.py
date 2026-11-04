@@ -50,7 +50,8 @@ CASES = [
     ('换成德彪西的月光吧。', 'new_song'),
     ('好像又断开了，能帮我继续播放这首吗？', 'offline_resume'),
     ('好像又断开了，能从头重新播放吗？', 'offline_restart'),
-    # Titled in English, without names in other languages: found by her own search, not looked for online.
+    # Titled in English, without names in other languages: found by her own search (online too, as she searches the
+    # library, in case it is not there), and played from the library, nothing prepared.
     ('弹一下肖邦的夜曲', 'library:Chopin - Nocturne Op. 9 No. 2 (Lang Lang)'),
     ('我想听贝多芬的月光奏鸣曲', 'library:Beethoven - Moonlight Sonata, I. Adagio sostenuto (Valentina Lisitsa)'),
     ('来一首致爱丽丝', 'library:Beethoven - Für Elise (Lang Lang)'),
@@ -205,11 +206,12 @@ def check(expected, fixture, answer, said, trace, results, asked, playing):
     names = [name for name, _ in trace]
     if expected.startswith('library:'):
         return player.state == 'playing' and player._from == 0 and player.current[1] == expected[8:] \
-            and not any(name == 'search_online' for name, _ in trace)
+            and 'transcribe_url' not in names
     if expected.startswith('online:'):
         site = expected[7:]
         words = [a['query'] for name, a in trace if name == 'search_online']
-        return 'search_online' in names and 'search_library' in names[:names.index('search_online')] \
+        # A search online before the library's, not in the same response, is refused, and is not in the trace.
+        return 'search_online' in names and 'search_library' in names \
             and all(online.PIANO_WORD[site] in online.for_site(w, site) for w in words) \
             and prepared_well(trace, results, site) \
             and '十年' in player.current[1] and player.state == 'playing' and player._from == 0 and two_lines(said)

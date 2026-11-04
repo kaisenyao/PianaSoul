@@ -2,10 +2,10 @@
 
     ./run.sh chat
 
-The assistant looks in the local library first, then searches online (YouTube and Bilibili, those chosen), gets the
-chosen video ready in the background through the same queue as the app's downloads (download, transcribe, file it in
-the library folder's Transcribed/), and plays it on the piano over MIDI once it can play: while the rest of it is
-transcribed.
+The assistant looks in the local library, and online as it does (YouTube and Bilibili, those chosen): what the library
+has plays from there; for anything else it gets the chosen video ready in the background through the same queue as
+the app's downloads (download, transcribe, file it in the library folder's Transcribed/), and plays it on the piano
+over MIDI once it can play: while the rest of it is transcribed.
 """
 
 from __future__ import annotations
@@ -80,9 +80,10 @@ TYPED_REPLY_S, TYPED_PLAY_S = 1.0, 0.8
 # piece can play, which follows it with nothing more said. Held longer, its first note would only come later, after
 # a longer silence.
 NEWS_WAIT_S = 6.0
-ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "First call search_library with the "
-                              "piece's other names (another language or spelling, the composer's other name); search "
-                              "online only if it is not there."})
+ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "Search the library too: call "
+                              "search_library with the piece's other names (another language or spelling, the "
+                              "composer's other name) in the same response as search_online, and play it from the "
+                              "library if it is there."})
 
 INSTRUCTIONS = """You are the PianaSoul assistant. The user asks for music; you find a good piano performance and
 play it on their piano. Talk like a friend who loves the piano: warm, cheerful and a little playful, never like a
@@ -177,13 +178,15 @@ Never invent results: report only what the tools returned."""
 
 # What she does with a piece the library has not got: find it online and transcribe it, or, with online search and
 # transcription off (PIANASOUL_TRANSCRIBE=0, the Mac app's checkbox unticked), say so.
-FINDING_ONLINE = """2. If it is not there either, write one short, friendly sentence with your search_online call that says what you
+FINDING_ONLINE = """2. In the same response as that search_library call, search online for it too (search_online), in case it is
+   not there: what is found online is for a piece the library has under none of its names, and one it has plays
+   from there (1.), never prepared again. With these calls, write one short, friendly sentence that says what you
    will do: find a version of it ("好呀，我去找一版《搁浅》～"; "Sure, I'll find a version of it."). It neither asks
    the listener to wait nor says how long it takes, and it is your only sentence before your news (3.): if you said
    one already in this request, or another piece of this request plays meanwhile, write nothing more. Search with
    few words: the singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once;
    more words ("cover", "solo", "piano" again) find less, often nothing.
-   Choose the best candidate yourself:
+   If it is not in the library, choose the best candidate yourself:
    - prefer recordings where the piano carries the music: solo piano first, piano with voice second, never a band
      mix or a remix; a real human performance by a named pianist, a good recording, and a duration that fits;
    - avoid falling-notes/Synthesia videos, MIDI renderings, tutorials, easy or slowed arrangements, compilations,
@@ -241,11 +244,12 @@ TOOLS = [
                     "the best match first.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
     {"name": "search_online",
-     "description": "Search videos online, only once search_library, with the piece's other names, has "
-                    "not found it. Returns url, title, site, channel, duration_s, views, description, warning flags, "
-                    "and in_library when that video was already transcribed; and the sites that could not be "
-                    "searched this time, with why (unavailable). When none could be, it fails, with the sites "
-                    "searched (searched) and those turned off (off), which only the user can turn on.",
+     "description": "Search videos online for a piece the library may not have, in the same response as "
+                    "search_library with the piece's other names, or after it. Returns url, title, site, channel, "
+                    "duration_s, views, description, warning flags, and in_library when that video was already "
+                    "transcribed; and the sites that could not be searched this time, with why (unavailable). When "
+                    "none could be, it fails, with the sites searched (searched) and those turned off (off), which "
+                    "only the user can turn on.",
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string"},
          "max_results": {"type": "integer", "description": "1-15, default 8"}}, "required": ["query"]}},
@@ -1375,7 +1379,7 @@ class Assistant:
             return self.short_request(action)
 
         # library_matches are for the request's own words only: the piece may be in the library under its other
-        # names, so she looks online only once she has searched the library herself.
+        # names, so she looks online only as she searches the library herself (in the same response) or after.
         library_searched = False
 
         def refused(call) -> bool:
@@ -1435,10 +1439,11 @@ class Assistant:
 
             def ahead(words: str, tool: str) -> bool:
                 """Words the model wrote before its first tool call, said at once while it goes on (True): not those
-                that come with an action (her line follows it), with looking online too soon, which she does not do,
-                or with looking online once she has said a sentence (one only, before her news); nor, spoken, those
-                that come as she sends a piece to be prepared, her news. Only that first call is known yet; she is
-                told to make an action alone (VOICE_NOTE)."""
+                that come with an action (her line follows it), with looking online before the library is searched
+                (said once the response is whole if it searches the library too, below), or with looking online once
+                she has said a sentence (one only, before her news); nor, spoken, those that come as she sends a
+                piece to be prepared, her news. Only that first call is known yet; she is told to make an action
+                alone (VOICE_NOTE)."""
                 nonlocal said_ahead, progress_spoken
                 if tool in ACTIONS or tool == "search_online" and (not library_searched or progress_spoken) \
                         or tool in PREPARES and self.speak and not self.started_now:
@@ -1461,6 +1466,7 @@ class Assistant:
                 # she said already, as the model went on to its tools. What she says as she looks in the library, as
                 # she finds one made before, or of several pieces, may name the piece she then plays (_named).
                 calls = reply.tool_calls
+                library_searched = library_searched or any(c.name == "search_library" for c in calls)
                 words = reply.text.strip()
                 said = said_ahead if said_ahead and words.startswith(said_ahead) else ""
                 words, said_ahead = words[len(said):].strip(), ""
@@ -1490,7 +1496,6 @@ class Assistant:
                         progress_spoken = True
                     raw = self.run_tool(call.name, call.arguments)
                     confirms = confirms or call.name in ACTIONS - PLAYS
-                    library_searched = library_searched or call.name == "search_library"
                     results.append((call, raw))
                     if call.name in PLAYS:
                         played = json.loads(raw)
