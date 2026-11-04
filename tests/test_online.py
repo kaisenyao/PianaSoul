@@ -141,12 +141,54 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(online.flags_for('晴天 钢琴弹唱', 'UP', '', 240), ['sung'])
         self.assertEqual(online.flags_for('晴天 弹唱', 'UP', '', 240, '晴天 弹唱'), [], 'Unless that is what was asked for')
 
+    def test_sheet_music_a_game_s_instrument_a_backing_track_and_a_lesson_say_so_as_bilibili_titles_do(self):
+        for title, flags in (('天空之城钢琴谱', ['score']), ('【钢琴】钟-李斯特-乐谱版', ['score']),
+                             ('《孤勇者》动态乐谱', ['score']), ('【光遇琴谱】江南[钢琴3指]', ['game', 'score']),
+                             ('sky光遇 千与千寻片尾曲', ['game']), ('《稻香》（原神演奏）附谱', ['game']),
+                             ('【原琴】告白气球', ['game']), ('『钢琴』十年 纯钢琴伴奏版', ['backing']),
+                             ('只用四个和弦教你弹会这首《光年之外》', ['tutorial']), ('四个和弦就可以教会你《后来》', ['tutorial'])):
+            self.assertEqual(online.flags_for(title, 'UP', '', 240), flags, title)
+        self.assertEqual(online.describe(['backing']), ['accompaniment only (a backing track)'])
+        self.assertEqual(online.flags_for('十年 伴奏', 'UP', '', 240, '十年 伴奏'), [], 'Unless that is what was asked for')
+        for title, channel in (('【钢琴】起风了(简介附谱)', 'UP'), ('【Piano Cover】稻香｜高還原純鋼琴版｜附譜', 'UP'),
+                               ('起风了 无损音质三角钢琴版', 'UP'), ('你的名字 钢琴组曲【Hi-Res无损音质】', 'UP'),
+                               ('钟-郎朗-（李斯特）高音质', '新手的问号')):
+            self.assertEqual(online.flags_for(title, channel, '', 240), [],
+                             'Sheet music offered with a performance, its sound, a channel new to it: no warning')
+
     def test_a_bilibili_search_asks_for_piano_as_bilibili_says_it(self):
         site = Site(PAGE)
         with patch('yt_dlp.YoutubeDL', site):
             found = online.piano_versions('晴天', 'bilibili')
         self.assertEqual(asked(site.requests[0])['keyword'], '晴天 钢琴')
         self.assertEqual([r['url'] for r in found], ['https://www.bilibili.com/video/BV1Aa411A7aA'])
+
+    def test_bilibili_s_whole_page_is_offered_and_youtube_s_first_fifteen(self):
+        page = {'code': 0, 'data': {'result': [{'type': 'video', 'bvid': f'BV1Aa411A7{n:02d}', 'title': f'晴天 钢琴 {n}',
+                                                'author': 'UP', 'duration': '4:28'} for n in range(20)]}}
+        with patch('yt_dlp.YoutubeDL', Site(page)):
+            self.assertEqual(len(online.piano_versions('晴天', 'bilibili')), 20, 'One request, and all of its page')
+        with patch('yt_dlp.YoutubeDL', Site(page)):
+            self.assertEqual(len(online.search('晴天', 30, 'bilibili')), 20)
+        site = Site(entries=[{'id': f'{n:011d}', 'title': f'晴天 piano {n}', 'channel': 'Pianist', 'duration': 240}
+                             for n in range(15)])
+        with patch('yt_dlp.YoutubeDL', site):
+            online.piano_versions('晴天')
+            online.search('晴天', 30)
+        self.assertEqual(site.requests, ['ytsearch15:晴天 piano', 'ytsearch15:晴天'])
+
+    def test_on_bilibili_only_enough_others_follow_a_few_piano_versions(self):
+        titles = ['晴天 钢琴', '晴天【钢琴】'] + [f'晴天 {other}' for other in ('竹笛', '古筝', '口琴', '二胡', '吉他', '琵琶')]
+        page = {'code': 0, 'data': {'result': [{'type': 'video', 'bvid': f'BV1Aa411A7{n:02d}', 'title': title,
+                                                'author': 'UP', 'duration': '4:28'} for n, title in enumerate(titles)]}}
+        with patch('yt_dlp.YoutubeDL', Site(page)):
+            found = online.piano_versions('晴天', 'bilibili')
+        self.assertEqual([r['video_title'] for r in found], titles[:online.ENOUGH], 'Its first others, up to ENOUGH')
+        site = Site(entries=[{'id': f'{n:011d}', 'title': title, 'channel': 'Channel', 'duration': 240}
+                             for n, title in enumerate(titles)])
+        with patch('yt_dlp.YoutubeDL', site):
+            found = online.piano_versions('晴天')
+        self.assertEqual([r['video_title'] for r in found], titles, "YouTube's all follow, as a piano piece's do")
 
     def test_a_piece_from_a_video_found_on_bilibili_has_its_up_s_picture(self):
         with patch('yt_dlp.YoutubeDL', Site(PAGE)):

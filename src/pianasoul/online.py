@@ -21,8 +21,10 @@ from .audio import MAX_AUDIO_S
 SOURCES = {"youtube": "YouTube", "bilibili": "Bilibili"}  # what online search can search, and each site's name
 HOSTS = {"youtube.com": "youtube", "youtu.be": "youtube", "bilibili.com": "bilibili", "b23.tv": "bilibili"}  # site_of
 # What a title or channel can give away: a warning sign for the chat model (not a rejection); the app does not offer
-# such a video (piano_versions). The words Bilibili's titles use (教程 onwards), like the word a search on Bilibili adds
-# (PIANO_WORD), are chosen by hand for now: to be tuned by a test of 30 queries on it.
+# such a video (piano_versions). The words Bilibili's titles use (教程 onwards) were checked, like the word a search on
+# Bilibili adds (PIANO_WORD), by a test of 30 queries on it (2026-11-04), which added those from 琴谱 on as its titles
+# wrote them (simplified: a traditional form it did not see is not guessed). Of the videos flagged a tutorial only for
+# their category, 音乐教学, none was a performance.
 FLAG_WORDS = {
     "synthesia": "falling-notes", "midi": "midi", "tutorial": "tutorial", "how to play": "tutorial",
     "lesson": "tutorial", "easy": "easy", "slow": "easy", "beginner": "easy", "piano tiles": "game",
@@ -32,6 +34,8 @@ FLAG_WORDS = {
     "慢速": "easy", "入门": "easy", "入門": "easy",
     "教程": "tutorial", "瀑布流": "falling-notes", "简谱": "score", "簡譜": "score", "动态谱": "score", "動態譜": "score",
     "弹唱": "sung", "彈唱": "sung", "合集": "compilation", "串烧": "compilation", "串燒": "compilation",
+    "琴谱": "score", "乐谱": "score", "光遇": "game", "原神演奏": "game", "原琴": "game", "伴奏": "backing",
+    "教你": "tutorial", "教会你": "tutorial",
 }
 FLAG_TEXT = {  # each flag as the chat model reads it
     "falling-notes": "falling-notes (Synthesia) video", "midi": "mentions MIDI", "tutorial": "tutorial or lesson",
@@ -39,6 +43,7 @@ FLAG_TEXT = {  # each flag as the chat model reads it
     "not-piano": "not acoustic piano", "remix": "remix", "short": "very short",
     "long": "over 20 minutes (compilation or multi-movement)",
     "score": "the score shown as it plays (often a MIDI rendering)", "sung": "sung, with the piano",
+    "backing": "accompaniment only (a backing track)",
 }
 
 
@@ -128,6 +133,7 @@ def flags_for(title: str, channel: str, description: str, seconds: int, query: s
 PIANO_WORDS = ("piano", "钢琴", "鋼琴")
 PIANO_WORD = {"youtube": "piano", "bilibili": "钢琴"}  # what a search adds when its words do not ask for piano
 ENOUGH = 5  # piano versions enough for a search's offer: with fewer, the other videos follow them
+MOST = {"youtube": 15, "bilibili": 20}  # the most a search gives: on Bilibili, its one page (one request)
 
 
 def chosen_source(lib) -> str:
@@ -137,15 +143,21 @@ def chosen_source(lib) -> str:
 
 
 def piano_versions(query: str, source: str = "youtube") -> list[dict]:
-    """What the app offers to add, as she would choose: the search asks for piano, and a video with any warning
-    flag is left out. Those whose title or channel say piano come first; when they are fewer than ENOUGH, the others
-    follow. A piece written for the piano has its best recordings say nothing of it (Yiruma's own, a pianist's on
-    DG), while a song's own recording, sung, only comes in where its piano versions are few."""
+    """What the app offers to add, as she would choose: the search asks for piano, as many as its site gives, and a
+    video with any warning flag is left out. Those whose title or channel say piano come first; when they are fewer
+    than ENOUGH, the others follow (on Bilibili, only as many as make ENOUGH). A piece written for the piano has its
+    best recordings say nothing of it (Yiruma's own, a pianist's on DG), while a song's own recording, sung, only
+    comes in where its piano versions are few. On Bilibili the others are mostly other instruments, songs sung and
+    games, its few piano ones first (in the 30-query test, 4 of the 28 offered this way were piano, all of them among
+    the first)."""
     if not any(w in query.casefold() for w in PIANO_WORDS):
         query += f" {PIANO_WORD[source]}"
-    found = [r for r in search(query, 15, source) if not r["flags"]]
+    found = [r for r in search(query, MOST[source], source) if not r["flags"]]
     said = [r for r in found if any(w in f"{r['video_title']} {r['channel']}".casefold() for w in PIANO_WORDS)]
-    return said if len(said) >= ENOUGH else said + [r for r in found if r not in said]
+    if len(said) >= ENOUGH:
+        return said
+    others = [r for r in found if r not in said]
+    return said + (others[:ENOUGH - len(said)] if source == "bilibili" else others)
 
 
 def describe(flags: list[str]) -> list[str]:
@@ -186,9 +198,9 @@ def resolved(url: str) -> str:
 
 
 def search(query: str, max_results: int = 8, source: str = "youtube") -> list[dict]:
-    """Videos for query on source (SOURCES), the site's best first, at most max_results (1 to 15); none too long to
-    transcribe. OnlineError, saying why, when the site cannot be searched."""
-    max_results = max(1, min(int(max_results), 15))
+    """Videos for query on source (SOURCES), the site's best first, at most max_results (1 to the site's MOST); none
+    too long to transcribe. OnlineError, saying why, when the site cannot be searched."""
+    max_results = max(1, min(int(max_results), MOST[source]))
     return _bilibili(query, max_results) if source == "bilibili" else _youtube(query, max_results)
 
 
