@@ -1,13 +1,16 @@
 """The library: its folder (yours, and Transcribed/ for the pieces PianaSoul makes), titles in parts, and what the app
 changes."""
 from pathlib import Path
+import re
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import mido
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul.library import Library, enrich, file_result, make_title, title_parts
+from pianasoul.llm import Refused
 
 
 def make_midi(path: Path, note: int = 60) -> Path:
@@ -165,6 +168,24 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(self.lib.search('夜曲')[0]['id'], nocturne['id'], 'Found by its name in the other language')
         self.assertEqual(enrich(self.lib, model), 0)
         self.assertEqual(len(asked), 1, 'Not asked again, about the one the model did not know either')
+
+    def test_titles_the_provider_refuses_are_not_asked_about_again(self):
+        for i in range(31):  # two requests: thirty, then one
+            self.lib.add(make_midi(self.music / f'{i}.mid', note=40 + i), f'Piece {i}')
+        asked = []
+        def model(prompt):
+            asked.append(prompt)
+            if len(asked) == 1:
+                raise OSError('offline')
+            if len(asked) == 2:
+                raise Refused('DataInspectionFailed: Input data may contain inappropriate content.')
+            return {key: {'artist': 'Chopin'} for key in re.findall(r'^(\d+): ', prompt, re.M)}
+        with self.assertRaises(OSError):  # the model out of reach: all of them asked about again later
+            enrich(self.lib, model)
+        with patch('builtins.print'):
+            self.assertEqual(enrich(self.lib, model), 1, 'The thirty refused stay as they are; the one after is named')
+        self.assertEqual(enrich(self.lib, model), 0)
+        self.assertEqual(len(asked), 3, 'What was refused is not asked about again')
 
     def test_settings_are_kept(self):
         self.assertEqual(self.lib.setting('language', 'system'), 'system')

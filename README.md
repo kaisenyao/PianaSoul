@@ -71,8 +71,8 @@ manual edits. They play side by side, and the sound switches between them every 
 A Mac app for PianaSoul is in development and in private beta. Until it is released, the steps below run
 PianaSoul from source.
 
-You need a Mac and a piano that takes MIDI (or Pianoteq). For her you also need an OpenAI API key; new pieces from
-YouTube need none (without one, they are named from the video's title). Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app and her voice on the Mac.
+You need a Mac and a piano that takes MIDI (or Pianoteq). For her you also need an OpenAI API key, or a Qwen one where
+OpenAI is out of reach; new pieces from YouTube need none (without one, they are named from the video's title). Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app and her voice on the Mac.
 
 ### 1. Install
 
@@ -111,8 +111,21 @@ echo 'export OPENAI_API_KEY="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Finding pieces online needs no key. Without an OpenAI key the app still runs: your library, the player, uploads and
-online search work, and she is off until a key is set.
+Where OpenAI is out of reach, as in mainland China, Qwen does both instead, on Alibaba Cloud Model Studio: create an
+API key there ([how](https://www.alibabacloud.com/help/en/model-studio/get-api-key); not a Coding Plan key, which
+starts with `sk-sp-`) and set
+
+```bash
+echo 'export PIANASOUL_MODEL=qwen' >> ~/.zshrc
+echo 'export DASHSCOPE_API_KEY="..."' >> ~/.zshrc
+source ~/.zshrc
+```
+
+A key works only in the region it was made in. Beijing is the default; for a key made in Singapore, also set
+`DASHSCOPE_REGION=singapore`.
+
+Finding pieces online needs no key. Without her key the app still runs: your library, the player, uploads and online
+search work, and she is off until a key is set.
 
 ### 3. Connect the piano
 
@@ -193,6 +206,19 @@ echo 'export PIANASOUL_VOICE_ID="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
+Or let Qwen speak for her, on Alibaba Cloud Model Studio. Her voice has a key of its own, which may be the same key as
+her model's:
+
+```bash
+echo 'export PIANASOUL_VOICE=qwen' >> ~/.zshrc
+echo 'export DASHSCOPE_VOICE_API_KEY="..."' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Her Qwen voice is `longanhuan_v3.1`; `PIANASOUL_VOICE_ID` may name another of the
+[voices](https://www.alibabacloud.com/help/en/model-studio/qwen-audio-tts-voice-list) of `qwen-audio-3.1-tts-flash`.
+For a key made in Singapore, also set `DASHSCOPE_VOICE_REGION=singapore`.
+
 <details>
 <summary>What to keep private, and how to start afresh</summary>
 <br>
@@ -259,16 +285,26 @@ The app, voice and chat are one assistant, with one library and one set of conve
 Set these in `~/.zshrc`.
 
 - `OPENAI_API_KEY`: the chat model and speech recognition.
-- `ELEVENLABS_API_KEY` and `PIANASOUL_VOICE_ID`: her voice.
+- `DASHSCOPE_API_KEY`: the same with Qwen (`PIANASOUL_MODEL=qwen`), and `DASHSCOPE_REGION` the region the key was
+  made in: `beijing` (the default) or `singapore`.
+- `PIANASOUL_VOICE`: her voice: `elevenlabs`, `qwen` or `mac`. Without it, ElevenLabs once its key and a voice are
+  set, and the Mac's own voice until then.
+- `ELEVENLABS_API_KEY` and `PIANASOUL_VOICE_ID`: her ElevenLabs voice.
+- `DASHSCOPE_VOICE_API_KEY`: her Qwen voice (`PIANASOUL_VOICE=qwen`), with a key of its own; `DASHSCOPE_VOICE_REGION`
+  the region the key was made in, `beijing` (the default) or `singapore`; and `PIANASOUL_VOICE_ID` the voice's name,
+  by default `longanhuan_v3.1`.
 - `PIANASOUL_TRANSCRIBE`: `0` turns transcription and online search off though the advanced extra is installed, with
   her still on (the Mac app's Online Search & Transcription).
 - `PIANASOUL_PORT`: the MIDI output, by part of its name, until one is chosen in the Mac app. Default `pianasoul`.
 - `PIANASOUL_LEAD`: seconds each note leaves early (see Timing). Default `1` for a network session, `0` otherwise.
 - `PIANASOUL_MUSIC`, `PIANASOUL_DATA` and `PIANASOUL_CACHE`: other places for the library folder, its data and work
   files (see Your library).
+- `PIANASOUL_MODELS`: a folder with the wake word and voice activity models, laid out as `models/` in the data folder
+  is (the Mac app brings its own). They are read from there as they are, and never downloaded.
 - `PIANASOUL_WAKE_THRESHOLD`: how readily she hears her name; lower hears more. Default `0.2`.
-- `PIANASOUL_MODEL`: the chat model. Default `openai:gpt-6-luna`.
-- `PIANASOUL_STT_MODEL`: the speech recognition model. Default `gpt-transcribe`.
+- `PIANASOUL_MODEL`: the chat model: `openai`, `qwen` or `anthropic`, alone or with a model after a colon. Default
+  `openai:gpt-6-luna`; `qwen` is `qwen3.8-flash`, and Qwen's `qwen-audio-3.1-asr-flash` then hears her requests.
+- `PIANASOUL_STT_MODEL`: OpenAI's speech recognition model. Default `gpt-transcribe`.
 - `PIANASOUL_TTS_MODEL`: the ElevenLabs model. Default `eleven_v4_turbo`; `eleven_v4` is richer and slower.
 
 ### Volume
@@ -345,10 +381,14 @@ The project can live on a dedicated Mac mini. To start it from any folder, add
 
 ## How it works
 
-- **Understanding requests and choosing pieces:** OpenAI `gpt-6-luna`, through its API.
+- **Understanding requests and choosing pieces:** OpenAI `gpt-6-luna`, through its API; or Qwen `qwen3.8-flash`,
+  through Alibaba Cloud Model Studio's.
 - **Speech to text:** OpenAI `gpt-transcribe`, heard as you speak through its realtime API, which also decides
-  when you have finished; if that connection fails, the request is uploaded whole once it has ended.
-- **Her voice:** ElevenLabs `eleven_v4_turbo`, through its API, or the Mac's own voice.
+  when you have finished; if that connection fails, the request is uploaded whole once it has ended. With Qwen,
+  `qwen-audio-3.1-asr-flash`, the request uploaded whole once it has ended, with your library's names as the words
+  to expect.
+- **Her voice:** ElevenLabs `eleven_v4_turbo`, through its API; or Qwen `qwen-audio-3.1-tts-flash`, through Model
+  Studio's; or the Mac's own voice. Her ready-made lines are recorded once in each voice.
 - **A recording to MIDI:** Transkun `2.0.1`, on this Mac.
 - **Hearing her name, and telling speech from silence:** sherpa-onnx keyword spotting and Silero VAD, on this Mac.
 

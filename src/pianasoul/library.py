@@ -30,6 +30,7 @@ import pretty_midi
 from send2trash import send2trash
 
 from .cleanup import pedal_intervals
+from .llm import Refused
 
 
 def _place(variable: str, default: Path) -> Path:
@@ -1017,7 +1018,8 @@ def known_artists(names: list[str], most: int = 200) -> str:
 
 def enrich(lib: Library, complete_json) -> int:
     """Ask the chat model to fill in the artist (where the library has none), aliases (other-language titles)
-    and tags: once for each piece, which the model may not know either."""
+    and tags: once for each piece, which the model may not know either. Pieces asked about with titles the
+    provider refuses (Refused) stay without them: asked again, they would be refused again."""
     todo = [r for r in lib.all() if not r["named_at"] and (not r["composer"] or not r["aliases"])]
     changed = 0
     spellings = lib.artist_spellings()  # once: the artists the model names are matched to them
@@ -1030,7 +1032,11 @@ def enrich(lib: Library, complete_json) -> int:
             f"aliases: {ALIASES}. tags: 2-4 short English words about genre "
             "and mood, separated by ', '. Use an empty string when unsure; do not guess names you do not know."
             "\nReturn only the JSON object.\n\n" + listing)
-        data = complete_json(prompt)
+        try:
+            data = complete_json(prompt)
+        except Refused as exc:
+            print(f"  ({len(batch)} piece(s) not named: {exc})", flush=True)
+            data = {}
         for key, info in (data or {}).items():
             if not str(key).isdigit() or not isinstance(info, dict):
                 continue

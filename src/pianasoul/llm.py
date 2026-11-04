@@ -1,24 +1,53 @@
-"""Thin wrapper over the OpenAI (Responses API) and Anthropic (Messages API) tool-calling chat.
+"""Thin wrapper over the OpenAI and Qwen (Responses API) and Anthropic (Messages API) tool-calling chat.
 
-Choose the model with PIANASOUL_MODEL, e.g. "openai:gpt-6-luna" or "anthropic:claude-haiku-5-5".
-Without it, OpenAI is used when OPENAI_API_KEY is set, otherwise Anthropic.
+Choose the provider with PIANASOUL_MODEL: "openai", "qwen" or "anthropic", alone or with a model after a colon, e.g.
+"openai:gpt-6-luna" or "anthropic:claude-haiku-5-5". Without it, OpenAI is used when OPENAI_API_KEY is set, otherwise
+Anthropic. Qwen runs on Alibaba Cloud Model Studio with DASHSCOPE_API_KEY, in the region its key was made in
+(DASHSCOPE_REGION: beijing, the default, or singapore).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 from dataclasses import dataclass, field
 
-DEFAULTS = {"openai": "gpt-6-luna", "anthropic": "claude-haiku-5-5"}
 # She thinks a little, on the models that think: her first sentence came quickest and cleanest so (M5.5 validation).
 REASONING = {"effort": "low"}
 THINKS = re.compile(r"(o\d|gpt-[5-9])")  # OpenAI's models that take reasoning settings
 
 
+@dataclass(frozen=True)
+class Provider:
+    name: str  # as the start-up lines say it
+    model: str  # unless PIANASOUL_MODEL names another
+    key: str  # the environment variable with its API key
+    hears: str  # the provider whose speech recognition hears her requests
+    always: dict = field(default_factory=dict)  # what each request to it says besides (Responses API parameters)
+
+
+PROVIDERS = {
+    "openai": Provider("OpenAI", "gpt-6-luna", "OPENAI_API_KEY", hears="openai"),
+    "anthropic": Provider("Anthropic", "claude-haiku-5-5", "ANTHROPIC_API_KEY", hears="openai"),
+    # Model Studio's models think unless told not to: thinking, Qwen spent all 16 tokens of the app's key check on it
+    # (smoke test, 2026-11-03).
+    "qwen": Provider("Qwen", "qwen3.8-flash", "DASHSCOPE_API_KEY", hears="qwen",
+                     always={"reasoning": {"effort": "none"}}),
+}
+# Model Studio's address in each region; a key works only in the region it was made in.
+DASHSCOPE_HOSTS = {"beijing": "dashscope.aliyuncs.com", "singapore": "dashscope-intl.aliyuncs.com"}
+# Model Studio's code for words that did not pass its content inspection, those asked or those written.
+REFUSED = "DataInspectionFailed"
+
+
 class BrokenOff(RuntimeError):
     """A streamed response that ended before it was over."""
+
+
+class Refused(RuntimeError):
+    """A request the provider would not take for its words (REFUSED): asked again, it would be refused again."""
 
 
 @dataclass
@@ -34,19 +63,72 @@ class Reply:
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
-def model_spec() -> tuple[str, str]:
+def chosen_provider() -> str:
+    """Her model line: the provider PIANASOUL_MODEL names; without it OpenAI, or Anthropic when only its key is set.
+    ValueError when PIANASOUL_MODEL names none of them."""
     spec = os.environ.get("PIANASOUL_MODEL", "").strip()
-    if spec:
-        provider, _, model = spec.partition(":")
-        provider = provider.lower()
-        if provider not in DEFAULTS:
-            raise ValueError(f"PIANASOUL_MODEL must start with openai: or anthropic:, got {spec!r}")
-        return provider, model or DEFAULTS[provider]
-    if os.environ.get("OPENAI_API_KEY"):
-        return "openai", DEFAULTS["openai"]
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic", DEFAULTS["anthropic"]
-    raise ValueError("set OPENAI_API_KEY or ANTHROPIC_API_KEY (and optionally PIANASOUL_MODEL)")
+    if not spec:
+        return "anthropic" if os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("OPENAI_API_KEY") else "openai"
+    name = spec.partition(":")[0].lower()
+    if name not in PROVIDERS:
+        raise ValueError(f"PIANASOUL_MODEL must be openai, qwen or anthropic, alone or with a model after a colon, "
+                         f"got {spec!r}")
+    return name
+
+
+def model_spec() -> tuple[str, str]:
+    """(provider, model): the model PIANASOUL_MODEL names after the colon, or the provider's own. Without
+    PIANASOUL_MODEL, ValueError unless OpenAI's or Anthropic's key is set."""
+    spec = os.environ.get("PIANASOUL_MODEL", "").strip()
+    provider = chosen_provider()
+    if not spec and not os.environ.get(PROVIDERS[provider].key):
+        raise ValueError("set OPENAI_API_KEY or ANTHROPIC_API_KEY, or PIANASOUL_MODEL=qwen and DASHSCOPE_API_KEY")
+    return provider, spec.partition(":")[2] or PROVIDERS[provider].model
+
+
+def keys_needed(provider: str) -> list[str]:
+    """The API keys her setup needs with this provider: its own, then that of the provider who hears her requests
+    (OpenAI's, with Anthropic's chat)."""
+    return list(dict.fromkeys([PROVIDERS[provider].key, PROVIDERS[PROVIDERS[provider].hears].key]))
+
+
+def api_key(provider: str) -> str:
+    """The provider's API key; ValueError when it is not set."""
+    name = PROVIDERS[provider].key
+    if not os.environ.get(name):
+        raise ValueError(f"{name} is not set")
+    return os.environ[name]
+
+
+def dashscope_host(variable: str = "DASHSCOPE_REGION") -> str:
+    """Model Studio's address for the region this variable names (Beijing when it is not set)."""
+    region = os.environ.get(variable, "").strip().lower() or "beijing"
+    if region not in DASHSCOPE_HOSTS:
+        raise ValueError(f"{variable} must be beijing or singapore, got {region!r}")
+    return DASHSCOPE_HOSTS[region]
+
+
+def openai_client(provider: str):
+    """An OpenAI SDK client for a provider with the Responses API: OpenAI's as the SDK makes it from the environment;
+    Qwen's with its own key and its region's address, never OPENAI_API_KEY or OPENAI_BASE_URL."""
+    from openai import OpenAI
+
+    if provider == "qwen":
+        return OpenAI(api_key=api_key(provider), base_url=f"https://{dashscope_host()}/compatible-mode/v1")
+    return OpenAI()
+
+
+@contextlib.contextmanager
+def refusals():
+    """An error the provider gives for words it refuses, raised as Refused, which says its code."""
+    from openai import APIError
+
+    try:
+        yield
+    except APIError as exc:
+        if exc.code != REFUSED:
+            raise
+        raise Refused(f"{REFUSED}: {exc.message}") from exc
 
 
 def _parse_args(raw) -> dict:
@@ -59,10 +141,9 @@ def _parse_args(raw) -> dict:
 
 
 class OpenAIChat:
-    def __init__(self, model: str, instructions: str, tools: list[dict]):
-        from openai import OpenAI
-
-        self.client, self.model, self.instructions = OpenAI(), model, instructions
+    def __init__(self, model: str, instructions: str, tools: list[dict], provider: str = "openai"):
+        self.client, self.model, self.instructions = openai_client(provider), model, instructions
+        self.always = PROVIDERS[provider].always
         self.tools = [{"type": "function", "name": t["name"], "description": t["description"],
                        "parameters": t["parameters"]} for t in tools]
         self.previous = self.turn_start = None
@@ -80,16 +161,18 @@ class OpenAIChat:
         kwargs = {"previous_response_id": self.previous} if self.previous else {}
         if THINKS.match(self.model):
             kwargs["reasoning"] = REASONING
-        for attempt in range(self.client.max_retries + 1):
-            handed = []  # connecting, the SDK's own retries do; a stream that breaks off while read, these
-            events = self.client.responses.create(model=self.model, instructions=self.instructions, input=items,
-                                                  tools=self.tools, stream=True, **kwargs)
-            try:
-                resp = self._read(events, handed)
-                break
-            except (APIConnectionError, BrokenOff):
-                if handed or attempt == self.client.max_retries:
-                    raise
+        kwargs.update(self.always)
+        with refusals():
+            for attempt in range(self.client.max_retries + 1):
+                handed = []  # connecting, the SDK's own retries do; a stream that breaks off while read, these
+                events = self.client.responses.create(model=self.model, instructions=self.instructions, input=items,
+                                                      tools=self.tools, stream=True, **kwargs)
+                try:
+                    resp = self._read(events, handed)
+                    break
+                except (APIConnectionError, BrokenOff):
+                    if handed or attempt == self.client.max_retries:
+                        raise
         self.previous = resp.id
         calls = [ToolCall(o.call_id, o.name, _parse_args(o.arguments))
                  for o in resp.output if getattr(o, "type", "") == "function_call"]
@@ -109,7 +192,10 @@ class OpenAIChat:
                 resp = event.response
             elif event.type in {"response.failed", "error"}:
                 error = getattr(getattr(event, "response", None), "error", None) or event
-                raise RuntimeError(f"the model failed: {getattr(error, 'message', error)}")
+                message = getattr(error, "message", error)
+                if getattr(error, "code", None) == REFUSED:
+                    raise Refused(f"{REFUSED}: {message}")
+                raise RuntimeError(f"the model failed: {message}")
         if resp is None:
             raise BrokenOff("the model's response ended before it was complete")
         return resp
@@ -186,23 +272,24 @@ class AnthropicChat:
 
 def make_chat(instructions: str, tools: list[dict]):
     provider, model = model_spec()
-    cls = OpenAIChat if provider == "openai" else AnthropicChat
-    return cls(model, instructions, tools), f"{'OpenAI' if provider == 'openai' else 'Anthropic'} {model}"
+    chat = (AnthropicChat(model, instructions, tools) if provider == "anthropic" else
+            OpenAIChat(model, instructions, tools, provider))
+    return chat, f"{PROVIDERS[provider].name} {model}"
 
 
 def complete_json(prompt: str) -> dict:
-    """One-shot request that should answer with a JSON object."""
+    """One-shot request that should answer with a JSON object; Refused when the provider refuses its words."""
     provider, model = model_spec()
-    if provider == "openai":
-        from openai import OpenAI
-
-        text = OpenAI().responses.create(model=model, input=prompt).output_text
-    else:
+    if provider == "anthropic":
         import anthropic
 
         resp = anthropic.Anthropic().messages.create(model=model, max_tokens=4000,
                                                      messages=[{"role": "user", "content": prompt}])
         text = "".join(b.text for b in resp.content if b.type == "text")
+    else:
+        with refusals():
+            text = openai_client(provider).responses.create(model=model, input=prompt,
+                                                            **PROVIDERS[provider].always).output_text
     match = re.search(r"\{.*\}", text or "", re.S)
     try:
         return json.loads(match.group(0)) if match else {}

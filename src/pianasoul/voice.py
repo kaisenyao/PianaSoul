@@ -4,12 +4,13 @@ with ears and a voice.
     ./run.sh voice
 
 Her names, 小茗同学 and Jasmine, are heard on this computer by sherpa-onnx keyword spotting, which takes a name
-without training. Speech recognition uses OpenAI gpt-transcribe
-(OPENAI_API_KEY). Replies are spoken by ElevenLabs (ELEVENLABS_API_KEY and PIANASOUL_VOICE_ID), or by the
-macOS voice without them. Pause after the name and she says she is listening; or say the name and the request
-in one breath. After her reply you may go on without the name, unless the piano plays. Add --debug to see what
-happens in detail, with times (her name heard, how long recognition and her answer took), or --lines to hear
-her ready-made lines (lines.py) once each.
+without training. Speech recognition follows the chat model: OpenAI gpt-transcribe (OPENAI_API_KEY), or Qwen with
+PIANASOUL_MODEL=qwen (DASHSCOPE_API_KEY). Replies are spoken by ElevenLabs (ELEVENLABS_API_KEY and
+PIANASOUL_VOICE_ID), by Qwen with PIANASOUL_VOICE=qwen (DASHSCOPE_VOICE_API_KEY), or by the macOS voice without
+them. Pause after the name and she says she is listening; or say the name and the request in one breath. After her
+reply you may go on without the name, unless the piano plays. Add --debug to see what happens in detail, with times
+(her name heard, how long recognition and her answer took), or --lines to hear her ready-made lines (lines.py) once
+each.
 Install the extras once: uv pip install --python .venv/bin/python -e ".[voice]"
 """
 
@@ -76,14 +77,23 @@ GREETING_SETTINGS = {**VOICE_SETTINGS, "stability": 0.25, "style": 0.4, "speed":
 # loud and excited, and "volume down" whispered.
 STEADY = ("louder", "softer", "loudest", "silent")
 STEADY_SETTINGS = {**VOICE_SETTINGS, "stability": 0.85}
-# Her ready-made lines (lines.py) and how each is said: made once with her ElevenLabs voice and kept in the data
-# folder (voice/). The greetings and the lines about a setting as above; the rest as her replies are, so that a
-# ready-made line and the reply after it sound like one person. Without ElevenLabs the macOS voice says them.
+# Her ready-made lines (lines.py) and how each is said: made once with her cloud voice and kept in the data folder
+# (voice/), each voice's apart. The greetings and the lines about a setting as above; the rest as her replies are, so
+# that a ready-made line and the reply after it sound like one person. How is given in ElevenLabs' settings; Qwen
+# takes what it can of them (QwenVoice.how). Without a cloud voice the macOS voice says them.
 READY = {**{text: GREETING_SETTINGS for lines in LINES["greet"].values() for text in lines},
          **{text: VOICE_SETTINGS for text in recorded()},
          **{text: STEADY_SETTINGS for key in STEADY for lines in LINES[key].values() for text in lines}}
+# Her voice by Qwen on Model Studio, streamed as server-sent events. Unless PIANASOUL_VOICE_ID names another, one of
+# the women's voices that speak many languages: Model Studio has those in both regions, its Mandarin ones only in
+# Beijing.
+QWEN_TTS_MODEL = "qwen-audio-3.1-tts-flash"
+QWEN_TTS_PATH = "/api/v1/services/audio/tts/SpeechSynthesizer"
+QWEN_VOICE = "longanhuan_v3.1"
+QWEN_DEBT = "Arrearage"  # Model Studio's code (HTTP 400) for an account that owes money: no sentence is said
 # Silero voice activity detection tells speech from silence and the piano.
-VAD_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+VAD_MODEL = "silero_vad.onnx"
+VAD_URL = f"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/{VAD_MODEL}"
 # A request is heard from 1.6 s before the wake word was heard (it is heard about half a second late), her name
 # included: a short request said in the same breath ("小茗同学，停止") is often over by then.
 PRE_ROLL_FRAMES = 20
@@ -101,6 +111,13 @@ STT_PROMPT = "以下是普通话和英语的句子。我想听 Adele 的 Someone
 PROMPT_ECHOES = {STT_PROMPT, STT_PROMPT.split("。", 1)[-1], "暂停。继续。"}
 # Spelling hints besides the library's names: the commands that are easiest to mishear.
 STT_COMMAND_HINTS = ["暂停", "停止播放", "继续播放", "从头弹"]
+# Qwen's hearing, through Model Studio's own API. The words to expect go with each request twice: as context, of
+# which Qwen reads 400 characters and cuts the rest from the end, and as hot words, up to 2000, each weighing 1 to 5
+# (Model Studio says to begin at 4).
+QWEN_STT_MODEL = "qwen-audio-3.1-asr-flash"
+QWEN_STT_PATH = "/api/v1/services/aigc/multimodal-generation/generation"
+QWEN_CONTEXT, QWEN_HOT_WORDS, HOT_WORD_WEIGHT = 400, 2000, 4
+NO_WORDS = "ASR_RESPONSE_HAVE_NO_WORDS"  # Qwen's answer (HTTP 400) to audio with no words in it
 
 VOICE_NOTE = """
 
@@ -195,8 +212,25 @@ class Microphone:
                 self.frames.get_nowait()
 
 
+def models_folder() -> Path | None:
+    """The folder PIANASOUL_MODELS names, with the wake word and voice activity models laid out as in the data
+    folder's models/ (the Mac app brings its own, inside the signed app): they are read from it as they are, and
+    nothing is downloaded into it or written to it. None when it is not set: they are downloaded on first use."""
+    if not (setting := os.environ.get("PIANASOUL_MODELS")):
+        return None
+    folder = Path(setting).expanduser()
+    missing = [name for name in [*(f"{WAKE_MODEL}/{part}" for part in WAKE_PARTS.values()), VAD_MODEL]
+               if not (folder / name).is_file()]
+    if missing:
+        raise RuntimeError(f"the models folder {folder} (PIANASOUL_MODELS) lacks {', '.join(missing)}")
+    return folder
+
+
 def wake_model() -> Path:
-    """The keyword spotting model's folder, downloaded on first use (only the files needed are kept)."""
+    """The keyword spotting model's folder: in the models folder given (models_folder), or downloaded on first use
+    (only the files needed are kept)."""
+    if given := models_folder():
+        return given / WAKE_MODEL
     from .library import DATA_DIR
 
     folder = DATA_DIR / "models" / WAKE_MODEL
@@ -229,9 +263,12 @@ def download(url: str, path: Path) -> Path:
 
 
 def vad_model() -> Path:
+    """Silero's model: in the models folder given (models_folder), or downloaded on first use."""
+    if given := models_folder():
+        return given / VAD_MODEL
     from .library import DATA_DIR
 
-    return download(VAD_URL, DATA_DIR / "models" / "silero_vad.onnx")
+    return download(VAD_URL, DATA_DIR / "models" / VAD_MODEL)
 
 
 class Speech:
@@ -298,14 +335,17 @@ class WakeWord:
             lexicon.setdefault(word, []).append(" ".join(phones))
         for word, ways in EXTRA_PRONUNCIATIONS.items():
             lexicon.setdefault(word, []).extend(w for w in ways if w not in lexicon[word])
-        keywords = folder / "keywords.txt"
-        keywords.write_text("\n".join(k for w in WAKE_WORDS for k in keyword_lines(w, lexicon)) + "\n",
-                            encoding="utf-8")
-        self.spotter = sherpa_onnx.KeywordSpotter(
-            tokens=str(folder / WAKE_PARTS["tokens"]), encoder=str(folder / WAKE_PARTS["encoder"]),
-            decoder=str(folder / WAKE_PARTS["decoder"]), joiner=str(folder / WAKE_PARTS["joiner"]),
-            keywords_file=str(keywords), keywords_threshold=WAKE_THRESHOLD, keywords_score=WAKE_SCORE, num_threads=1,
-            provider="cpu")
+        # The spotter reads its keywords from a file once, as it is made: a temporary one, so that nothing is
+        # written to the model's folder, which may be the Mac app's own.
+        with tempfile.TemporaryDirectory() as tmp:
+            keywords = Path(tmp) / "keywords.txt"
+            keywords.write_text("\n".join(k for w in WAKE_WORDS for k in keyword_lines(w, lexicon)) + "\n",
+                                encoding="utf-8")
+            self.spotter = sherpa_onnx.KeywordSpotter(
+                tokens=str(folder / WAKE_PARTS["tokens"]), encoder=str(folder / WAKE_PARTS["encoder"]),
+                decoder=str(folder / WAKE_PARTS["decoder"]), joiner=str(folder / WAKE_PARTS["joiner"]),
+                keywords_file=str(keywords), keywords_threshold=WAKE_THRESHOLD, keywords_score=WAKE_SCORE,
+                num_threads=1, provider="cpu")
         self.words = WAKE_WORDS
 
     def listener(self) -> "WakeListener":
@@ -435,13 +475,213 @@ class Live:
         return news
 
 
-class Speaker:
-    """Her voice: ElevenLabs, arriving while it is made; the macOS voice without it, or when it fails."""
+def studio_answer(exc: urllib.error.HTTPError) -> dict:
+    """Model Studio's answer to a request it refused, with its code and message; {} when another answered."""
+    try:
+        return json.loads(exc.read())
+    except ValueError:  # not Model Studio's own answer
+        return {}
+
+
+def studio_why(answer: dict) -> str:
+    """What Model Studio's error answer says: its code, then its message."""
+    return ": ".join(str(answer[k]) for k in ("code", "message") if answer.get(k))
+
+
+class QwenTranscriber:
+    """Qwen speech recognition on Model Studio, the request uploaded whole once it has ended: it is not heard as it
+    is said. Her names, the commands and the library's names go with it as the words to expect."""
+
+    def __init__(self, model: str = QWEN_STT_MODEL):
+        from .llm import api_key, dashscope_host
+
+        self.key, self.model = api_key("qwen"), model
+        self.url = f"https://{dashscope_host()}{QWEN_STT_PATH}"
+        self.label = f"Qwen {model}, once you have finished"
+
+    def hints(self, lib) -> tuple[str, dict]:
+        """The words to expect: as context, the first that fit (her names, the commands, then the library's names,
+        the people first); as hot words, all of them."""
+        words = list(dict.fromkeys([*WAKE_WORDS, *STT_COMMAND_HINTS, *hints(lib, limit=QWEN_HOT_WORDS)]))
+        words = words[:QWEN_HOT_WORDS]
+        context = ""
+        for word in words:
+            longer = f"{context}，{word}" if context else word
+            if len(longer) > QWEN_CONTEXT:
+                break
+            context = longer
+        return context, dict.fromkeys(words, HOT_WORD_WEIGHT)
+
+    def listen(self, lib) -> None:
+        """Not heard as it is said: each request is heard whole."""
+        return None
+
+    def __call__(self, audio: np.ndarray, lib) -> str:
+        """The whole request, uploaded once it has ended; "" when Qwen hears no words in it."""
+        return spell_names(clean_transcript(self._recognize(to_wav(audio), *self.hints(lib))))
+
+    def _recognize(self, wav: bytes, context: str = "", vocabulary: dict | None = None) -> str:
+        """One request: the context as the user's text, then the audio, which comes last; no language, so that any
+        is heard. Refused with the words to expect (a name it would not take, say), it is sent again without them."""
+        messages = [{"role": "user", "content": [{"type": "input_text", "text": context}]}] if context else []
+        messages.append({"role": "user", "content": [{"type": "input_audio", "input_audio": {
+            "data": "data:audio/wav;base64," + base64.b64encode(wav).decode()}}]})
+        parameters = {"format": "wav", "sample_rate": str(SAMPLE_RATE)}
+        if vocabulary:
+            parameters["vocabulary"] = vocabulary
+        body = {"model": self.model, "input": {"messages": messages}, "parameters": parameters}
+        request = urllib.request.Request(self.url, data=json.dumps(body).encode(), headers={
+            "Authorization": f"Bearer {self.key}", "Content-Type": "application/json", "X-DashScope-SSE": "disable"})
+        try:  # bounded: a hung upload does not keep her listening
+            with urllib.request.urlopen(request, timeout=20) as resp:
+                return json.load(resp)["output"]["text"]
+        except urllib.error.HTTPError as exc:
+            answer = studio_answer(exc)
+            why = studio_why(answer) or exc.reason
+            if NO_WORDS in why:
+                return ""
+            if exc.code == 400 and (context or vocabulary) and answer.get("code") != QWEN_DEBT:  # owing is owing
+                print(f"  (Qwen refused the words to expect: {why}; heard without them)", flush=True)
+                return self._recognize(wav)
+            raise RuntimeError(f"Qwen error {exc.code}: {why}") from None
+
+
+def make_transcriber():
+    """Her ears, as her model line has them: Qwen's with Qwen, otherwise OpenAI's (Anthropic's chat included)."""
+    from .llm import PROVIDERS, chosen_provider
+
+    return {"openai": Transcriber, "qwen": QwenTranscriber}[PROVIDERS[chosen_provider()].hears]()
+
+
+class VoiceError(RuntimeError):
+    """A cloud voice's answer that it will not say a sentence. refused: for its key, payment or permission, so that it
+    would say no other either."""
+
+    def __init__(self, why: str, refused: bool = False):
+        super().__init__(why)
+        self.refused = refused
+
+
+class ElevenLabsVoice:
+    """Her voice made by ElevenLabs (ELEVENLABS_API_KEY, and the voice PIANASOUL_VOICE_ID names), arriving as raw
+    24 kHz PCM."""
+
+    name = "ElevenLabs"
 
     def __init__(self):
         self.key = os.environ.get("ELEVENLABS_API_KEY", "")
-        self.cloud = bool(self.key and VOICE_ID)
-        self.label = f"ElevenLabs {TTS_MODEL}" if self.cloud else "macOS (set ELEVENLABS_API_KEY and PIANASOUL_VOICE_ID)"
+        self.missing = "" if self.key and VOICE_ID else "ELEVENLABS_API_KEY and PIANASOUL_VOICE_ID"
+        self.label = f"ElevenLabs {TTS_MODEL}"
+
+    def open(self, text: str, settings: dict):
+        """The connection text comes on, said with these settings; VoiceError when ElevenLabs refuses it."""
+        body = {"text": text, "model_id": TTS_MODEL, "voice_settings": settings}
+        request = urllib.request.Request(ELEVENLABS_URL.format(voice=VOICE_ID), data=json.dumps(body).encode(),
+                                         headers={"xi-api-key": self.key, "Content-Type": "application/json"})
+        try:
+            return urllib.request.urlopen(request, timeout=30)
+        except urllib.error.HTTPError as exc:  # refused for good for its key, payment or permission
+            raise VoiceError(f"ElevenLabs error {exc.code}: {exc.read().decode(errors='replace')[:200]}",
+                             refused=exc.code in (401, 402, 403)) from None
+
+    def pieces(self, resp) -> Iterator[bytes]:
+        """The audio as it arrives."""
+        while chunk := resp.read(4800):  # 0.1 s of audio
+            yield chunk
+
+    def whole(self, resp) -> bytes:
+        return resp.read()
+
+    def clip_key(self, text: str, settings: dict) -> str:
+        """What a recording of text is made of, as it always was: none made already is made again."""
+        return json.dumps([VOICE_ID, TTS_MODEL, settings, text])
+
+
+class QwenVoice:
+    """Her voice made by Qwen on Model Studio, with a key of its own (DASHSCOPE_VOICE_API_KEY, made in the region
+    DASHSCOPE_VOICE_REGION names) and the voice PIANASOUL_VOICE_ID names (QWEN_VOICE without it). It arrives as
+    server-sent events, each with a piece of 24 kHz PCM in Base64."""
+
+    name = "Qwen"
+
+    def __init__(self):
+        from .llm import dashscope_host
+
+        self.key, self.voice = os.environ.get("DASHSCOPE_VOICE_API_KEY", ""), VOICE_ID or QWEN_VOICE
+        self.url = f"https://{dashscope_host('DASHSCOPE_VOICE_REGION')}{QWEN_TTS_PATH}"
+        self.missing = "" if self.key else "DASHSCOPE_VOICE_API_KEY"
+        self.label = f"Qwen {QWEN_TTS_MODEL}, {self.voice}"
+
+    @staticmethod
+    def how(settings: dict) -> dict:
+        """Qwen's way of saying what is said with these ElevenLabs settings. It has no stability or style: the speed
+        alone carries over, as its rate (1.0 its own pace). Tuned by ear later."""
+        return {"rate": settings["speed"]}
+
+    def open(self, text: str, settings: dict):
+        """The connection text comes on, said as these settings say; VoiceError when Model Studio refuses it."""
+        body = {"model": QWEN_TTS_MODEL, "input": {"text": text, "voice": self.voice, "format": "pcm",
+                                                   "sample_rate": 24000, **self.how(settings)}}
+        request = urllib.request.Request(self.url, data=json.dumps(body).encode(), headers={
+            "Authorization": f"Bearer {self.key}", "Content-Type": "application/json", "X-DashScope-SSE": "enable"})
+        try:
+            return urllib.request.urlopen(request, timeout=30)
+        except urllib.error.HTTPError as exc:
+            raise self.refusal(exc.code, studio_answer(exc)) from None
+
+    def pieces(self, resp) -> Iterator[bytes]:
+        """The audio as it arrives, event by event; VoiceError for an event with Model Studio's error instead (each
+        event gives its HTTP status in a line of its own before its data), or when no audio came at all."""
+        status, heard = resp.status, False
+        for line in resp:
+            if line.startswith(b":HTTP_STATUS/"):
+                status = int(line.removeprefix(b":HTTP_STATUS/"))
+            elif line.startswith(b"data:"):
+                event = json.loads(line.removeprefix(b"data:"))
+                if event.get("code"):
+                    raise self.refusal(status, event)
+                if audio := ((event.get("output") or {}).get("audio") or {}).get("data"):  # an event may have none
+                    heard = True
+                    yield base64.b64decode(audio)
+        if not heard:
+            raise VoiceError("Qwen sent no audio")
+
+    def whole(self, resp) -> bytes:
+        return b"".join(self.pieces(resp))
+
+    def clip_key(self, text: str, settings: dict) -> str:
+        """What a recording of text is made of: the service, its model and the voice too, so that it is never one of
+        ElevenLabs', and each voice's are kept: going back to one, none is made again."""
+        return json.dumps(["qwen", QWEN_TTS_MODEL, self.voice, self.how(settings), text])
+
+    @staticmethod
+    def refusal(status: int, answer: dict) -> VoiceError:
+        """Model Studio's error answer, with its HTTP status, as a VoiceError: refused for good for the key (401), a
+        permission or the free quota (403), or a debt; anything else, words that did not pass its content inspection
+        among them, for that sentence alone."""
+        return VoiceError(f"Qwen error {status}: {studio_why(answer) or 'no reason given'}",
+                          refused=status in (401, 403) or answer.get("code") == QWEN_DEBT)
+
+
+def voice_service():
+    """Her cloud voice, as PIANASOUL_VOICE chooses it: elevenlabs, qwen, or mac for none (None). Without it ElevenLabs,
+    which the macOS voice stands in for until its key and voice are set. ValueError for any other choice."""
+    choice = os.environ.get("PIANASOUL_VOICE", "").strip().lower() or "elevenlabs"
+    services = {"elevenlabs": ElevenLabsVoice, "qwen": QwenVoice, "mac": lambda: None}
+    if choice not in services:
+        raise ValueError(f"PIANASOUL_VOICE must be mac, elevenlabs or qwen, got {choice!r}")
+    return services[choice]()
+
+
+class Speaker:
+    """Her voice: her cloud voice (voice_service), arriving while it is made; the macOS voice without one, or when it
+    fails."""
+
+    def __init__(self):
+        self.service = voice_service()
+        self.cloud = self.service is not None and not self.service.missing
+        self.label = (self.service.label if self.cloud else
+                      f"macOS (set {self.service.missing})" if self.service else "macOS")
         self.making = threading.Lock()  # one recording made at a time (clip)
 
     def stream(self, text: str) -> Iterator[np.ndarray]:
@@ -457,10 +697,10 @@ class Speaker:
                 print(f"  (her recording of \"{text}\" is not there: {exc})", flush=True)
         if self.cloud:
             sent, started = False, time.monotonic()
-            try:
-                with urllib.request.urlopen(self._request(text), timeout=30) as resp:
+            try:  # its pieces no longer asked for (she was hushed), the connection is closed
+                with self.service.open(text, VOICE_SETTINGS) as resp:
                     rest = b""
-                    while chunk := resp.read(4800):  # 0.1 s of audio
+                    for chunk in self.service.pieces(resp):
                         chunk, rest = rest + chunk, b""
                         if len(chunk) % 2:
                             chunk, rest = chunk[:-1], chunk[-1:]
@@ -470,27 +710,24 @@ class Speaker:
                             sent = True
                             yield np.frombuffer(chunk, dtype="<i2")
                 return
-            except urllib.error.HTTPError as exc:
-                detail = exc.read().decode(errors="replace")[:200]
-                print(f"  (ElevenLabs error {exc.code}: {detail}; using the Mac voice)", flush=True)
-                if exc.code in (401, 402, 403):  # key, payment or permission: stop trying
+            except VoiceError as exc:  # its answer: the Mac voice for this sentence, or from now on when refused
+                if exc.refused:  # key, payment or permission: stop trying
                     self.cloud = False
+                if sent:  # said halfway: not started again
+                    print(f"  ({exc})", flush=True)
+                    return
+                print(f"  ({exc}; using the Mac voice)", flush=True)
             except Exception as exc:  # network trouble: the Mac voice for this sentence only
                 if sent:
-                    print(f"  (ElevenLabs stopped: {exc})", flush=True)
+                    print(f"  ({self.service.name} stopped: {exc})", flush=True)
                     return
-                print(f"  (ElevenLabs failed: {exc}; using the Mac voice)", flush=True)
+                print(f"  ({self.service.name} failed: {exc}; using the Mac voice)", flush=True)
         yield mac_voice(text)
-
-    def _request(self, text: str, settings: dict = VOICE_SETTINGS) -> urllib.request.Request:
-        body = {"text": text, "model_id": TTS_MODEL, "voice_settings": settings}
-        return urllib.request.Request(ELEVENLABS_URL.format(voice=VOICE_ID), data=json.dumps(body).encode(),
-                                      headers={"xi-api-key": self.key, "Content-Type": "application/json"})
 
     def clip_path(self, text: str, settings: dict = VOICE_SETTINGS) -> Path:
         from .library import DATA_DIR
 
-        key = hashlib.sha1(json.dumps([VOICE_ID, TTS_MODEL, settings, text]).encode()).hexdigest()[:16]
+        key = hashlib.sha1(self.service.clip_key(text, settings).encode()).hexdigest()[:16]
         return DATA_DIR / "voice" / f"{key}.wav"
 
     def clip(self, text: str, settings: dict = VOICE_SETTINGS) -> np.ndarray:
@@ -501,8 +738,8 @@ class Speaker:
         if not path.is_file():
             with self.making:
                 if not path.is_file():
-                    with urllib.request.urlopen(self._request(text, settings), timeout=30) as resp:
-                        pcm = resp.read()
+                    with self.service.open(text, settings) as resp:
+                        pcm = self.service.whole(resp)
                     path.parent.mkdir(parents=True, exist_ok=True)
                     part = path.with_suffix(".part")
                     with wave.open(str(part), "wb") as w:
@@ -529,8 +766,8 @@ def mac_voice(text: str) -> np.ndarray:
 
 
 def prepare_lines(speaker: Speaker) -> None:
-    """Her ready-made lines (READY) in her ElevenLabs voice, made once and kept, so that each is said at once. Run
-    in the background (VoiceParts): a line not made yet is made when she first says it."""
+    """Her ready-made lines (READY) in her cloud voice, made once and kept, so that each is said at once. Run in the
+    background (VoiceParts): a line not made yet is made when she first says it."""
     if not speaker.cloud:
         return
     missing = [(text, how) for text, how in READY.items() if not speaker.clip_path(text, how).is_file()]
@@ -541,7 +778,7 @@ def prepare_lines(speaker: Speaker) -> None:
             speaker.clip(text, how)
         except Exception as exc:  # that one is made when it is first said
             print(f"  (could not prepare \"{text}\": {exc})")
-            if isinstance(exc, urllib.error.HTTPError) and exc.code in (401, 402, 403):
+            if isinstance(exc, VoiceError) and exc.refused:
                 break  # key, payment or permission: the others would fail too
 
 
@@ -550,7 +787,7 @@ def preview_lines(speaker: Speaker) -> None:
     import sounddevice as sd
 
     if not speaker.cloud:
-        print("Her lines are made with ElevenLabs: set ELEVENLABS_API_KEY and PIANASOUL_VOICE_ID.")
+        print(f"Her lines are made with a cloud voice, ElevenLabs or Qwen; hers is {speaker.label}.")
         return
     for text, how in READY.items():
         print(f"  {text}", flush=True)
@@ -608,7 +845,7 @@ class VoiceParts:
     """The slow parts, loaded once and used by one conversation after another."""
 
     def __init__(self):
-        self.stt, self.wake, self.vad = Transcriber(), WakeWord(), vad_model()
+        self.stt, self.wake, self.vad = make_transcriber(), WakeWord(), vad_model()
         self.speaker = Speaker()
         # In the background, so that the service starts at once: with a new voice they take about a minute. A
         # thread that ends with the program: a recording cut short stays a .part file, and is made again.
@@ -1027,7 +1264,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Voice needs the extras: uv pip install --python .venv/bin/python -e \".[voice]\" ({exc})",
               file=sys.stderr)
         return 2
-    except (OSError, RuntimeError, ValueError) as exc:  # no network for the first download, or no OpenAI key
+    except (OSError, RuntimeError, ValueError) as exc:  # no network for the first download, or no key for her ears
         print(f"Cannot start her voice: {exc}", file=sys.stderr)
         return 2
     conversation = Conversation(core.assistant, core.chat, parts, Speakers(mic))

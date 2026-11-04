@@ -271,6 +271,15 @@ class AppTests(unittest.TestCase):
             with TestClient(server.app).websocket_connect('/events', headers=ORIGIN) as socket:
                 socket.receive_json()
 
+    def test_dictation_is_heard_by_her_ears_as_her_model_line_has_them(self):
+        ears = Mock(return_value='弹晴天')
+        with patch.object(server, '_parts', None), patch.object(server, '_stt', None), \
+                patch('pianasoul.voice.make_transcriber', return_value=ears) as made:
+            heard = signed_in(self.client).post('/api/dictation', content=np.zeros(1600, dtype='<i2').tobytes())
+        self.assertEqual(heard.json(), {'text': '弹晴天'})
+        made.assert_called_once()
+        self.assertEqual(len(ears.call_args.args[0]), 1600)
+
 
 class VoiceTests(unittest.TestCase):
     def setUp(self):
@@ -677,6 +686,22 @@ class StartTests(unittest.TestCase):
         served.return_value.run.assert_called_once()
         self.assertIn('her off (OPENAI_API_KEY is not set)', printed)
         self.assertNotIn('Tap the orb', printed)
+
+    def test_without_her_the_key_her_model_line_needs_is_named(self):
+        for values, why in (({'PIANASOUL_MODEL': 'qwen', 'DASHSCOPE_API_KEY': ''}, 'DASHSCOPE_API_KEY is not set'),
+                            ({'PIANASOUL_MODEL': 'anthropic', 'ANTHROPIC_API_KEY': 'test'},
+                             'OPENAI_API_KEY is not set'),  # her ears are OpenAI's
+                            ({'PIANASOUL_MODEL': 'gemini'}, 'PIANASOUL_MODEL must be openai, qwen or anthropic')):
+            with patch.dict('os.environ', values):
+                printed = self.start([], her=False, new=False)[0]  # no OpenAI key
+            self.assertIn(f'her off ({why}', printed)
+            self.assertFalse(self.core_made.call_args.kwargs['assistant'])
+
+    def test_with_qwen_her_own_key_is_all_she_needs(self):
+        with patch.dict('os.environ', {'PIANASOUL_MODEL': 'qwen', 'DASHSCOPE_API_KEY': 'test'}):
+            printed = self.start([], her=False, new=False)[0]  # no OpenAI key
+        self.assertTrue(self.core_made.call_args.kwargs['assistant'])
+        self.assertIn('her on', printed)
 
     def test_as_the_mac_app_runs_it_the_token_never_shows(self):
         printed, _, served, _, opened = self.start(['--app'], her=True, new=True)

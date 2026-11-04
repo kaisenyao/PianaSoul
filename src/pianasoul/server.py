@@ -209,6 +209,17 @@ def voice_parts() -> VoiceParts:
     return _parts
 
 
+def why_no_model() -> str:
+    """Why her model line cannot start, or '': an API key it needs that is not set (llm.keys_needed), or a
+    PIANASOUL_MODEL that names no provider."""
+    from .llm import chosen_provider, keys_needed
+    try:
+        unset = [key for key in keys_needed(chosen_provider()) if not os.environ.get(key)]
+    except ValueError as exc:
+        return str(exc)
+    return f'{unset[0]} is not set' if unset else ''
+
+
 def same_origin(headers) -> bool:
     origin = urlsplit(headers.get('origin', ''))
     return origin.netloc == headers.get('host') and origin.scheme in {'http', 'https'}
@@ -797,8 +808,8 @@ async def dictation(request: Request):
     if not len(audio):
         return {'text': ''}
     if _stt is None:
-        from .voice import Transcriber
-        _stt = _parts.stt if _parts else Transcriber()
+        from .voice import make_transcriber
+        _stt = _parts.stt if _parts else make_transcriber()
     text = await asyncio.to_thread(_stt, audio.astype(np.float32) / 32768, core.lib)
     return {'text': text}
 
@@ -1040,8 +1051,8 @@ def main(argv=None):
     her, why = True, ''
     if not installed('transkun', 'yt_dlp'):
         her, why = False, 'the advanced extra is not installed'
-    elif not os.environ.get('OPENAI_API_KEY'):
-        her, why = False, 'OPENAI_API_KEY is not set'
+    elif why := why_no_model():
+        her = False
     else:
         print('Loading speech recognition and the wake word…', flush=True)
         try:

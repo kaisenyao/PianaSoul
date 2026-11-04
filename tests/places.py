@@ -42,6 +42,7 @@ def no_model(prompt):
     raise OSError('a test tried to ask the real chat model')
 
 
+REAL_COMPLETE_JSON = llm.complete_json  # for the tests of what it sends, to a made-up server (test_llm)
 llm.complete_json = no_model
 
 from pianasoul import chat  # noqa: E402
