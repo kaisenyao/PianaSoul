@@ -118,7 +118,7 @@ def online_as(fixture, case, asked):
         url = 'https://www.bilibili.com/video/{}' if source == 'bilibili' else 'https://www.youtube.com/watch?v={}'
         return [{'url': url.format(vid), 'video_title': title, 'channel': channel, 'views': views, 'published': '',
                  'thumbnail': '', 'duration_s': seconds, 'description': '',
-                 'flags': online.flags_for(title, channel, '', seconds, query)}
+                 'flags': online.flags_for(title, channel, '', seconds, query), 'site': source}
                 for vid, title, channel, seconds, views in VIDEOS[source][:n]]
 
     audio = fixture.root / 'audio.m4a'
@@ -130,15 +130,25 @@ def online_as(fixture, case, asked):
             raise ValueError('ERROR: [youtube] Video unavailable. This video is no longer available')
         return audio, {'video_title': url, 'duration_s': 250}
 
-    def transcribe(audio, out, options, output_name, stopped):
-        midi = mido.MidiFile(); track = mido.MidiTrack(); midi.tracks.append(track)
-        track.append(mido.Message('note_on', note=60, velocity=64, time=0))
-        track.append(mido.Message('note_off', note=60, time=480 * 240))
-        midi.save(Path(out) / f'{output_name}.mid')
-        return {'files': {'midi': str(Path(out) / f'{output_name}.mid')}, 'audio_duration_s': 250}
+    class Transcription:  # the transcriber's process (pipeline.Transcription): it makes the piece whole, no parts
+        def __init__(self, out, options, *, output_name=None, stopped=None):
+            self.midi = Path(out) / f'{output_name}.mid'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def convert(self, audio, part=None):
+            midi = mido.MidiFile(); track = mido.MidiTrack(); midi.tracks.append(track)
+            track.append(mido.Message('note_on', note=60, velocity=64, time=0))
+            track.append(mido.Message('note_off', note=60, time=480 * 240))
+            midi.save(self.midi)
+            return {'files': {'midi': str(self.midi)}, 'audio_duration_s': 250}
     with patch('pianasoul.online.search', side_effect=search), \
             patch('pianasoul.download.download_audio', side_effect=download), \
-            patch('pianasoul.pipeline.convert_apart', side_effect=transcribe), \
+            patch('pianasoul.pipeline.Transcription', Transcription), \
             patch('pianasoul.downloads._video_page', return_value={}):
         yield
 
