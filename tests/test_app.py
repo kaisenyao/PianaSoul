@@ -1254,6 +1254,38 @@ class PreparedTests(Base):
         self.play_and_prepare()
         self.assertFalse(self.a.piece_to_start(), 'It follows the piece its request plays')
 
+    def test_a_piece_paused_while_she_listened_and_held_for_one_of_hers_plays_on_if_that_one_does_not_come(self):
+        from pianasoul.voice import finish_interaction
+
+        def held():
+            """搁浅 plays; 晴天, asked for in a typed request, is to take its place; then, spoken, 大声一点 (she touches
+            nothing), and the piece paused while she listened is held for 晴天."""
+            self.p.select(self.ids[1], [self.ids[1]], {'kind': 'library'})
+            self.a.ask(Scripted([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='qingtian')],
+                                '找到啦～'), '找一首晴天', typed=True)
+            self.assertEqual(self.p.state, 'playing', 'Typed: what plays plays on')
+            self.a.may_play.clear()  # her name (voice's hold_piece)
+            self.p.pause()
+            self.a.touched_playback = False
+            answer = self.a.ask(Scripted(), '大声一点', speak=lambda words, meanwhile=False: None, paused_for_her=True)
+            finish_interaction(self.a, Mock(), answer, True, self.a.taps)
+            self.assertEqual(self.p.state, 'paused', 'Held for 晴天, to start in its place')
+            self.a.may_play.set()  # voice waits for her name
+
+        held()
+        self.made('qingtian', status='failed')
+        self.assertTrue(self.said_last('没准备好'))
+        self.assertTrue(self.eventually(lambda: self.p.state == 'playing'), 'It plays on, as it would have')
+        self.assertEqual(self.p.current_id, self.ids[1])
+        self.assertIsNone(self.a.held_piece)
+        self.fresh()
+        held()
+        self.a.taps += 1  # the phone's player used since
+        self.made('qingtian', status='failed')
+        self.assertTrue(self.said_last('没准备好'))
+        time.sleep(0.1)
+        self.assertEqual(self.p.state, 'paused', 'What the phone did stands')
+
     def test_one_that_played_as_it_was_made_and_was_not_made_after_all_is_said(self):
         self.prepare('qingtian')
         rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')

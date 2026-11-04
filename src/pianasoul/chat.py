@@ -481,6 +481,9 @@ class Assistant:
         self.line_said = False  # her line, not her own words, said what this request plays
         self.prepared: deque[int] = deque(maxlen=PREPARED_KEPT)  # the ids of the latest she prepared, oldest first
         self.failed: deque[str] = deque(maxlen=PREPARED_KEPT)  # the latest that could not be made, by name or link
+        # Paused while she listened, held for a piece of hers to start in its place (voice.finish_interaction): the
+        # piece, where it was, and moves and taps then; it plays on should none come (_play_on).
+        self.held_piece: tuple | None = None
         self.may_play = threading.Event()  # cleared unless voice waits for her name: a piece she prepared waits
         self.may_play.set()
         self.on_message = None  # called with each message kept in a conversation
@@ -671,9 +674,9 @@ class Assistant:
 
     def _ready(self, job, went: bool = False) -> tuple | None:
         """What she does with it once it can play (_place), remembered (prepared); or, once it ended, that it could not
-        be made, which stops nothing (failed). Returns what she follows while it is made (_prepared): its record being
-        made, or None when its version went just now, and the Lineup of the request that sent it; None once she is
-        done with it."""
+        be made, which stops nothing (failed), and a piece held for it plays on (_play_on). Returns what she follows
+        while it is made (_prepared): its record being made, or None when its version went just now, and the Lineup of
+        the request that sent it; None once she is done with it."""
         _, lineup = self.preparing.pop(job.id)
         rec = self.lib.get(job.recording) if job.recording is not None else None
         if rec is None:
@@ -681,6 +684,7 @@ class Assistant:
                 return None, lineup
             if job.status == "failed":  # not one stopped in the app
                 self._not_made(job)
+            self._play_on()
             return None
         self.prepared.append(rec["id"])
         self._place(rec, lineup, went)
@@ -708,6 +712,7 @@ class Assistant:
             return
         # After their list played to its end, what was done on the phone within it does not hold it back.
         self.taps_asked, self.played_now, self.asked_now = self.taps if theirs else lineup.taps, [], lineup
+        self.held_piece = None  # it takes the place of one held for it
         try:
             result = self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=rec["id"]))
         except Exception as exc:  # said, as for a typed request's piece (_started)
@@ -731,6 +736,22 @@ class Assistant:
             return None
         return next((job for job, of in list(self.preparing.values())
                      if of is lineup and (not job.finished.is_set() or job.status == "done")), None)
+
+    def _play_on(self) -> None:
+        """A piece held for one of hers to start in its place (held_piece) plays on once none is to start, if nothing
+        changed since, by her or on the phone."""
+        if self.held_piece is None or self._to_start() is not None:
+            return
+        (piece, at, moves, taps), self.held_piece = self.held_piece, None
+        player = self.player
+        if (self.moves, self.taps) == (moves, taps) and player.state == "paused" and player.current == piece:
+            try:
+                player.look_for_piano()
+                player.go_on(at)
+            except LookupError as exc:
+                self.piano_news(self.piano_missing(exc))
+            except FileNotFoundError:  # its file was deleted while it waited
+                self.piano_news({"error": "recording_unavailable"})
 
     def piece_to_start(self) -> bool:
         """Whether a piece she is preparing starts by itself once it can play (_to_start). Voice then waits for her

@@ -824,7 +824,8 @@ def finished_remark(player, chinese: bool, since: float = 0.0) -> str | None:
 def finish_interaction(assistant, speaker, answer: str, was_playing: bool, taps_held: int | None = None) -> None:
     """Check automatic resumption before speaking a final reply, so a fault is reported once. taps_held: the phone's
     player as it was when the piece was paused for her to listen; used since, what it did stands. Nor does it play on
-    when a piece she is preparing is to start by itself, in its place (Assistant.piece_to_start)."""
+    when a piece she is preparing is to start by itself, in its place (Assistant.piece_to_start): it is held for that
+    one, and plays on if it does not come (Assistant.held_piece)."""
     def say(text):
         if text:
             print(f"assistant> {text}\n", flush=True)
@@ -832,8 +833,10 @@ def finish_interaction(assistant, speaker, answer: str, was_playing: bool, taps_
 
     player = assistant.player
     if was_playing and player is not None and player.state == "paused":
-        if assistant.touched_playback or taps_held is not None and assistant.taps != taps_held \
-                or assistant.piece_to_start():  # she, the phone, or a piece of hers about to take its place
+        changed = assistant.touched_playback or taps_held is not None and assistant.taps != taps_held  # she, the phone
+        if changed or assistant.piece_to_start():  # or a piece of hers about to take its place
+            if not changed:
+                assistant.held_piece = (player.current, player.position, assistant.moves, assistant.taps)
             say(answer)
             print(f"  ⏸ {player.current[1]}  {clock(player.position)}", flush=True)
             return
