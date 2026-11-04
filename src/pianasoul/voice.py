@@ -15,6 +15,7 @@ Install the extras once: uv pip install --python .venv/bin/python -e ".[voice]"
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import io
@@ -64,7 +65,6 @@ WAKE_SCORE = 2.0  # how strongly the spotter favors the wake words; 2.0 did best
 # "jas-MEEN"; with these a test recording of the owner went from 0 to 9 wakes out of 10.
 EXTRA_PRONUNCIATIONS = {"JASMINE": ["JH AE1 Z M IY1 N", "JH AE1 S M IY1 N"]}
 STT_MODEL = os.environ.get("PIANASOUL_STT_MODEL", "gpt-transcribe")
-LANGUAGES = [x.strip() for x in os.environ.get("PIANASOUL_LANGUAGES", "").split(",") if x.strip()]  # e.g. zh,en
 TTS_MODEL = os.environ.get("PIANASOUL_TTS_MODEL", "eleven_v4_turbo")
 VOICE_ID = os.environ.get("PIANASOUL_VOICE_ID", "")
 ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice}/stream?output_format=pcm_24000"
@@ -84,24 +84,22 @@ READY = {**{text: GREETING_SETTINGS for lines in LINES["greet"].values() for tex
          **{text: STEADY_SETTINGS for key in STEADY for lines in LINES[key].values() for text in lines}}
 # Silero voice activity detection tells speech from silence and the piano.
 VAD_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
-GO_ON_FRAMES = 8  # after the wake word, up to 0.64 s to tell whether you go straight on with the request
-PRE_ROLL_FRAMES = 20  # in that case the request is sent from 1.6 s before the wake word was heard, name included
-# Speech that goes on this long after the wake word is heard, and then stops, may have been a short request said in
-# the same breath ("小茗同学，停止"): the wake word is heard about half a second late, so a short request is often over
-# by then. It is recognized, name and all: only her name, and she greets. Her name alone lingers 0 to 3 frames, a
-# request after it 2 to 12 (macOS's voice, M2); less than this is her name alone, greeted at once.
-SAME_BREATH_FRAMES = 2
+# A request is heard from 1.6 s before the wake word was heard (it is heard about half a second late), her name
+# included: a short request said in the same breath ("小茗同学，停止") is often over by then.
+PRE_ROLL_FRAMES = 20
+GREET_AFTER_S = 1.5  # her name (or "嗯") alone, then this much quiet: she greets; going on, it is one request
+STALL_S = 4.0  # heard as it is said, no words come back this long after you stopped: it is heard whole instead
 START_TIMEOUT_S = 6.0  # after her greeting, wait this long for the request to begin
-END_SILENCE_S = 0.7  # this much silence (after the detector's own 0.3 s) ends the request
+END_SILENCE_S = 0.7  # heard whole: this much silence (after the detector's own 0.3 s) ends the request
 MAX_REQUEST_S = 15.0
 FOLLOW_UP_S = 6.0  # after her reply you may go on without her name, unless the piano is playing
 
-# For Chinese speakers (PIANASOUL_LANGUAGES contains zh): a simplified-Chinese example sentence with an English
-# title, so the transcript uses simplified characters and keeps English song names in English.
+# A simplified-Chinese example sentence with an English title, so that a transcript in Chinese uses simplified
+# characters and keeps English song names in English. No language is fixed: she understands any (SPEC M5.5).
 STT_PROMPT = "以下是普通话和英语的句子。我想听 Adele 的 Someone Like You。暂停。继续。"
 
 PROMPT_ECHOES = {STT_PROMPT, STT_PROMPT.split("。", 1)[-1], "暂停。继续。"}
-# Spelling hints for Chinese speakers besides the library's names: the commands that are easiest to mishear.
+# Spelling hints besides the library's names: the commands that are easiest to mishear.
 STT_COMMAND_HINTS = ["暂停", "停止播放", "继续播放", "从头弹"]
 
 VOICE_NOTE = """
@@ -339,32 +337,104 @@ class WakeListener:
 
 
 class Transcriber:
-    """OpenAI speech recognition; the library's titles and names are passed as spelling hints."""
+    """OpenAI speech recognition, as the request is said (listen) or uploaded whole once it has ended; the library's
+    titles and names are passed as spelling hints."""
 
     def __init__(self, model: str = STT_MODEL):
         from openai import OpenAI
 
         if not os.environ.get("OPENAI_API_KEY"):  # needed for hearing even when another provider does the chat
             raise RuntimeError("speech recognition needs OPENAI_API_KEY")
-        self.client, self.model = OpenAI(), model
-        self.prompt = STT_PROMPT if "zh" in LANGUAGES else None
-        self.label = f"OpenAI {model}"
+        self.client, self.model = OpenAI(timeout=20), model  # bounded: a hung upload does not keep her listening
+        self.label = f"OpenAI {model}, as you speak"
+
+    def hints(self, lib) -> dict:
+        """The prompt and, for gpt-transcribe, the spelling hints: the same for both ways of hearing."""
+        fixed = [*WAKE_WORDS, *STT_COMMAND_HINTS]
+        keywords = {"keywords": fixed + hints(lib, limit=50 - len(fixed))} if self.model == "gpt-transcribe" else {}
+        return {"prompt": STT_PROMPT, **keywords}
+
+    def listen(self, lib) -> Live:
+        """One request heard as it is said."""
+        return Live(self.client, {"model": self.model, **self.hints(lib)})
 
     def __call__(self, audio: np.ndarray, lib) -> str:
-        extra = {}
-        if self.model == "gpt-transcribe":  # spelling hints and expected languages
-            fixed = [*WAKE_WORDS, *(STT_COMMAND_HINTS if "zh" in LANGUAGES else [])]
-            extra = {"keywords": fixed + hints(lib, limit=50 - len(fixed)),
-                     **({"languages": LANGUAGES} if LANGUAGES else {})}
-        request = dict(model=self.model, file=("request.wav", to_wav(audio), "audio/wav"), response_format="text",
-                       **({"prompt": self.prompt} if self.prompt else {}))
+        """The whole request, uploaded once it has ended."""
+        request = dict(model=self.model, file=("request.wav", to_wav(audio), "audio/wav"), response_format="text")
         try:
-            text = self.client.audio.transcriptions.create(**request, **extra)
+            text = self.client.audio.transcriptions.create(**request, **self.hints(lib))
         except Exception:
-            if not extra:
-                raise
             text = self.client.audio.transcriptions.create(**request)  # without the optional hints
-        return spell_names(clean_transcript(str(text), self.prompt))
+        return spell_names(clean_transcript(str(text), STT_PROMPT))
+
+
+class Live:
+    """One request heard as it is said: an OpenAI realtime transcription session, fed the request's 80 ms frames,
+    in which OpenAI decides where what is said ends (semantic VAD). Its news, read on her thread (news): ("speech",
+    "") when someone starts to speak; ("text", all said so far) once they have paused and every part is written
+    out; ("broken", why) when the connection fails. Nothing here waits on the network."""
+
+    def __init__(self, client, transcription: dict):
+        self.outbox: queue.SimpleQueue = queue.SimpleQueue()  # audio to send; None ends the session
+        self.inbox: queue.SimpleQueue = queue.SimpleQueue()  # what the session says, or why it failed
+        self.order: list[str] = []  # the parts OpenAI has ended, in the order said
+        self.texts: dict[str, str] = {}
+        self.talking, self.told, self.last = False, 0, 0.0
+        threading.Thread(target=self._run, args=(client, transcription), name="her ears", daemon=True).start()
+
+    def _run(self, client, transcription: dict) -> None:
+        try:  # no on_reconnecting: a session connected again would have lost what was said
+            with client.realtime.connect(extra_query={"intent": "transcription"}) as conn:
+                conn.session.update(session={"type": "transcription", "audio": {"input": {
+                    "format": {"type": "audio/pcm", "rate": 24000}, "transcription": transcription,
+                    "turn_detection": {"type": "semantic_vad", "eagerness": "high"}, "noise_reduction": None}}})
+                threading.Thread(target=self._read, args=(conn,), name="her ears, heard", daemon=True).start()
+                while (pcm := self.outbox.get()) is not None:
+                    conn.input_audio_buffer.append(audio=base64.b64encode(pcm.tobytes()).decode())
+        except Exception as exc:
+            self.inbox.put(exc)
+
+    def _read(self, conn) -> None:
+        try:
+            for event in conn:
+                self.inbox.put(event)
+            self.inbox.put(ConnectionError("the connection closed"))
+        except Exception as exc:
+            self.inbox.put(exc)
+
+    def send(self, pcm: np.ndarray) -> None:
+        """An 80 ms frame at 16 kHz, sent at 24 kHz (as the session takes it): 1920 samples, joined to the last."""
+        frame = pcm.astype(np.float32)
+        up = np.interp(np.arange(1920) * (FRAME / 1920), np.arange(FRAME + 1), np.r_[self.last, frame])
+        self.last = frame[-1]
+        self.outbox.put(up.astype("<i2"))
+
+    def close(self) -> None:
+        self.outbox.put(None)
+
+    def news(self) -> list[tuple[str, str]]:
+        news = []
+        while True:
+            try:
+                event = self.inbox.get_nowait()
+            except queue.Empty:
+                break
+            kind = getattr(event, "type", "")
+            if isinstance(event, Exception) or kind == "error" or kind.endswith("transcription.failed"):
+                why = getattr(getattr(event, "error", None), "message", None) or str(event)
+                return [*news, ("broken", why)]
+            if kind == "input_audio_buffer.speech_started":
+                self.talking = True
+                news.append(("speech", ""))
+            elif kind == "input_audio_buffer.committed":
+                self.talking = False
+                self.order.append(event.item_id)
+            elif kind.endswith("input_audio_transcription.completed"):
+                self.texts[event.item_id] = spell_names(clean_transcript(event.transcript, STT_PROMPT))
+        if not self.talking and len(self.order) > self.told and all(i in self.texts for i in self.order):
+            self.told = len(self.order)
+            news.append(("text", " ".join(t for i in self.order if (t := self.texts[i]))))
+        return news
 
 
 class Speaker:
@@ -587,7 +657,10 @@ class Conversation:
         self.dialogue_until = 0.0
         self.deaf_until = 0.0  # tapped on while the piano played: the notes already sent sound on till then
         self.was_playing = False
-        self.woken, self.go_on = None, 0
+        self.live: Live | None = None  # the request heard as it is said, while she listens to it
+        self.name: str | None = None  # the wake word the request began with
+        self.heard: str | None = None  # all said so far, while it asks for nothing yet (her name alone)
+        self.unheard = False  # said and not yet heard: no text covers it
         self.taps_held = 0  # the phone's player as it was when the piece playing was paused for her (hold_piece)
         self.follow_up_s = FOLLOW_UP_S
         self.listening_since = 0.0
@@ -699,7 +772,6 @@ class Conversation:
 
     def greet(self, word: str) -> None:
         """Her name and a pause: a ready-made greeting, then she listens for the request."""
-        self.woken = None
         self.status("speaking")
         greeting = line("greet", is_chinese(word))  # in the language of the name used; not kept: it says nothing
         print(f"assistant> {greeting}", flush=True)
@@ -748,15 +820,32 @@ class Conversation:
             player.pause()
         self.assistant.touched_playback = False
 
-    def begin(self) -> None:
-        """Start listening to a request; the piano pauses meanwhile."""
+    def begin(self, name: str | None = None) -> None:
+        """Start listening to a request (name: the wake word it began with); the piano pauses meanwhile. It is heard
+        as it is said (Live), from the moments before it, or, when that cannot be, whole once it has ended."""
         self.hold_piece()
         log.debug("listening to a request%s", " (the piece pauses meanwhile)" if self.was_playing else "")
-        self.woken = None
+        self.stop_hearing()
+        self.name, self.heard, self.unheard = name, None, True  # a request begins with something said
         self.frames = list(self.recent)
         self.started = False
         self.silent = self.elapsed = 0.0
+        try:
+            self.live = self.stt.listen(self.assistant.lib)
+        except Exception as exc:  # heard whole instead
+            print(f"  (hearing as you speak not possible: {exc}; heard whole)", flush=True)
+        for pcm in self.frames if self.live else ():
+            self.live.send(pcm)
         self.status("listening")
+
+    def stop_hearing(self, why: str = "") -> None:
+        """No more of this request is sent to be heard as it is said; why: it failed, and what is still unheard is
+        heard whole (hear)."""
+        if self.live:
+            self.live.close()
+            self.live = None
+            if why:
+                print(f"  (hearing as you speak: {why}; heard whole)", flush=True)
 
     def resume(self) -> None:
         """Listen on without her name, for a while."""
@@ -773,12 +862,13 @@ class Conversation:
 
     def sleep(self) -> None:
         """Wait for her name again; a piece paused for the request plays on."""
+        self.stop_hearing()
         self.finish_playback()
         self.frames.clear()
         self.recent.clear()
         self.speech.reset()
         self.wake.reset()
-        self.woken, self.dialogue_until = None, 0.0
+        self.dialogue_until = 0.0
         self.status("waiting")
 
     def frame(self, pcm: np.ndarray) -> None:
@@ -802,50 +892,75 @@ class Conversation:
                 self.remark()
                 return
             log.debug("heard %s", word)
-            self.begin()
-            if speaking:  # does the request follow in the same breath?
-                self.woken, self.go_on = word, 0
-            else:
-                self.greet(word)
+            self.begin(word)
             return
-        if self.woken and self.go_on < GO_ON_FRAMES:  # past it: one breath, name and request sent together
-            if not speaking:  # the breath is over: a short request, or only her name
-                if self.go_on >= SAME_BREATH_FRAMES:
-                    self.frames.append(pcm)
-                    self.respond()  # her name alone, recognized, gets her greeting there
-                else:
-                    self.greet(self.woken)
-                return
-            self.go_on += 1
+        self.hear(pcm, speaking)
+
+    def hear(self, pcm: np.ndarray, speaking: bool) -> None:
+        """The request, heard: as it is said, OpenAI deciding where it ends; or, without that (it failed, or no
+        words came back), whole once the fixed rule ends it. Each text is all said so far: her name or "嗯" alone,
+        she listens on, and what follows is the same request; quiet after it, she greets (nothing_asked)."""
         self.frames.append(pcm)
         self.elapsed += FRAME_S
-        if speaking:
-            self.started, self.silent = True, 0.0
-        else:
-            self.silent += FRAME_S
-        if self.elapsed >= MAX_REQUEST_S or (self.silent >= END_SILENCE_S and (self.started or self.elapsed >= 1.2)):
-            log.debug("request heard: %.1f s, %s", self.elapsed,
-                      "the longest a request may be" if self.elapsed >= MAX_REQUEST_S else "then quiet")
-            self.respond()
-
-    def respond(self) -> None:
-        self.status("thinking")
-        started = time.monotonic()
-        try:
-            text = self.stt(np.concatenate(self.frames).astype(np.float32) / 32768, self.assistant.lib)
-            log.debug("recognized in %.1f s", time.monotonic() - started)
-            print(f"you> {text}" if text else "  (nothing clear was heard)", flush=True)
-        except Exception as exc:  # this request is lost, not the conversation
-            print(f"  (speech recognition failed: {exc})", flush=True)
-            text = ""
-        request = strip_fillers(text)
-        if not request:
-            name = self.woken or name_said(text)
-            if name:  # only her name (in one breath, or said to her listening): greet and listen, as after a pause
-                self.greet(name)
-            else:  # nothing to answer: wait for her name again
+        self.started = self.started or speaking
+        self.silent = 0.0 if speaking else self.silent + FRAME_S
+        full = self.elapsed >= MAX_REQUEST_S
+        if full:
+            self.stop_hearing("the longest a request may be" if self.unheard else "")
+        if self.live:
+            self.live.send(pcm)
+            for kind, text in self.live.news():
+                if kind == "broken":
+                    self.stop_hearing(text)
+                    break
+                if kind == "speech":
+                    self.unheard = True
+                elif self.answer_if_asked(text, "as you spoke"):
+                    return
+            if self.live and self.unheard and self.silent >= STALL_S:  # (silent counts from begin: her name too)
+                self.stop_hearing("no words came back")
+        elif speaking:
+            self.unheard = True
+        if not self.live and self.unheard and (full or self.silent >= END_SILENCE_S and (self.started or
+                                                                                         self.elapsed >= 1.2)):
+            started = time.monotonic()
+            self.status("thinking")  # the phone sends nothing meanwhile: her thread is busy with the upload
+            try:
+                text = self.stt(np.concatenate(self.frames).astype(np.float32) / 32768, self.assistant.lib)
+            except Exception as exc:  # this request is lost, not the conversation
+                print(f"  (speech recognition failed: {exc})", flush=True)
                 self.sleep()
-            return
+                return
+            log.debug("recognized whole in %.1f s", time.monotonic() - started)
+            if self.answer_if_asked(text, "whole"):
+                return
+            self.status("listening")
+        if not self.unheard and (full or self.silent >= GREET_AFTER_S):
+            self.nothing_asked()
+
+    def answer_if_asked(self, text: str, how: str) -> bool:
+        """All said so far, heard: answered if it asks for something (True); her name or a filler alone, not yet."""
+        self.unheard, self.heard = False, text
+        log.debug("heard %s, %.1f s after the last words: %s", how, self.silent, text or "(nothing clear)")
+        if not strip_fillers(text):
+            return False
+        self.respond(text)
+        return True
+
+    def nothing_asked(self) -> None:
+        """Her name (or "嗯", or nothing clear) and quiet: with her name, she greets and listens for the request, as
+        after a pause; without it (tapped on, or after her reply), she waits for her name again."""
+        self.stop_hearing()
+        name = self.name or name_said(self.heard or "")
+        if name:
+            self.greet(name)
+        else:
+            self.sleep()
+
+    def respond(self, text: str) -> None:
+        print(f"you> {text}", flush=True)
+        self.stop_hearing()
+        self.status("thinking")
         answer, started = "", time.monotonic()
         try:
             answer = self.assistant.ask(self.chat, text, speak=self.say)

@@ -185,12 +185,11 @@ From then on, start `./run.sh app` and open the app. If the router gives the Mac
 the Home Screen, or reserve the Mac's address in the router.
 
 For her own voice, add an [ElevenLabs](https://elevenlabs.io) key and the ID of a voice under My Voices; without
-them, the Mac's own voice speaks. If you speak more than one language, list them:
+them, the Mac's own voice speaks. She understands whatever language you speak.
 
 ```bash
 echo 'export ELEVENLABS_API_KEY="..."' >> ~/.zshrc
 echo 'export PIANASOUL_VOICE_ID="..."' >> ~/.zshrc
-echo 'export PIANASOUL_LANGUAGES=zh,en' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -259,7 +258,6 @@ Set these in `~/.zshrc`.
 
 - `OPENAI_API_KEY`: the chat model and speech recognition.
 - `ELEVENLABS_API_KEY` and `PIANASOUL_VOICE_ID`: her voice.
-- `PIANASOUL_LANGUAGES`: the languages you speak, such as `zh,en`.
 - `PIANASOUL_TRANSCRIBE`: `0` turns transcription and online search off though the advanced extra is installed, with
   her still on (the Mac app's Online Search & Transcription).
 - `PIANASOUL_PORT`: the MIDI output, by part of its name, until one is chosen in the Mac app. Default `pianasoul`.
@@ -346,7 +344,8 @@ The project can live on a dedicated Mac mini. To start it from any folder, add
 ## How it works
 
 - **Understanding requests and choosing pieces:** OpenAI `gpt-6-luna`, through its API.
-- **Speech to text:** OpenAI `gpt-transcribe`, through its API.
+- **Speech to text:** OpenAI `gpt-transcribe`, heard as you speak through its realtime API, which also decides
+  when you have finished; if that connection fails, the request is uploaded whole once it has ended.
 - **Her voice:** ElevenLabs `eleven_v4_turbo`, through its API, or the Mac's own voice.
 - **A recording to MIDI:** Transkun `2.0.1`, on this Mac.
 - **Hearing her name, and telling speech from silence:** sherpa-onnx keyword spotting and Silero VAD, on this Mac.

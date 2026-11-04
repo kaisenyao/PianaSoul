@@ -33,7 +33,8 @@ COMMANDS = {
 
 
 def is_chinese(text: str) -> bool:
-    return re.search(r"[\u3400-\u9fff]", text) is not None
+    """Han characters and no kana: Japanese has both, and her fixed lines for it are the English ones."""
+    return re.search(r"[\u3400-\u9fff]", text) is not None and re.search(r"[\u3040-\u30ff]", text) is None
 
 
 def assistant_names(words: list[str]) -> list[str]:

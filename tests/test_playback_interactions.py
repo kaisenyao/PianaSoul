@@ -390,6 +390,12 @@ class PlaybackTests(unittest.TestCase):
         self.assertNotIn(LINES['greet']['zh'][0], recorded(), 'Greetings are said differently')
         self.assertFalse([t for t in recorded() if '{' in t], 'A piece\'s name is said as it is made')
 
+    def test_her_fixed_lines_are_chinese_for_chinese_and_english_for_any_other_language(self):
+        from pianasoul.playback_commands import is_chinese
+        self.assertTrue(is_chinese('弹一首晴天'))
+        self.assertFalse(is_chinese('月光を弾いて'), 'Japanese, with its kana')
+        self.assertFalse(is_chinese('Play Clair de Lune'))
+
     def test_pause_next_and_previous_said_these_ways_are_short_requests(self):
         for text, action in (('暂停一下。', 'pause'), ('先暂停一下吧', 'pause'), ('下一首', 'next'), ('切歌', 'next'),
                              ('小茗同学，下一首。', 'next'), ('Next.', 'next'), ('上一首吧', 'previous')):

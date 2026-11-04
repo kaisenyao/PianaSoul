@@ -1,5 +1,7 @@
 """Her ears and voice, on the Mac and on the phone; no paid APIs or audio devices."""
+import base64
 from pathlib import Path
+import queue
 import tempfile
 from types import SimpleNamespace
 import threading
@@ -32,6 +34,23 @@ class Out:
         self.events.append(('turn_end', sleep))
 
 
+class FakeLive:
+    """Her ears as the request is said (voice.Live): what is sent to be heard, and the news the test gives."""
+
+    def __init__(self):
+        self.sent, self.queued, self.closed = [], [], False
+
+    def send(self, pcm):
+        self.sent.append(pcm)
+
+    def close(self):
+        self.closed = True
+
+    def news(self):
+        news, self.queued = self.queued, []
+        return news
+
+
 class ConversationTests(unittest.TestCase):
     def setUp(self):
         self.out = Out()
@@ -39,6 +58,7 @@ class ConversationTests(unittest.TestCase):
                                      speaker=Mock())
         self.parts.detectors = lambda: (self.parts.wake, self.parts.speech)
         self.parts.wake.heard.return_value = None
+        self.parts.stt.listen.return_value = None  # heard whole, unless a test hears it as it is said (FakeLive)
         self.parts.speaker.stream.side_effect = lambda text: iter([np.zeros(240, dtype=np.int16)])
         self.assistant = Mock(player=None, touched_playback=False, taps=0)
         self.chat = Mock()
@@ -58,6 +78,7 @@ class ConversationTests(unittest.TestCase):
     def test_waiting_never_sends_ambient_audio_to_the_cloud(self):
         self.frames(30, speaking=True)
         self.parts.stt.assert_not_called()
+        self.parts.stt.listen.assert_not_called()
         self.assertEqual(self.c.state, 'waiting')
 
     def test_name_and_request_in_one_breath_are_sent_together(self):
@@ -65,33 +86,128 @@ class ConversationTests(unittest.TestCase):
         self.frames(1, speaking=True, name='小茗同学')
         self.assertEqual(self.c.state, 'listening')
         self.assertEqual(len(self.c.frames), 2, 'The pre-roll keeps the name')
-        self.frames(voice.GO_ON_FRAMES, speaking=True)
-        with patch.object(self.c, 'respond') as respond:
-            self.frames(15, speaking=False)
-            respond.assert_called()
+        self.frames(8, speaking=True)
+        self.assistant.ask.return_value = ''
+        self.frames(15, speaking=False)
+        self.assertEqual(self.assistant.ask.call_args.args[1], 'play moonlight')
+        self.assertEqual(len(self.parts.stt.call_args.args[0]), (2 + 8 + 9) * voice.FRAME, 'All of it, her name too')
         self.parts.speaker.stream.assert_not_called()  # no greeting
 
-    def test_name_then_pause_gets_a_ready_made_greeting_without_recognition(self):
+    def test_heard_as_it_is_said_a_pause_does_not_end_the_request(self):
+        live = self.parts.stt.listen.return_value = FakeLive()
+        self.frames(1)
+        self.frames(1, speaking=True, name='小茗同学')
+        self.assertEqual(len(live.sent), 2, 'From the moments before her name')
+        self.frames(5, speaking=True)
+        self.frames(15, speaking=False)  # a pause longer than the fixed rule: OpenAI decides where it ends
+        self.assertEqual(self.c.state, 'listening')
+        self.assertEqual(len(live.sent), 22, 'Every frame')
+        live.queued = [('speech', ''), ('text', '小茗同学，换一首李斯特的爱之梦。')]
+        self.assistant.ask.return_value = ''
+        self.frames(1)
+        self.assistant.ask.assert_called_once_with(self.chat, '小茗同学，换一首李斯特的爱之梦。', speak=self.c.say)
+        self.parts.stt.assert_not_called()
+        self.assertTrue(live.closed)
+
+    def test_her_name_alone_she_listens_on_and_what_follows_is_the_same_request(self):
+        live = self.parts.stt.listen.return_value = FakeLive()
+        self.frames(1, speaking=True, name='Hey Jasmine')
+        live.queued = [('text', 'Hey Jasmine.')]
+        self.frames(int(voice.GREET_AFTER_S / voice.FRAME_S) - 2, speaking=False)
+        self.assertEqual(self.c.state, 'listening')
+        self.parts.speaker.stream.assert_not_called()
+        live.queued = [('speech', '')]
+        self.frames(3, speaking=True)
+        self.frames(10, speaking=False)
+        self.assistant.ask.assert_not_called()  # while it is not all written out
+        live.queued = [('text', 'Hey Jasmine. 弹一首德彪西的月光。')]
+        self.assistant.ask.return_value = ''
+        self.frames(1)
+        self.assistant.ask.assert_called_once()
+        self.assertEqual(self.assistant.ask.call_args.args[1], 'Hey Jasmine. 弹一首德彪西的月光。')
+        self.parts.speaker.stream.assert_not_called()  # no greeting in between
+
+    def test_a_broken_connection_hears_the_request_whole_once(self):
+        live = self.parts.stt.listen.return_value = FakeLive()
+        self.parts.stt.return_value = '小茗同学，弹晴天。'
+        self.frames(1, speaking=True, name='小茗同学')
+        self.frames(3, speaking=True)
+        live.queued = [('broken', 'the connection closed')]
+        self.frames(1, speaking=True)
+        self.frames(12, speaking=False)
+        self.assertTrue(live.closed)
+        self.parts.stt.assert_called_once()
+        self.assertEqual(len(self.parts.stt.call_args.args[0]), (1 + 3 + 1 + 9) * voice.FRAME, 'All of it')
+        self.assistant.ask.assert_called_once()
+
+    def test_no_words_back_after_you_stopped_it_is_heard_whole(self):
+        live = self.parts.stt.listen.return_value = FakeLive()
+        self.frames(1, speaking=True, name='小茗同学')
+        self.frames(3, speaking=True)
+        self.frames(int(voice.STALL_S / voice.FRAME_S) - 1, speaking=False)
+        self.parts.stt.assert_not_called()
+        self.frames(2, speaking=False)
+        self.assertTrue(live.closed)
+        self.parts.stt.assert_called_once()
+        self.assistant.ask.assert_called_once()
+
+    def test_a_wake_that_openai_hears_nothing_of_is_heard_whole_soon(self):
+        live = self.parts.stt.listen.return_value = FakeLive()
+        self.parts.stt.return_value = ''
+        self.frames(1, speaking=False, name='小茗同学')  # her name heard as the detector went quiet: noise, say
+        self.frames(int(voice.STALL_S / voice.FRAME_S) + 1, speaking=False)
+        self.assertTrue(live.closed)
+        self.parts.stt.assert_called_once()
+
+    def test_heard_whole_the_phone_is_told_she_is_busy_meanwhile_and_listening_again_after_her_name(self):
+        states = []
+        self.parts.stt.side_effect = lambda audio, lib: (states.append(self.c.state), '小茗同学。')[1]
+        self.frames(1, speaking=True, name='小茗同学')
+        self.frames(16, speaking=False)  # heard whole at 1.2 s; not yet quiet for her greeting
+        self.assertEqual(states, ['thinking'], 'So the phone sends nothing while her thread uploads')
+        self.assertEqual(self.c.state, 'listening', 'Her name alone: she listens on')
+
+    def test_the_longest_request_is_heard_whole_at_its_end(self):
+        live = self.parts.stt.listen.return_value = FakeLive()
+        self.frames(1, speaking=True, name='小茗同学')
+        self.frames(int(voice.MAX_REQUEST_S / voice.FRAME_S) + 1, speaking=True)
+        self.assertTrue(live.closed)
+        self.parts.stt.assert_called_once()
+        self.assistant.ask.assert_called_once()
+
+    def test_quiet_while_she_listens_closes_her_ears(self):
+        live = self.parts.stt.listen.return_value = FakeLive()
+        self.frames(1, speaking=True, name='小茗同学')
+        self.c.hushed.set()
+        self.c.hush()
+        self.assertTrue(live.closed)
+        self.assertEqual(self.c.state, 'waiting')
+
+    def test_her_name_then_quiet_she_greets_once_she_has_waited_then_listens_for_the_request(self):
+        self.parts.stt.return_value = '小茗同学。'
         self.frames(1, speaking=True, name='小茗同学')  # the name, still sounding
-        self.frames(1, speaking=False)  # then a pause
+        self.frames(int(voice.GREET_AFTER_S / voice.FRAME_S), speaking=False)  # then quiet
+        self.parts.speaker.stream.assert_not_called()  # not at once: the request may follow
+        self.frames(1, speaking=False)
         self.assertIn(self.parts.speaker.stream.call_args.args[0], LINES['greet']['zh'])
         self.assertEqual(len(self.out.spoken), 1)
         self.assertEqual(self.out.events[-1], ('turn_end', False))
-        self.parts.stt.assert_not_called()
+        self.assistant.ask.assert_not_called()
         self.c.resume()  # the greeting has been played: listen for the request without the name
         self.assertEqual(self.c.state, 'conversation')
         self.assertAlmostEqual(self.c.dialogue_until - time.monotonic(), voice.START_TIMEOUT_S, delta=.1)
 
     def test_she_greets_in_the_language_of_the_name_used(self):
+        self.parts.stt.return_value = 'Hey Jasmine.'
         self.frames(1, name='Hey Jasmine')
+        self.frames(25)
         self.assertIn(self.parts.speaker.stream.call_args.args[0], LINES['greet']['en'])
         self.assertEqual(self.out.events[-1], ('turn_end', False))
         self.assistant.keep.assert_not_called()  # a greeting says nothing, so it is not kept
 
     def test_a_request_goes_to_the_shared_assistant_and_her_answer_is_spoken(self):
-        self.c.frames = [np.ones(voice.FRAME, dtype=np.int16)]
         self.assistant.ask.return_value = 'Hello'
-        self.c.respond()
+        self.c.respond('play moonlight')
         self.assistant.ask.assert_called_once_with(self.chat, 'play moonlight', speak=self.c.say)
         self.parts.speaker.stream.assert_called_once_with('Hello')
         self.assertEqual(self.out.events[-1], ('turn_end', False))
@@ -108,7 +224,7 @@ class ConversationTests(unittest.TestCase):
         self.frames(1, speaking=True, name='小明同学')
         self.assertFalse(may_play.is_set(), 'Her name heard')
         self.assistant.ask.return_value = 'Hello'
-        self.c.respond()
+        self.c.respond('play moonlight')
         self.c.resume()  # her reply heard: she listens on
         self.assertEqual(self.c.state, 'conversation')
         self.assertFalse(may_play.is_set())
@@ -120,23 +236,23 @@ class ConversationTests(unittest.TestCase):
     def test_nothing_to_answer_stays_silent_and_waits_for_her_name(self):
         for heard in ('', '嗯。'):
             self.out.events.clear()
-            self.c.frames = [np.zeros(voice.FRAME, dtype=np.int16)]
             self.parts.stt.return_value = heard
-            self.c.respond()
+            self.c.resume()  # listening on after a reply: no name
+            self.frames(3, speaking=True)
+            self.frames(25, speaking=False)
             self.assistant.ask.assert_not_called()
             self.assertEqual(self.c.state, 'waiting')
             self.assertFalse(any(e[0] in {'audio', 'turn_end'} for e in self.out.events))
 
     def test_while_the_piano_plays_only_her_name_is_listened_for(self):
-        self.c.frames = [np.ones(voice.FRAME, dtype=np.int16)]
         self.assistant.ask.return_value = '好啦，这就给你弹《传奇》。'
         self.assistant.player = Mock(state='playing', completed=None, lost=None)
-        self.c.respond()
+        self.c.respond('弹传奇')
         self.assertEqual(self.out.events[-1], ('turn_end', True), 'No name-free follow-up')
         self.c.sleep()
         self.frames(30, speaking=True)  # the piano, taken for speech
         self.assertEqual(self.c.state, 'waiting')
-        self.assertEqual(self.parts.stt.call_count, 1)
+        self.parts.stt.assert_not_called()
 
     def test_followup_ends_after_its_window(self):
         self.c.resume()
@@ -167,12 +283,13 @@ class ConversationTests(unittest.TestCase):
         for heard, language in (('小明同学。', 'zh'), ('Jasmine?', 'en')):
             self.c.hushed.clear()
             self.c.turn_on()
-            self.c.frames = [np.zeros(voice.FRAME, dtype=np.int16)]
             self.parts.stt.return_value = heard
-            self.c.respond()
+            self.frames(2, speaking=True)
+            self.frames(25, speaking=False)
             self.assistant.ask.assert_not_called()
             self.assertIn(self.parts.speaker.stream.call_args.args[0], LINES['greet'][language])
             self.assertEqual(self.out.events[-1], ('turn_end', False), 'Then she listens for the request')
+            self.c.sleep()
 
     def test_turned_on_and_not_spoken_to_she_waits_for_her_name(self):
         self.c.hushed.clear()
@@ -210,10 +327,8 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.c.state, 'listening')
 
     def test_goodbye_is_answered_as_any_request_then_she_waits_for_her_name(self):
-        self.c.frames = [np.ones(voice.FRAME, dtype=np.int16)]
-        self.parts.stt.return_value = '再见'
         self.assistant.ask.return_value = '再见，需要我时再叫我。'
-        self.c.respond()
+        self.c.respond('再见')
         self.assistant.ask.assert_called_once()  # kept in the conversation, as typed
         self.parts.speaker.stream.assert_called_once_with('再见，需要我时再叫我。')
         self.assertEqual(self.out.events[-1], ('turn_end', True))
@@ -278,7 +393,7 @@ class ConversationTests(unittest.TestCase):
 
     def test_her_chinese_name_is_written_as_configured_whatever_recognition_hears(self):
         stt = voice.Transcriber.__new__(voice.Transcriber)
-        stt.client, stt.model, stt.prompt = Mock(), 'whisper-1', None
+        stt.client, stt.model = Mock(), 'whisper-1'
         stt.client.audio.transcriptions.create.return_value = '小明同学，我想听小明的歌。'
         self.assertEqual(stt(np.zeros(1600, dtype=np.float32), Mock()), '小茗同学，我想听小明的歌。')
 
@@ -290,34 +405,26 @@ class ConversationTests(unittest.TestCase):
         # "小茗同学，停止": her name is heard half a second late, and the request is over soon after
         self.parts.stt.return_value = '小茗同学，停止。'
         self.frames(1, speaking=True, name='小茗同学')
-        self.frames(voice.SAME_BREATH_FRAMES, speaking=True)
+        self.frames(2, speaking=True)
         with patch.object(self.assistant, 'ask', return_value='') as ask:
-            self.frames(1, speaking=False)
+            self.frames(12, speaking=False)
         self.parts.stt.assert_called_once()
         ask.assert_called_once()
         self.assertEqual(ask.call_args.args[1], '小茗同学，停止。', 'The request, not a greeting')
         self.parts.speaker.stream.assert_not_called()
 
-    def test_her_name_lingering_a_moment_is_recognized_and_greeted(self):
-        self.parts.stt.return_value = '小茗同学。'
-        self.frames(1, speaking=True, name='小茗同学')
-        self.frames(voice.SAME_BREATH_FRAMES, speaking=True)
-        self.frames(1, speaking=False)
-        self.assertIn(self.parts.speaker.stream.call_args.args[0], LINES['greet']['zh'])
-        self.assertEqual(self.out.events[-1], ('turn_end', False), 'Then she listens for the request')
-
-    def test_only_her_name_in_one_breath_gets_a_greeting(self):
+    def test_only_her_name_lingering_gets_a_greeting(self):
         self.parts.stt.return_value = '小茗同学'
         self.frames(1, speaking=True, name='小茗同学')
-        self.frames(voice.GO_ON_FRAMES, speaking=True)
-        self.frames(10, speaking=False)
+        self.frames(8, speaking=True)
+        self.frames(25, speaking=False)
         self.assertIn(self.parts.speaker.stream.call_args.args[0], LINES['greet']['zh'])
         self.assertEqual(self.out.events[-1], ('turn_end', False), 'Then she listens for the request')
 
     def test_a_recognition_failure_loses_the_request_not_the_conversation(self):
-        self.c.frames = [np.zeros(voice.FRAME, dtype=np.int16)]
         self.parts.stt.side_effect = RuntimeError('offline')
-        self.c.respond()
+        self.frames(1, speaking=True, name='小茗同学')
+        self.frames(20, speaking=False)
         self.chat.reset.assert_not_called()
         self.assertEqual(self.c.state, 'waiting')
 
@@ -325,9 +432,8 @@ class ConversationTests(unittest.TestCase):
         player = self.assistant.player = Mock(state='playing', completed=None, lost=None, current=('p', '传奇'), position=3.0)
         self.c.begin()
         player.state = 'paused'
-        self.c.frames = [np.zeros(voice.FRAME, dtype=np.int16)]
         self.assistant.ask.side_effect = RuntimeError('model down')
-        self.c.respond()
+        self.c.respond('弹传奇')
         self.chat.reset.assert_not_called()
         player.go_on.assert_called_once_with(3.0)  # at once, not after the follow-up window
 
@@ -348,9 +454,8 @@ class ConversationTests(unittest.TestCase):
         self.c.begin()
         player.state = 'paused'
         self.assistant.taps += 1  # the phone's player, while she listened and answered
-        self.c.frames = [np.zeros(voice.FRAME, dtype=np.int16)]
         self.assistant.ask.return_value = '《晴天》准备好啦，想听的时候告诉我～'
-        self.c.respond()
+        self.c.respond('弹晴天')
         player.go_on.assert_not_called()
 
     def test_hushed_she_neither_listens_nor_speaks_and_the_piano_plays_on(self):
@@ -374,9 +479,8 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.c.state, 'listening')
 
     def test_a_request_answered_while_hushed_ends_quietly(self):
-        self.c.frames = [np.ones(voice.FRAME, dtype=np.int16)]
         self.assistant.ask.side_effect = lambda chat, text, speak: (self.c.hushed.set(), 'Hello')[1]
-        self.c.respond()
+        self.c.respond('play moonlight')
         self.assertEqual(self.out.spoken, [])
         self.assertEqual(self.c.state, 'waiting')
         self.assertNotIn(('turn_end', False), self.out.events)
@@ -417,14 +521,13 @@ class ConversationTests(unittest.TestCase):
         self.assertIn('not said aloud, no one is with her: 好啦，这就给你弹《水星记》。', details.output[0])
 
     def test_back_while_she_is_still_answering_she_says_it(self):
-        self.c.frames = [np.ones(voice.FRAME, dtype=np.int16)]
         self.c.hushed.set()  # the phone went (the screen locked) while she worked on the request
 
         def ask(chat, text, speak):
             self.c.hushed.clear()  # a phone is back with her before she has the answer
             return 'Hello'
         self.assistant.ask.side_effect = ask
-        self.c.respond()
+        self.c.respond('play moonlight')
         self.assertEqual(len(self.out.spoken), 1, 'Said aloud')
         self.assertEqual(self.out.events[-1], ('turn_end', False))
         self.c.hush()  # what the phone that went left to do: she is back, so nothing
@@ -451,6 +554,90 @@ class ConversationTests(unittest.TestCase):
         conversation.resume.assert_called_once()
         speakers.turn_end(conversation, True)
         conversation.sleep.assert_called_once()
+
+
+class FakeConnection:
+    """An OpenAI realtime session as the SDK gives it: what is sent, and the events the test puts in."""
+
+    def __init__(self):
+        self.events, self.sent, self.updates = queue.Queue(), [], []
+        self.session = SimpleNamespace(update=lambda session: self.updates.append(session))
+        self.input_audio_buffer = SimpleNamespace(append=lambda audio: self.sent.append(audio))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.events.put(None)
+
+    def __iter__(self):
+        while (event := self.events.get(timeout=5)) is not None:
+            yield event
+
+
+class LiveTests(unittest.TestCase):
+    """voice.Live: one request heard as it is said, against a made-up session."""
+
+    def setUp(self):
+        self.conn = FakeConnection()
+        self.connects = []
+        client = SimpleNamespace(realtime=SimpleNamespace(
+            connect=lambda **kw: (self.connects.append(kw), self.conn)[1]))
+        self.live = voice.Live(client, {'model': 'gpt-transcribe', 'prompt': 'p', 'keywords': ['小茗同学']})
+        self.addCleanup(self.live.close)
+
+    def news(self, *events):
+        for event in events:
+            self.conn.events.put(event)
+        deadline, news = time.monotonic() + 2, []
+        while time.monotonic() < deadline and not news:
+            news = self.live.news()
+            time.sleep(0.01)
+        return news
+
+    def event(self, kind, **fields):
+        return SimpleNamespace(type=kind, **fields)
+
+    def test_the_session_is_her_hearing_with_openai_deciding_the_end(self):
+        self.live.send(np.zeros(voice.FRAME, dtype='<i2'))
+        deadline = time.monotonic() + 2
+        while not self.conn.sent and time.monotonic() < deadline:
+            time.sleep(0.01)
+        audio = self.conn.updates[0]['audio']['input']
+        self.assertEqual(audio['transcription'], {'model': 'gpt-transcribe', 'prompt': 'p', 'keywords': ['小茗同学']})
+        self.assertEqual(audio['turn_detection'], {'type': 'semantic_vad', 'eagerness': 'high'})
+        self.assertEqual(audio['format'], {'type': 'audio/pcm', 'rate': 24000})
+        self.assertNotIn('on_reconnecting', self.connects[0], 'Connected again, what was said would be lost')
+        self.assertEqual(len(base64.b64decode(self.conn.sent[0])), 1920 * 2, '80 ms at 24 kHz')
+
+    def test_the_text_is_all_said_so_far_in_its_order_once_they_pause(self):
+        started = self.event('input_audio_buffer.speech_started')
+        committed = lambda i: self.event('input_audio_buffer.committed', item_id=i)
+        written = lambda i, t: self.event('conversation.item.input_audio_transcription.completed', item_id=i,
+                                          transcript=t)
+        self.assertEqual(self.news(started), [('speech', '')])
+        self.assertEqual(self.news(committed('a'), started), [('speech', '')], 'Talking again: not yet')
+        self.assertEqual(self.news(committed('b'), written('b', '弹一首德彪西的月光。')), [])
+        self.assertEqual(self.news(written('a', '小明同学。')), [('text', '小茗同学。 弹一首德彪西的月光。')])
+
+    def test_an_error_or_a_closed_connection_is_broken(self):
+        self.assertEqual(self.news(self.event('error', error=SimpleNamespace(message='bad session'))),
+                         [('broken', 'bad session')])
+        live = voice.Live(SimpleNamespace(realtime=SimpleNamespace(connect=Mock(side_effect=OSError('offline')))), {})
+        deadline, news = time.monotonic() + 2, []
+        while time.monotonic() < deadline and not news:
+            news = live.news()
+        self.assertEqual(news, [('broken', 'offline')])
+
+    def test_an_80_ms_frame_goes_on_at_24_khz_joined_to_the_last(self):
+        live = voice.Live.__new__(voice.Live)
+        live.outbox, live.last = queue.SimpleQueue(), 0.0
+        ramp = np.arange(2 * voice.FRAME, dtype=np.float32)
+        live.send(ramp[:voice.FRAME].astype('<i2'))
+        live.send(ramp[voice.FRAME:].astype('<i2'))
+        up = np.r_[live.outbox.get(), live.outbox.get()]
+        self.assertEqual(len(up), 2 * 1920)
+        self.assertTrue((np.diff(up.astype(np.int32)) >= 0).all(), 'Smooth across the two frames')
 
 
 class SpeakerTests(unittest.TestCase):
