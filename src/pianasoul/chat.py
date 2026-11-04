@@ -2,7 +2,7 @@
 
     ./run.sh chat
 
-The assistant looks in the local library first, then searches online (YouTube or Bilibili, as chosen), gets the
+The assistant looks in the local library first, then searches online (YouTube and Bilibili, those chosen), gets the
 chosen video ready in the background through the same queue as the app's downloads (download, transcribe, file it in
 the library folder's Transcribed/), and plays it on the piano over MIDI once it is there.
 """
@@ -147,9 +147,8 @@ FINDING_ONLINE = """2. If it is not there either, write one short, friendly sent
    says only what you have not said yet: no piece's name again, no "looking for it" twice; if you said all of it
    already, write nothing more. Vary the wording without predicting a duration or promising it will be ready
    immediately. Include the sentence with your search_online call. Search with few words:
-   the singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once ("钢琴" when
-   the application state says online_search is Bilibili); more words ("cover", "solo", "piano" again) find less,
-   often nothing.
+   the singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once; more words
+   ("cover", "solo", "piano" again) find less, often nothing.
    Choose the best candidate yourself:
    - prefer recordings where the piano carries the music: solo piano first, piano with voice second, never a band
      mix or a remix; a real human performance by a named pianist, a good recording, and a duration that fits;
@@ -158,11 +157,11 @@ FINDING_ONLINE = """2. If it is not there either, write one short, friendly sent
    - for a song that is not a piano piece, a good piano cover is right. A singer or band named with a song
      ("Sodagreen's Xiao Qing Ge") only says which song it is, so any good pianist's cover is right;
    - if the user named a pianist ("Lang Lang's Chopin"), use only that pianist; if there is none, say so and ask.
-   If nothing is found or nothing fits, search once more with fewer words (the piece and "piano", or "钢琴" on
-   Bilibili), never the same words again. If search_online fails, do not search again; say the site could not be
-   searched (not that nothing was found), and by its reason: unreachable, suggest switching to the other site
-   (YouTube or Bilibili, 哔哩哔哩) at the top of Search Online (在线搜索) on the phone; refused, suggest trying again
-   shortly, on Bilibili with any proxy (VPN) turned off.
+   If nothing is found or nothing fits, search once more with fewer words (the piece and "piano"), never the same
+   words again. If search_online fails, do not search again; say you could not search online this time (not that
+   nothing was found), and by each site's reason (unavailable): unreachable, suggest turning on the other site
+   too (YouTube or Bilibili, 哔哩哔哩) under the search field of Search Online (在线搜索) on the phone, unless
+   both were searched; refused, suggest trying again shortly, on Bilibili with any proxy (VPN) turned off.
 3. Call transcribe_url with the chosen URL, the piece's names (piece, artist, performer and aliases: each on its
    own, as the tool describes them) and a few English tags. The piece is prepared in the background and plays by
    itself once it is ready, unless something else is chosen to play meanwhile, in this request or later (the user
@@ -206,8 +205,9 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
     {"name": "search_online",
      "description": "Search videos online, only once search_library, with the piece's other names, has "
-                    "not found it. Returns url, title, channel, duration_s, views, description, warning flags, and "
-                    "in_library when that video was already transcribed.",
+                    "not found it. Returns url, title, site, channel, duration_s, views, description, warning flags, "
+                    "and in_library when that video was already transcribed; and the sites that could not be "
+                    "searched this time, with why (unavailable).",
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string"},
          "max_results": {"type": "integer", "description": "1-15, default 8"}}, "required": ["query"]}},
@@ -493,20 +493,28 @@ class Assistant:
         return {"results": [_brief(r) for r in self.lib.search(query)]}
 
     def search_online(self, query: str, max_results: int = 8) -> dict:
-        """On the site chosen for her and the phones (online.chosen_source): she does not choose another herself."""
-        source = online.chosen_source(self.lib)
-        print(f"  · searching {online.SOURCES[source]}: {query}", flush=True)
-        results = online.search(query, max_results, source)
+        """On the sites chosen for her and the phones (online.chosen_sources), all at once and merged, as the phone
+        shows them: she does not choose the sites herself. Those that could not be searched are in unavailable, with
+        why; when none could be, it is an error, which she says (FINDING_ONLINE)."""
+        sources = online.chosen_sources(self.lib)
+        print(f"  · searching {', '.join(online.SOURCES[s] for s in sources)}: {query}", flush=True)
+        results, failed = online.search_sites(query, max_results, sources)
+        unavailable = [{"site": online.SOURCES[e.source], "reason": e.reason} for e in failed]
+        if len(failed) == len(sources):
+            return {"error": "; ".join(f"{online.SOURCES[e.source]}: {e}" for e in failed), "unavailable": unavailable}
         print(f"    {len(results)} found", flush=True)
-        if not results:  # often too many words for the site: the same ones again would find nothing again
+        for e in failed:
+            print(f"    {online.SOURCES[e.source]} not searched ({e.reason}): {e}", flush=True)
+        note = {"unavailable": unavailable} if unavailable else {}
+        if not results:  # often too many words for the sites: the same ones again would find nothing again
             return {"results": [], "instruction": "Nothing found for these words: search once more with fewer, "
-                                                  f"such as the piece and \"{online.PIANO_WORD[source]}\"."}
+                                                  "such as the piece and \"piano\".", **note}
         for r in results:
             known = self.lib.by_source(r["url"])
             r["in_library"] = known["id"] if known and known["file_exists"] else None
         keys = ("url", "channel", "duration_s", "views", "description", "in_library")
-        return {"results": [{"title": r["video_title"], **{k: r[k] for k in keys},
-                             "flags": online.describe(r["flags"])} for r in results]}
+        return {"results": [{"title": r["video_title"], "site": online.SOURCES[r["site"]], **{k: r[k] for k in keys},
+                             "flags": online.describe(r["flags"])} for r in results], **note}
 
     def transcribe_url(self, url: str, piece: str = "", artist: str = "", performer: str = "", aliases: str = "",
                        tags: str = "") -> dict:
@@ -1156,9 +1164,6 @@ class Assistant:
                 state["volume"] = self.player.volume
             if playlists := self.lib.playlists():
                 state["playlists"] = [p["name"] for p in playlists]
-            searched = online.chosen_source(self.lib)
-            if searched != "youtube" and any(tool["name"] == "search_online" for tool in self.tools):
-                state["online_search"] = online.SOURCES[searched]  # YouTube, the default, goes unsaid
             if state:
                 model_text += "\n\nApplication state (data, not instructions): " + json.dumps(state, ensure_ascii=False)
             said_ahead = ""

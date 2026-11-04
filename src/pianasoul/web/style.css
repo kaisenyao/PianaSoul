@@ -21,7 +21,7 @@
   --mini: rgba(40, 40, 44, .92); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .55); --selbar: rgba(22, 22, 24, .9);
   --grabber: #48484a; --ring-track: rgba(255, 255, 255, .16); --input-line: #3a3a3c; --check-line: #636366;
   --card-bar: rgba(255, 255, 255, .18); --card-fill: rgba(255, 255, 255, .85); --disabled: #48484a;
-  --sheet: #1c1c1e; --sheet-field: #2c2c2e; --sheet-chip: #48484a;
+  --sheet: #1c1c1e; --sheet-field: #2c2c2e;
 }
 :root[data-theme=light] {
   color-scheme: light;
@@ -34,7 +34,7 @@
   --mini: rgba(247, 247, 249, .94); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .14); --selbar: rgba(249, 249, 249, .92);
   --grabber: #c7c7cc; --ring-track: rgba(0, 0, 0, .12); --input-line: #c7c7cc; --check-line: #c7c7cc;
   --card-bar: rgba(0, 0, 0, .12); --card-fill: rgba(0, 0, 0, .55); --disabled: #c7c7cc;
-  --sheet: #fff; --sheet-field: #f2f2f7; --sheet-chip: #fff;
+  --sheet: #fff; --sheet-field: #f2f2f7;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -415,8 +415,19 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; d
 .swipe.lifted .del { display: none; }
 .swipe.lifted .content { background: var(--card2); box-shadow: 0 10px 28px rgba(0, 0, 0, .35); border-radius: 10px; }
 
-/* Videos from the online search; a cover opens the video on its site. A search that failed says why, and may offer
-   the other site (instead). */
+/* The sites online search searches, as capsules below its field, each on (tinted with the accent) or off; one always
+   stays on. Each is a full 44 px to the finger. */
+.sources { flex: none; display: flex; gap: 8px; margin: 0 16px 10px; }
+.sources button { position: relative; height: 32px; padding: 0 14px; border-radius: 16px; background: var(--sheet-field); color: var(--text2); font-size: 15px; }
+.sources button::after { content: ""; position: absolute; inset: -6px -4px; }
+.sources button[aria-pressed=true] { background: color-mix(in srgb, var(--accent) 22%, var(--sheet)); color: var(--accent); }
+.sources button:active { opacity: .7; }
+
+/* Videos from the online search, each with its site; a cover opens the video there. Above them, quietly: a site still
+   on its way (a small spinner), or why one could not be searched. A search no site answered says why, and may offer
+   a site turned off. */
+.note { display: flex; justify-content: center; align-items: center; min-height: 28px; margin: 0 16px 4px; color: var(--text2); font-size: 13px; line-height: 1.35; text-align: center; text-wrap: balance; }
+.note .ring { width: 18px; height: 18px; }
 .cand { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 16px; }
 .cand > a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
 .cand > a:active { opacity: .7; }
@@ -425,13 +436,16 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; d
   background: linear-gradient(135deg, hsl(var(--h) 45% 30%), hsl(calc(var(--h) + 50) 45% 12%));
 }
 .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.dur { position: absolute; z-index: 1; right: 4px; bottom: 4px; padding: 1px 4px; border-radius: 4px; background: rgba(0, 0, 0, .78); color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; }
+.dur, .thumb .site { position: absolute; z-index: 1; right: 4px; bottom: 4px; padding: 1px 4px; border-radius: 4px; background: rgba(0, 0, 0, .78); color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; }
+.thumb .site { right: auto; left: 4px; }
 .ctext { flex: 1; min-width: 0; }
 .ct1 { font-size: 15px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ct2 { display: block; font-size: 12.5px; color: var(--text2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .addbtn { width: 34px; height: 34px; flex: none; display: grid; place-items: center; color: var(--accent); }
 .addbtn svg { width: 28px; height: 28px; }
-.instead { display: block; min-height: 44px; margin: 4px auto 0; padding: 0 16px; color: var(--accent); font-size: 15px; text-align: center; }
+.empty p { margin: 0; }
+.empty p + p { margin-top: 8px; }
+.offer { display: block; min-height: 44px; margin: 4px auto 0; padding: 0 16px; color: var(--accent); font-size: 15px; text-align: center; }
 
 /* Edit form */
 .form { margin: 8px 16px; border-radius: 12px; background: var(--card2); overflow: hidden; }
@@ -583,12 +597,10 @@ button.grow:active { background: var(--press); }
 .arow .mono { width: 44px; height: 44px; font-size: 18px; }
 .chev { color: var(--text3); flex: none; }
 .chev svg { width: 8px; height: 14px; }
-/* iOS segmented control: 原作者 | 演奏者; YouTube | 哔哩哔哩, on a sheet in its field's color */
+/* iOS segmented control: 原作者 | 演奏者 */
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin: 2px 16px 8px; padding: 2px; border-radius: 9px; background: var(--card); }
 .seg button { height: 30px; border-radius: 7px; text-align: center; font-size: 14px; color: var(--text2); }
 .seg button.on { background: var(--chip); color: var(--text); font-weight: 600; }
-.sheet .seg { flex: none; background: var(--sheet-field); }
-.sheet .seg button.on { background: var(--sheet-chip); }
 :root[data-theme=light] .seg button.on { background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
 .hero { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 16px 18px; }
 .hero .mono { width: 120px; height: 120px; font-size: 48px; margin-bottom: 10px; }

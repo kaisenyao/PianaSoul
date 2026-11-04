@@ -1,45 +1,84 @@
-// Searching online from the phone (GET /api/online), by name on the site chosen (YouTube or Bilibili: one setting,
-// for her and every phone), or by a video's link, on its own or in words around it (as Bilibili's app shares one).
-// The latest search is the one shown: one still on its way when another starts, or when it is let go of, shows
-// nothing when it comes back. One that fails says why, never that nothing was found: failed is {reason, source}, the
-// reason unreachable, refused or failed, as the Mac says it; and a site that cannot be reached, searched by name,
-// offers the other (offer).
-export const SOURCES = ['youtube', 'bilibili'];
+// Searching online from the phone (GET /api/online): by name on each site chosen (YouTube, Bilibili: one setting,
+// for her and every phone), every one asked at once and its videos shown as soon as they come, merged as the Mac
+// merges hers; or by a video's link, on its own or in words around it (as Bilibili's app shares one), read once, on
+// its own site. The latest search is the one shown: an answer to one before it, to one let go of, or from a site
+// turned off meanwhile, shows nothing when it comes back. A site that fails says why, never that nothing was found:
+// each failure is {reason, source}, the reason unreachable, refused or failed, as the Mac says it.
+export const SOURCES = ['youtube', 'bilibili'];  // the sites online search can search, in the order they are merged
 const isLink = q => /^https?:\/\//i.test(q);
 const linkIn = q => q.match(/https?:\/\/[!-~]+/i)?.[0];  // up to a space, a CJK character or a 】
 
-export function onlineSearch(get, onChange) {
-  const state = {query: '', source: '', searching: false, found: [], failed: null, offer: ''};
-  let run = 0;
-
-  async function find(query, source) {
-    query = linkIn(query) || query;
-    const mine = ++run;
-    Object.assign(state, {query, source, searching: true, found: [], failed: null, offer: ''});  // the spinner
-    onChange(state);
-    let found = [], failed = null;
-    try {
-      found = await get(`/api/online?q=${encodeURIComponent(query)}&source=${source}`);
-    } catch (error) {  // what the Mac said, or failed: the Mac itself not answering
-      const said = error.json || {};
-      failed = {reason: ['unreachable', 'refused'].includes(said.error) ? said.error : 'failed',
-                source: 'source' in said ? said.source : source};
+// Several sites' videos as one list: the first of each, then the second of each, and so on (round robin, the usual
+// way to merge the ranked lists of several engines), a video already in it left out. The Mac's merge for her
+// (online.merged) is the same, tested with the same cases.
+export function merged(lists) {
+  const seen = new Set(), together = [];
+  for (let rank = 0; rank < Math.max(0, ...lists.map(videos => videos.length)); rank++) {
+    for (const videos of lists) {
+      const video = videos[rank];
+      if (video && !seen.has(video.url)) { seen.add(video.url); together.push(video); }
     }
-    if (mine !== run) return;
-    const offer = failed?.reason === 'unreachable' && !isLink(query) && SOURCES.find(s => s !== failed.source) || '';
-    Object.assign(state, {searching: false, found, failed, offer});
+  }
+  return together;
+}
+
+// What is shown (state): the query; found, the videos so far, merged; failed, why each site that could not be
+// searched could not; answered, the sites that were; waiting, those still on their way; and offer, the sites turned
+// off, to turn on when none could be searched because one is out of reach.
+export function onlineSearch(get, onChange) {
+  const state = {query: '', found: [], failed: [], answered: [], waiting: [], offer: []};
+  let run = 0, chosen = [], asked = {};  // asked: each site asked (a link: ''), by name, with its answer once it comes
+
+  function show() {
+    const sites = isLink(state.query) ? [''] : SOURCES.filter(site => site in asked);
+    state.found = merged(sites.filter(site => asked[site].found).map(site => asked[site].found));
+    state.failed = sites.filter(site => asked[site].failed).map(site => asked[site].failed);
+    state.answered = sites.filter(site => asked[site].found);
+    state.waiting = sites.filter(site => !asked[site].found && !asked[site].failed);
+    const none = !state.answered.length && !state.waiting.length;
+    state.offer = none && !isLink(state.query) && state.failed.some(f => f.reason === 'unreachable')
+      ? SOURCES.filter(site => !chosen.includes(site)) : [];
     onChange(state);
   }
 
-  // The site chosen changed (here or elsewhere): a search by name shown from another is made again on it.
-  function follow(source) {
-    if (state.query && !isLink(state.query) && source !== state.source) find(state.query, source);
+  async function ask(site) {
+    const answer = asked[site] = {found: null, failed: null}, mine = run;
+    try {
+      answer.found = await get(`/api/online?q=${encodeURIComponent(state.query)}${site ? `&source=${site}` : ''}`);
+    } catch (error) {  // what the Mac said, or failed: the Mac itself not answering
+      const said = error.json || {};
+      answer.failed = {reason: ['unreachable', 'refused'].includes(said.error) ? said.error : 'failed',
+                       source: 'source' in said ? said.source : site};
+    }
+    if (mine === run && asked[site] === answer) show();
+  }
+
+  // A search on the sites chosen (a link: on its own site).
+  function find(query, sites) {
+    query = linkIn(query) || query;
+    run++;
+    Object.assign(state, {query});
+    chosen = [...sites];
+    asked = {};
+    for (const site of isLink(query) ? [''] : chosen) ask(site);
+    show();  // the spinner
+  }
+
+  // The sites chosen changed (here or elsewhere): a search by name asks one turned on, and lets go of one turned off.
+  function follow(sites) {
+    chosen = [...sites];
+    if (state.query && !isLink(state.query)) {
+      for (const site of Object.keys(asked)) if (!chosen.includes(site)) delete asked[site];
+      for (const site of chosen) if (!(site in asked)) ask(site);
+    }
+    show();
   }
 
   // No search shown.
   function forget() {
     run++;
-    Object.assign(state, {query: '', source: '', searching: false, found: [], failed: null, offer: ''});
+    asked = {};
+    Object.assign(state, {query: '', found: [], failed: [], answered: [], waiting: [], offer: []});
   }
 
   return {find, follow, forget, state};

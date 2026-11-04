@@ -1,0 +1,16 @@
+[
+  {"case": "One site: its own order",
+   "lists": [[{"url": "y1"}, {"url": "y2"}, {"url": "y3"}]], "merged": ["y1", "y2", "y3"]},
+  {"case": "Two sites in turn, each one's best first",
+   "lists": [[{"url": "y1"}, {"url": "y2"}, {"url": "y3"}], [{"url": "b1"}, {"url": "b2"}, {"url": "b3"}]],
+   "merged": ["y1", "b1", "y2", "b2", "y3", "b3"]},
+  {"case": "A site with fewer: the other goes on",
+   "lists": [[{"url": "y1"}], [{"url": "b1"}, {"url": "b2"}, {"url": "b3"}]], "merged": ["y1", "b1", "b2", "b3"]},
+  {"case": "A site with none", "lists": [[], [{"url": "b1"}, {"url": "b2"}]], "merged": ["b1", "b2"]},
+  {"case": "A video already in it is left out where it comes again",
+   "lists": [[{"url": "v"}, {"url": "y2"}], [{"url": "b1"}, {"url": "v"}, {"url": "b3"}]],
+   "merged": ["v", "b1", "y2", "b3"]},
+  {"case": "A video twice in one site's list",
+   "lists": [[{"url": "y1"}, {"url": "y1"}, {"url": "y2"}], [{"url": "b1"}]], "merged": ["y1", "b1", "y2"]},
+  {"case": "No site", "lists": [], "merged": []}
+]

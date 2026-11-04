@@ -1,24 +1,27 @@
-"""Online search: pieces found by name on YouTube or on Bilibili (哔哩哔哩), whichever is chosen (search_source: one
-setting, for her and every phone), and what a video says about itself. No key is needed (SPEC 9.4): YouTube is
+"""Online search: pieces found by name on YouTube and on Bilibili (哔哩哔哩), those of them chosen (search_sources:
+one setting, for her and every phone), and what a video says about itself. No key is needed (SPEC 9.4): YouTube is
 searched through yt-dlp, the same way the downloads go; Bilibili with its web page's own search, the one yt-dlp's
 bilisearch asks too, sent through yt-dlp all the same, so that it goes the way the downloads do (proxy,
-certificates). Each site's search is its own, in its own order. The videos and channels stay named as they are: a
-piece's source is still the video it came from."""
+certificates). Each site's search is its own, in its own order; the sites chosen are searched at once and their
+videos merged into one list (search_sites). The videos and channels stay named as they are: a piece's source is
+still the video it came from. Another site is one entry in each table below that names them all, and its search."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import html
 import json
+import queue
 import re
 import socket
+import threading
 import time
 from urllib.parse import urlsplit
 import uuid
 
 from .audio import MAX_AUDIO_S
 
-SOURCES = {"youtube": "YouTube", "bilibili": "Bilibili"}  # what online search can search, and each site's name
+SOURCES = {"youtube": "YouTube", "bilibili": "Bilibili"}  # what online search can search (merged in this order)
 HOSTS = {"youtube.com": "youtube", "youtu.be": "youtube", "bilibili.com": "bilibili", "b23.tv": "bilibili"}  # site_of
 # What a title or channel can give away: a warning sign for the chat model (not a rejection); the app does not offer
 # such a video (piano_versions). The words Bilibili's titles use (教程 onwards) were checked, like the word a search on
@@ -131,15 +134,25 @@ def flags_for(title: str, channel: str, description: str, seconds: int, query: s
 
 
 PIANO_WORDS = ("piano", "钢琴", "鋼琴")
-PIANO_WORD = {"youtube": "piano", "bilibili": "钢琴"}  # what a search adds when its words do not ask for piano
+# What a search adds when its words do not ask for piano; and the word for it each site is asked in (for_site).
+PIANO_WORD = {"youtube": "piano", "bilibili": "钢琴"}
 ENOUGH = 5  # piano versions enough for a search's offer: with fewer, the other videos follow them
 MOST = {"youtube": 15, "bilibili": 20}  # the most a search gives: on Bilibili, its one page (one request)
+LATE_S = 2.0  # a site still searching this long after another gave videos is not waited for (search_sites)
 
 
-def chosen_source(lib) -> str:
-    """The site online search searches, for her and every phone (the setting search_source): YouTube until another
-    is chosen."""
-    return lib.setting("search_source", "youtube")
+def chosen_sources(lib) -> list[str]:
+    """The sites online search searches, for her and every phone (the setting search_sources, kept as their names
+    with commas between), in SOURCES' order: all of them until some are chosen."""
+    return sources_of(lib.setting("search_sources").split(",")) or list(SOURCES)
+
+
+def sources_of(value) -> list[str]:
+    """A choice of sites to search, in SOURCES' order; empty when it is not one: a list of sites online search
+    knows, at least one."""
+    if not isinstance(value, list) or not value or not all(isinstance(s, str) and s in SOURCES for s in value):
+        return []
+    return [s for s in SOURCES if s in value]
 
 
 def piano_versions(query: str, source: str = "youtube") -> list[dict]:
@@ -198,10 +211,67 @@ def resolved(url: str) -> str:
 
 
 def search(query: str, max_results: int = 8, source: str = "youtube") -> list[dict]:
-    """Videos for query on source (SOURCES), the site's best first, at most max_results (1 to the site's MOST); none
-    too long to transcribe. OnlineError, saying why, when the site cannot be searched."""
+    """Videos for query on source (SOURCES), the site's best first, at most max_results (1 to the site's MOST), each
+    with its site; none too long to transcribe. OnlineError, saying why, when the site cannot be searched."""
     max_results = max(1, min(int(max_results), MOST[source]))
-    return _bilibili(query, max_results) if source == "bilibili" else _youtube(query, max_results)
+    return [{**r, "site": source} for r in SEARCHES[source](query, max_results)]
+
+
+def search_sites(query: str, max_results: int, sources: list[str]) -> tuple[list[dict], list[OnlineError]]:
+    """Videos for query on each of sources (SOURCES), all searched at once, each in a thread of its own, by its own
+    rules and asked for piano in its own word (for_site); merged, at most max_results. With them, why each site that
+    could not be searched could not, in SOURCES' order. A site still searching LATE_S after another gave videos is
+    not waited for, and counts as out of reach: where YouTube is (mainland China), its 8 s would hold the videos
+    there are."""
+    answers = queue.Queue()
+
+    def ask(source: str) -> None:
+        try:
+            answers.put((source, search(for_site(query, source), max_results, source)))
+        except Exception as exc:  # its failure (OnlineError, or anything else its answer brings), the others kept
+            answers.put((source, OnlineError(str(exc), reason_of(exc), source)))
+
+    for source in sources:
+        threading.Thread(target=ask, args=(source,), daemon=True).start()  # one left behind ends on its own
+    found, failed, until = {}, {}, None
+    while len(found) + len(failed) < len(sources):
+        try:
+            source, answer = answers.get(timeout=None if until is None else max(0.0, until - time.monotonic()))
+        except queue.Empty:
+            break
+        if isinstance(answer, OnlineError):
+            failed[source] = answer
+            continue
+        found[source] = answer
+        if answer and until is None:
+            until = time.monotonic() + LATE_S
+    for source in sources:
+        if source not in found and source not in failed:
+            failed[source] = OnlineError(f"no answer {LATE_S:g} s after the others", "unreachable", source)
+    return (merged([found[s] for s in SOURCES if s in found])[:max_results],
+            [failed[s] for s in SOURCES if s in failed])
+
+
+def for_site(query: str, source: str) -> str:
+    """The words of a search of several sites as source is asked them: the word for piano that ends them (where she
+    puts it) in the site's own (PIANO_WORD), so that each finds its piano versions as it would on its own."""
+    words = query.split()
+    if not words or words[-1].casefold() not in PIANO_WORDS:
+        return query
+    return " ".join([*words[:-1], PIANO_WORD[source]])
+
+
+def merged(lists: list[list[dict]]) -> list[dict]:
+    """Several sites' videos as one list: the first of each, then the second of each, and so on (round robin, the
+    usual way to merge the ranked lists of several engines), a video already in it left out. The phone's merge
+    (web/online.js) is the same, tested with the same cases."""
+    seen, together = set(), []
+    for rank in range(max(map(len, lists), default=0)):
+        for videos in lists:
+            if rank < len(videos) and videos[rank]["url"] not in seen:
+                seen.add(videos[rank]["url"])
+                together.append(videos[rank])
+    return together
 
 
 def _youtube(query: str, n: int) -> list[dict]:
@@ -296,6 +366,9 @@ def _bilibili_page(query: str) -> dict:
     if code != 0:
         raise OnlineError(said, "failed", "bilibili")
     return data
+
+
+SEARCHES = {"youtube": _youtube, "bilibili": _bilibili}  # each site's own search (search)
 
 
 def avatar_found(url: str) -> str:

@@ -173,6 +173,19 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(self.lib.by_source(clean_url(pasted))['id'], ids['https://www.bilibili.com/video/BV1We4y1g7sj/'],
                          'The piece is known when its video comes back')
 
+    def test_the_one_site_an_earlier_version_searched_is_the_one_searched_now(self):
+        from pianasoul import online
+        self.assertEqual(online.chosen_sources(self.lib), ['youtube', 'bilibili'], 'Both, until some are chosen')
+        for kept in ('bilibili', 'youtube'):
+            self.lib.execute("DELETE FROM settings")
+            self.lib.set_setting('search_source', kept)  # as the version with one site at a time kept it
+            for _ in range(2):  # and opened again, nothing more changes
+                self.lib.close()
+                self.lib = Library(self.root / 'data' / 'library.db', self.music)
+                self.addCleanup(self.lib.close)
+                self.assertEqual(online.chosen_sources(self.lib), [kept])
+            self.assertEqual(self.lib.setting('search_source', 'gone'), 'gone')
+
     def test_pieces_are_named_in_other_languages_once_each(self):
         nocturne = self.lib.add(make_midi(self.music / 'Chopin - Nocturne Op. 9 No. 2.mid'), 'Chopin - Nocturne Op. 9 No. 2')
         unknown = self.lib.add(make_midi(self.music / 'track 7.mid', note=62), 'track 7')

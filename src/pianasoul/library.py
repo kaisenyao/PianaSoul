@@ -352,6 +352,10 @@ def upgrade(db: sqlite3.Connection) -> None:
                              "WHERE source_url LIKE '%bilibili.com/video/%'").fetchall():
         if (canonical := clean_url(url)) != url:
             db.execute("UPDATE recordings SET source_url = ? WHERE source_url = ?", (canonical, url))
+    # The one site an earlier version searched online (search_source) is the one this one searches (search_sources).
+    db.execute("INSERT OR IGNORE INTO settings (key, value) "
+               "SELECT 'search_sources', value FROM settings WHERE key = 'search_source'")
+    db.execute("DELETE FROM settings WHERE key = 'search_source'")
     db.commit()
 
 

@@ -65,9 +65,14 @@ const zh = {
   appearances: {system: '跟随系统', dark: '深色', light: '浅色'},
   connected: '已连接', disconnected: '未连接',
   results: '曲目', nothing: '无结果',
-  sites: {youtube: 'YouTube', bilibili: '哔哩哔哩'},  // where online search searches (search_source)
-  unreachable: site => `无法连接到${site}。`, searchInstead: site => `改用${site}搜索`, searchFailed: '无法搜索。请重试。',
+  sites: {youtube: 'YouTube', bilibili: '哔哩哔哩'}, sourcesLabel: '搜索的网站',  // where online search searches
+  // No site could be searched: why, in full, and a site turned off to search too. Some could: why the others could
+  // not, in short, above what they found.
+  unreachable: site => `无法连接到${site}。`, searchSite: site => `搜索${site}`, searchFailed: '无法搜索。请重试。',
   refused: {youtube: 'YouTube暂时拒绝了搜索，请稍后再试。', bilibili: '哔哩哔哩暂时拒绝了搜索，请关闭代理后再试。'},
+  cause: {unreachable: site => `无法连接到${site}`, refused: site => `${site}暂时拒绝了搜索`, failed: site => `无法搜索${site}`},
+  partly: (causes, sites) =>
+    `${causes.join('，')}，仅显示${new Intl.ListFormat('zh', {type: 'conjunction'}).format(sites)}的结果。`,
   orb: {idle: '打开语音', starting: '正在连接', active: '语音已打开，轻点以关闭'},
   helpTopics: [
     {id: 'start', icon: 'sparkle', title: '开始使用', items: [
@@ -100,7 +105,7 @@ const zh = {
       ['上传', '轻点曲库右上角的＋，然后轻点“上传文件”，可一次选择多个MIDI和录音文件，它们会放入曲库的“Uploaded”文件夹。也可以在Mac上直接将文件拖到“音乐 › PianaSoul”文件夹。'],
       ['来源', '每首曲目的来源显示在详细信息的“来源”中：由视频或录音转谱、从手机上传，或你添加到曲库的文件。'],
       ['钢琴版优先', '钢琴版排在前面，不列出教程、瀑布流、简单版和合集；钢琴版较少时，其他视频排在后面。'],
-      ['YouTube或哔哩哔哩', '在线搜索时，在搜索栏下方选择在哪个网站上搜索，她也在这个网站上搜索。在中国大陆请选择哔哩哔哩。'],
+      ['YouTube和哔哩哔哩', '在线搜索会同时在YouTube和哔哩哔哩上搜索。轻点搜索栏下方的网站名称可将其打开或关闭（至少保留一个），她也在打开的网站上搜索。在中国大陆可以关闭YouTube。'],
       ['观看视频', '轻点封面或标题，观看原视频。'],
       ['下载', '轻点下载按钮，圆圈走满一圈即转换完成，轻点中间的方块可停止；完成后轻点▶即开始弹奏。'],
       ['编辑信息', '按住曲目，可更改曲名、原作者和演奏者。'],
@@ -237,11 +242,15 @@ const en = {
   appearances: {system: 'System', dark: 'Dark', light: 'Light'},
   connected: 'Connected', disconnected: 'Not Connected',
   results: 'Pieces', nothing: 'No Results',
-  sites: {youtube: 'YouTube', bilibili: 'Bilibili'},
-  unreachable: site => `Can’t connect to ${site}.`, searchInstead: site => `Search ${site} Instead`,
+  sites: {youtube: 'YouTube', bilibili: 'Bilibili'}, sourcesLabel: 'Sites to Search',
+  unreachable: site => `Can’t connect to ${site}.`, searchSite: site => `Search ${site}`,
   searchFailed: 'Couldn’t search. Try again.',
   refused: {youtube: 'YouTube isn’t allowing searches right now. Try again later.',
     bilibili: 'Bilibili isn’t allowing searches right now. Turn off any proxy and try again.'},
+  cause: {unreachable: site => `Can’t connect to ${site}`, refused: site => `${site} isn’t allowing searches right now`,
+    failed: site => `Couldn’t search ${site}`},
+  partly: (causes, sites) =>
+    `${causes.join('. ')}. Showing results from ${new Intl.ListFormat('en', {type: 'conjunction'}).format(sites)}.`,
   orb: {idle: 'Turn on voice', starting: 'Connecting', active: 'Voice on, tap to turn off'},
   helpTopics: [
     {id: 'start', icon: 'sparkle', title: 'Getting Started', items: [
@@ -275,7 +284,7 @@ const en = {
       ['Upload', 'Tap + at the top right of the library, then Upload Files: MIDI files and recordings, several at once, into the library’s Uploaded folder. Dragging them into Music › PianaSoul on the Mac does the same.'],
       ['Source', 'Where each piece came from is shown under Source in its details: transcribed from a video or a recording, uploaded from a phone, or a file you added to the library.'],
       ['Piano Versions First', 'Piano versions come first, with no tutorials, falling notes, easy versions, or compilations; when there are few, other videos follow.'],
-      ['YouTube or Bilibili', 'When you search online, choose the site to search under the search field; she searches the same one. In mainland China, choose Bilibili.'],
+      ['YouTube and Bilibili', 'Search Online searches YouTube and Bilibili at once. Tap a site’s name under the search field to turn it on or off (one always stays on); she searches the sites that are on. In mainland China, you can turn off YouTube.'],
       ['Watch', 'Tap a cover or a title to watch the original video.'],
       ['Download', 'Tap the Download button; when the circle closes, it’s ready, and ▶ plays it. The square in the middle stops it.'],
       ['Edit', 'Touch and hold a piece to change its name, artist and pianist.'],
