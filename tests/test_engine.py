@@ -18,12 +18,14 @@ from importlib.util import find_spec
 from pathlib import Path
 from unittest.mock import patch
 
+import mido
 import numpy as np
 import pretty_midi
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import pipeline
 from pianasoul.engine import TranskunEngine
+from pianasoul.growing import Growing
 
 WITH_MODEL = unittest.skipUnless(find_spec('transkun'), 'the advanced extra is not installed')
 
@@ -281,20 +283,17 @@ class ApartTests(unittest.TestCase):
 
     @WITH_MODEL
     def test_the_real_model_in_its_own_process(self):
-        audio, parts = self.tone('a.wav', 20), []
-        info = self.convert(audio, self.root / 'out', lambda midi, until, length: parts.append((midi, until, length)),
-                            output_name='piece')
+        audio, piece = self.tone('a.wav', 20), Growing()
+        info = self.convert(audio, self.root / 'out', piece.add, output_name='piece')
         self.assertTrue(Path(info['files']['midi']).is_file())
         self.assertEqual(Path(info['files']['midi']).name, 'piece.mid')
         self.assertAlmostEqual(info['audio_duration_s'], 20.0, delta=0.1)
-        self.assertEqual(parts[-1][1], math.inf)
-        self.assertAlmostEqual(parts[0][2], 20.0, delta=0.1, msg='How long the recording is')
-        file = pretty_midi.PrettyMIDI(info['files']['midi']).instruments[0].notes
-        made = sorted((n.pitch, round(n.start * 1920), round(n.end * 1920)) for midi, _, _ in parts
-                      for n in midi.instruments[0].notes)
-        self.assertEqual(made, sorted((n.pitch, round(n.start * 1920), round(n.end * 1920)) for n in file),
-                         'Its parts, as they came, are its notes')
-        self.assertGreater(len(made), 20)
+        self.assertTrue(piece.whole)
+        self.assertAlmostEqual(piece.length, 20.0, delta=0.1)
+        file = [m for m in mido.MidiFile(info['files']['midi']) if not m.is_meta and m.type != 'program_change']
+        made = list(piece.messages(threading.Event()))
+        self.assertEqual(made, file, 'Its parts, as they came, are its file, message for message')
+        self.assertGreater(len(made), 40)
 
 
 def midi_of(notes, controls=()):

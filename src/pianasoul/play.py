@@ -15,6 +15,9 @@ Each message leaves a little early (the lead) together with the time it should s
 that time along, so the receiver plays every note on schedule even when Wi-Fi delivers it late: the lead is 1 second
 there, and none for a piano on USB or Bluetooth (PIANASOUL_LEAD sets it for all). With a lead, nothing is sent
 without a time. Pause, stop and a new volume take effect after the lead.
+
+A piece being made (growing.Growing) plays as it comes: its music waits where its notes are not there yet, and goes
+on from there.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import show_details
+from .growing import NotMade
 from .library import Library
 
 log = logging.getLogger(__spec__.name)
@@ -334,17 +338,19 @@ def _first_note(path: str, changed: int) -> float:
     return 0.0
 
 
-def begin(path: Path, from_s: float, lead: float = 0.0) -> float:
+def begin(path: Path, from_s: float, lead: float = 0.0, first: float | None = None) -> float:
     """Where a piece starts: at from_s; played from its start (0, or below: after that much silence), so that its
     first note is heard LEAD_IN_S after it starts: the silence a file may open with (a video's opening, say) is not
     waited through, and the first note does not come at once either. Notes sent a lead early (a network session) are
-    heard that long after anyway, which counts."""
+    heard that long after anyway, which counts. first: when its first note sounds, if it is known otherwise (a piece
+    being made: Player.begin); else it is read from the file."""
     if from_s > 0:
         return from_s
-    try:
-        first = _first_note(str(path), Path(path).stat().st_mtime_ns)
-    except Exception:  # a file that cannot be read fails where it is played, as it is
-        return from_s
+    if first is None:
+        try:
+            first = _first_note(str(path), Path(path).stat().st_mtime_ns)
+        except Exception:  # a file that cannot be read fails where it is played, as it is
+            return from_s
     return from_s + max(0.0, first - max(0.0, LEAD_IN_S - lead))
 
 
@@ -435,13 +441,26 @@ class Player:
         self.completed: tuple[str, float] | None = None  # natural finish: title and audible end time
         self.lost: str | None = None  # why the piano went away while playing; playback paused there
         self.volume: int | None = None  # percent of the piano's full volume; None leaves the piano's own
+        self.growing: dict = {}  # the pieces being made that can play, by the file each will have (growing.Growing)
+        self._making = None  # the one of them playing now
 
     @property
     def position(self) -> float:
-        """Seconds into the current piece, as heard (0 during the silence before it)."""
+        """Seconds into the current piece, as heard (0 during the silence before it); a piece being made, no further
+        than it is there, but where it was taken to (a seek past that waits there)."""
         if self.state == "playing" and self._t0 is not None:
-            return max(0.0, self._from, time.perf_counter() - self._t0)
+            heard = time.perf_counter() - self._t0
+            return max(0.0, self._from, min(heard, self._making.until) if self._making else heard)
         return self._offset
+
+    def playable(self, path: Path) -> bool:
+        """Whether a piece is there to play: its file, or it is being made and can play (growing)."""
+        return Path(path).is_file() or Path(path) in self.growing
+
+    def begin(self, path: Path, from_s: float) -> float:
+        """Where a piece starts (begin), its first note known from what is there of it while it is being made."""
+        piece = self.growing.get(Path(path))
+        return begin(path, from_s, self.lead, piece.first_note() if piece else None)
 
     def play(self, items: list[tuple[Path, str]], from_s: float = 0.0, on_start=None) -> None:
         """Play (path, title) items in order, the first from from_s (below 0: after that much silence), the others
@@ -456,7 +475,7 @@ class Player:
                 self.current, self.state = (path, title), "playing"
                 if on_start:
                     on_start(path, title)
-                if not self._play_file(path, begin(path, from_s if i == 0 else 0.0, self.lead)):
+                if not self._play_file(path, self.begin(path, from_s if i == 0 else 0.0)):
                     return  # pause() or stop() sets the state, or the piano went away (lost)
             self.state, self._offset = "stopped", 0.0
             if self.current and not self._stop.is_set():
@@ -468,6 +487,10 @@ class Player:
     def after_run(self) -> None:
         """Called on the playing thread when it is done: the piece finished (completed), the piano went away
         (lost), or pause or stop ended it."""
+
+    def waited(self) -> None:
+        """Called on the playing thread when a piece being made goes on after its music waited for its notes: from
+        now on it is heard that much later."""
 
     def target(self) -> Output | None:
         """The output to play on, connected or not, or None when there is none: here the first named like wanted.
@@ -566,9 +589,9 @@ class Player:
             self.release()
 
     def start(self, items: list[tuple[Path, str]], from_s: float = 0.0, on_ready=None) -> None:
-        """Play items in a thread of their own. FileNotFoundError when the piece's file is gone, LookupError when
-        the piano is not there: then nothing changes."""
-        if not Path(items[0][0]).is_file():
+        """Play items in a thread of their own. FileNotFoundError when the piece is not there to play (playable),
+        LookupError when the piano is not there: then nothing changes."""
+        if not self.playable(items[0][0]):
             raise FileNotFoundError(items[0][0])
         self.check_connection()
         self._halt()
@@ -578,7 +601,7 @@ class Player:
 
     def _launch(self, items: list[tuple[Path, str]], from_s: float) -> None:
         self._stop.clear()  # here, not in the thread, so an immediate pause() cannot be lost
-        start = begin(items[0][0], from_s, self.lead)  # as the thread will find it (play): the position meanwhile
+        start = self.begin(items[0][0], from_s)  # as the thread will find it (play): the position meanwhile
         self.current, self.state, self._offset = items[0], "playing", start
         log.debug("plays %s from %s%s", items[0][1], clock(max(0.0, start)),
                   "" if self.volume is None else f" at volume {self.volume}%")
@@ -654,22 +677,30 @@ class Player:
             self.port.send(msg)
 
     def _play_file(self, path: Path, from_s: float = 0.0) -> bool:
-        """Send one file from from_s seconds, each message one lead early. True when it reached the end; when the
-        piano goes away, playback pauses where its sound stopped."""
+        """Send one file (or a piece being made, as it comes) from from_s seconds, each message one lead early. True
+        when it reached the end; when the piano goes away, playback pauses where its sound stopped; a piece that is
+        not made after all stops."""
         import mido
 
+        self._making = self.growing.get(Path(path))
         try:
-            return self._send_midi(mido.MidiFile(path), from_s)
+            return self._send_midi(self._making.messages(self._stop) if self._making else mido.MidiFile(path), from_s)
+        except NotMade:
+            self.state, self._offset = "stopped", 0.0
+            log.debug("not made after all: %s", Path(path).name)
+            return False
         except (LookupError, OSError) as exc:  # the piano went away (not found, or the notes no longer go out):
             heard = time.perf_counter() - self._t0 - LOOK_EVERY_S  # pause where the sound stopped, a moment back
             self.state, self._offset, self.lost = "paused", max(0.0, self._from, heard), str(exc)
             log.debug("the piano went away at %s: %s", clock(self._offset), exc)
             return False
+        finally:
+            self._making = None
 
     def _send_midi(self, midi, from_s: float = 0.0) -> bool:
-        """Send a mido.MidiFile from from_s seconds, each message one lead early (with its time, which a network
-        session carries along). True when it reached the end, False when stopped; LookupError or OSError when the
-        piano goes away."""
+        """Send a mido.MidiFile (or a piece being made, as it comes: None when its next message is not there yet)
+        from from_s seconds, each message one lead early (with its time, which a network session carries along). True
+        when it reached the end, False when stopped; LookupError or OSError when the piano goes away."""
         import mido
 
         held: dict[tuple[int, int], int] = {}  # each controller as it is at from_s (the pedals), sent before going on
@@ -679,10 +710,14 @@ class Player:
         late: list[float] = []  # seconds each message left after its time, for the details
         stall: tuple[float, float] | None = None  # notes heard late now: where it began in the piece, and the latest
         look_at = time.perf_counter() + LOOK_EVERY_S
+        waited = False  # a piece being made: its next message was not there when it was asked for
         try:
             if self.volume is not None:
                 self._send_volume(self._t0 + from_s)  # first, with the time the first notes sound
             for msg in midi:  # merged tracks, msg.time in seconds since the previous message
+                if msg is None:
+                    waited = True
+                    continue
                 at += msg.time
                 if msg.is_meta or msg.type not in SENT:
                     continue
@@ -692,6 +727,12 @@ class Player:
                     if msg.type == "control_change" and msg.control < 120:  # not the channel mode messages
                         held[msg.channel, msg.control] = msg.value
                     continue
+                if waited:  # the music waited for this message: it goes on from it now, as late as it came
+                    waited, behind = False, time.perf_counter() - (self._t0 + at - self.lead)
+                    if behind > 0:
+                        self._t0 += behind
+                        log.debug("waited %.1f s for its notes at %s", behind, clock(at))
+                        self.waited()
                 if not restored:
                     for (channel, control), value in held.items():
                         self._send(mido.Message("control_change", channel=channel, control=control, value=value),
@@ -716,11 +757,12 @@ class Player:
                     self._down.add((msg.channel, msg.note))
                 elif msg.type in {"note_on", "note_off"}:
                     self._down.discard((msg.channel, msg.note))
-            return True
-        finally:  # everything due to leave by now has left, so the music runs up to here
+            return not self._stop.is_set()
+        finally:  # everything due to leave by now has left, so the music runs up to here (what is there of it)
             if stall:
                 self._said_late(*stall)
-            self._sent_to = max(self._sent_to, time.perf_counter() - self._t0 + self.lead)
+            ran = time.perf_counter() - self._t0 + self.lead
+            self._sent_to = max(self._sent_to, min(ran, self._making.until) if self._making else ran)
             if late and log.isEnabledFor(logging.DEBUG):
                 late = sorted(x * 1000 for x in late)
                 log.debug("timing: %d messages left a median %.1f ms late, 99%% within %.1f ms, the latest %.1f ms%s",

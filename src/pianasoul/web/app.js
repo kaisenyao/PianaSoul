@@ -105,7 +105,7 @@ function applySettings() {
 dark.addEventListener('change', () => { if (data.settings.appearance === 'system') applySettings(); });
 
 // ---------- What the Mac keeps ----------
-const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
+const data = {recordings: [], making: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
   conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system', search_source: 'youtube'},
   devices: [], piano: {name: '', kind: 'other', connected: true},
   version: {commit: '', repo: ''}, features: {transcribe: true, assistant: true}, playlists: [], pictures: {}, descriptions: {}};
@@ -133,7 +133,13 @@ async function api(path, method = 'GET', body) {
   if (!response.ok) throw Object.assign(Error(json.error || response.status), {json});
   return json;
 }
-const recordings = async () => { data.recordings = await api('/api/recordings'); refresh(); };
+// The library's pieces, and apart from them those being made that play as they are made: playing one, the player has
+// it, as a chat card does; it is in the lists once it is made.
+function setRecordings(all) {
+  data.recordings = all.filter(r => !r.making);
+  data.making = all.filter(r => r.making);
+}
+const recordings = async () => { setRecordings(await api('/api/recordings')); refresh(); };
 async function conversations() {
   const c = await api('/api/conversations');
   data.conversations = c.conversations;
@@ -199,7 +205,9 @@ function away() {
 }
 async function load() {
   const transcribed = data.features.transcribe;
-  Object.assign(data, await api('/api/state'));
+  const {recordings: all, ...rest} = await api('/api/state');
+  Object.assign(data, rest);
+  setRecordings(all);
   heardAt = performance.now();
   try { localStorage.setItem('features', JSON.stringify(data.features)); } catch {}
   applyFeatures(transcribed);
@@ -242,8 +250,9 @@ function signedOut(refused) {
 }
 
 // ---------- Pieces ----------
-// A piece is a library recording, or one still being made (a job, kept apart by its key).
-const pieceById = id => data.recordings.find(r => r.id === id);
+// A piece is a library recording, one being made that plays as it is made (making), or one still being made (a job,
+// kept apart by its key).
+const pieceById = id => data.recordings.find(r => r.id === id) || data.making.find(r => r.id === id);
 const jobKey = j => 'j' + j.id;
 // As the Mac splits it (library.title_parts): the performer is what the parentheses that end it hold, theirs too.
 function titleParts(title) {
@@ -1405,7 +1414,7 @@ function pieceMenu(key, row) {
   showCtx(row, pieceText(p) + pieceSide(p), [
     [p.favorited_at ? T.unfavorite : T.favorite, ICON.heart, () => favorite([id], !p.favorited_at)],
     [T.addToPlaylist, ICON.addTo, () => pickPlaylist([id])],
-    [T[MIDI_OUT.text], MIDI_OUT.icon, () => sendMidi(p).then(sent => sent || hud(T[MIDI_OUT.failed]))],
+    !p.making && [T[MIDI_OUT.text], MIDI_OUT.icon, () => sendMidi(p).then(sent => sent || hud(T[MIDI_OUT.failed]))],
     [T.edit, ICON.edit, () => openEdit(id)],
     [T.selectSeveral, ICON.select, () => setSelecting(true, id)],
     pl && [T.removeFromPlaylistLong, ICON.trash, () => foldAway(list, key, () => removeFromPlaylist(playlistById(pl.id), [id])), true],
@@ -1486,6 +1495,7 @@ function renderNow() {
     b.setAttribute('aria-label', paused ? T.play : T.pause);
   }
   $('#view-player').classList.toggle('paused-art', paused);
+  $('#p-midi').disabled = !!p.making;  // its file comes once it is made
   $('#p-fav').innerHTML = p.favorited_at ? HEART_FILL : HEART_LINE;
   $('#p-fav').classList.toggle('on', !!p.favorited_at);
   $('#p-fav').setAttribute('aria-label', p.favorited_at ? T.unfavorite : T.favorite);
@@ -1503,21 +1513,38 @@ function renderProgress() {
   if (!p) return;
   const at = scrubbing ?? position(), length = p.duration_s || 1, f = Math.min(1, at / length);
   $('#p-fill').style.width = $('#mini-line').style.width = f * 100 + '%';
+  // Of a piece being made, how much is there, as a stream shows what it has loaded; once it is all there, it fades.
+  const ready = pb().ready, bar = $('#p-ready');
+  if (ready != null) {
+    const width = Math.min(1, ready / length) * 100 + '%';
+    if (bar.classList.contains('whole')) {  // another piece: from where it is, not grown from the last one's
+      bar.style.transition = 'none';
+      bar.style.width = width;
+      bar.offsetWidth;
+      bar.style.transition = '';
+    }
+    bar.style.width = width;
+  }
+  bar.classList.toggle('whole', ready == null);
   $('#p-pos').textContent = mmss(at);
   $('#p-left').textContent = '-' + mmss(length - at);
   $('#scrub').setAttribute('aria-valuenow', Math.floor(at));
   document.querySelectorAll(`.card[data-piece="${p.id}"] .cfill`).forEach(el => { el.style.width = f * 100 + '%'; });
 }
 
-// The artwork is the piece itself: its notes, scrolling past as the piano plays them.
+// The artwork is the piece itself: its notes, scrolling past as the piano plays them. Of a piece being made, those
+// there so far, asked for again as more comes, and once it is made.
 const rolls = new Map();
 function notesFor(p) {
-  if (!rolls.has(p.id)) {
-    rolls.set(p.id, null);
+  const roll = rolls.get(p.id), ready = pb().id === p.id && pb().ready != null ? pb().ready : Infinity;
+  const more = roll && !roll.asking && roll.ready < ready && (ready === Infinity || ready - roll.ready >= 8);  // a part or so
+  if (!rolls.has(p.id) || more) {
+    if (roll) roll.asking = true;
+    else rolls.set(p.id, null);
     api(`/api/recordings/${p.id}/notes`).then(notes => {
       let lo = 60, hi = 72;
       for (const n of notes) { lo = Math.min(lo, n[2]); hi = Math.max(hi, n[2]); }
-      rolls.set(p.id, {notes, lo: lo - 3, hi: hi + 3});
+      rolls.set(p.id, {notes, lo: lo - 3, hi: hi + 3, ready});
     }).catch(() => setTimeout(() => rolls.delete(p.id), 10000));  // asked again in a while, not every frame
   }
   return rolls.get(p.id);

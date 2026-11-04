@@ -40,7 +40,13 @@ class Core:
         self.lib = lib or Library()
         self.playback = Playback(self.lib)
         self.conversations = Conversations(self.lib)  # kept without her too: a deleted piece leaves them
+        for rec in self.lib.all():  # being made when the service last stopped, and so not made: nothing of it stays
+            if rec["making"]:
+                self.lib.delete(rec["id"])
+                self.conversations.forget(rec["id"])
         self.downloads = Downloads(self.lib, name_piece=name_piece if assistant else None)
+        self.playback.growing = self.downloads.growing  # a piece plays as it is made
+        self.downloads.unmade.append(self._unmade)
         self.listeners: list = []  # called with each event, on whichever thread it happens
         self.busy = None  # the conversation she is answering in, while she answers
         self.assistant = self.chat = None
@@ -58,7 +64,7 @@ class Core:
             self.worker = Worker()  # typed requests, in order
         self.playback.listeners.append(self._playback_changed)
         self.downloads.listeners.append(self._downloads_changed)
-        self._jobs = 0
+        self._jobs: list = []  # each job, and its piece's record once it plays as it is made: as the app last read it
         self._audio: list[dict] = []  # as the app was last told
         self._name = threading.Event()  # pieces may need their other names (with her: at the start, and as they come)
         self.folder = Folder(self.lib, self._folder_changed)
@@ -150,11 +156,20 @@ class Core:
     def _downloads_changed(self) -> None:
         jobs = self.downloads.snapshot()
         self.emit({"type": "jobs", "jobs": jobs})
-        if len(jobs) != self._jobs:  # a piece came in, or went: the library changed
-            self._jobs = len(jobs)
+        pieces = [(j["id"], j["recording"]) for j in jobs]
+        if pieces != self._jobs:  # a piece came in, went, or can play as it is made: the library changed
+            self._jobs = pieces
             self.library_changed()
             self._name.set()
         self._audio_changed()
+
+    def _unmade(self, rec_id: int) -> None:
+        """A piece that played as it was made was not made after all (Downloads took its record out of the library):
+        it is gone from the player, and from where she played it."""
+        self.playback.forget(rec_id)
+        self.conversations.forget(rec_id)
+        self.library_changed()
+        self.playlists_changed()
 
     def _name_pieces(self) -> None:
         """With her: each piece without its names in other languages gets them from the chat model, once (enrich), so
@@ -204,7 +219,8 @@ class Core:
         return {"transcribe": transcription_on(), "assistant": self.assistant is not None}
 
     def recordings(self) -> list[dict]:
-        return [recording(r) for r in self.lib.all() if r["file_exists"]]
+        """The pieces in the library, and those being made that play as they are made (making: not in its lists)."""
+        return [recording(r) for r in self.lib.all() if r["file_exists"] or r["making"]]
 
     def artists(self, recordings: list[dict] | None = None) -> dict:
         """What the user gave the artists (原作者 and 演奏者 alike), by name: their pictures (versions) and their
@@ -306,8 +322,10 @@ class Core:
 
     def delete_recordings(self, ids: list[int]) -> None:
         """Pieces leave the library, their files to the Trash: out of the list that plays and of the playlists, and
-        gone where she played them. The app hears, once, what changed."""
+        gone where she played them; one being made stops being made. The app hears, once, what changed."""
         for rec_id in ids:
+            if job := self.downloads.making(rec_id):
+                self.downloads.stop(job.id)
             self.playback.forget(rec_id)
             self.lib.delete(rec_id)
             self.conversations.forget(rec_id)
@@ -338,7 +356,7 @@ def recording(rec: dict) -> dict:
     """A library record for the app: its title in parts, and nothing about files."""
     keep = ("id", "title", "composer", "performer", "duration_s", "notes", "velocity_min", "velocity_max",
             "pedal_presses", "added_at", "favorited_at", "last_played_at", "source_url", "video_title", "channel",
-            "views", "published", "thumbnail", "channel_avatar", "origin", "artwork")
+            "views", "published", "thumbnail", "channel_avatar", "origin", "artwork", "making")
     parts = title_parts(rec["title"], rec["composer"], rec["performer"])
     return {**{k: rec.get(k) for k in keep}, "piece": parts["piece"], "artist": parts["artist"],
             "performer": parts["performer"]}

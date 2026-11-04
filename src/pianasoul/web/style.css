@@ -650,7 +650,8 @@ button.grow:active { background: var(--press); }
   background: linear-gradient(#000, hsl(var(--h, 220) 45% 22%) 24%, hsl(var(--h, 220) 30% 7%) 64%);
   --p-text: #fff; --p-text2: rgba(255, 255, 255, .6); --p-text3: rgba(255, 255, 255, .55); --p-icon: rgba(255, 255, 255, .85);
   --p-aux: rgba(255, 255, 255, .72); --p-press: rgba(255, 255, 255, .1); --p-track: rgba(255, 255, 255, .22);
-  --p-fill: rgba(255, 255, 255, .85); --p-vol: rgba(255, 255, 255, .85); --p-ctrl: #fff; --p-big: transparent;
+  --p-fill: rgba(255, 255, 255, .85); --p-ready: rgba(255, 255, 255, .2); --p-vol: rgba(255, 255, 255, .85);
+  --p-ctrl: #fff; --p-big: transparent;
   --p-big-glyph: #fff; --p-line: rgba(255, 255, 255, .1); --p-art-shadow: 0 22px 50px rgba(0, 0, 0, .5);
   --p-thumb-shadow: 0 14px 34px rgba(0, 0, 0, .4);
 }
@@ -659,7 +660,7 @@ button.grow:active { background: var(--press); }
   background: linear-gradient(#fff, hsl(var(--h, 220) 70% 97%) 42%, #fff 88%);
   --p-accent: hsl(var(--h, 220) 62% 52%); --p-accent2: hsl(calc(var(--h, 220) + 38) 70% 60%);
   --p-text: #000; --p-text2: #8a8a8e; --p-text3: #8e8e93; --p-icon: #8e8e93; --p-aux: #8e8e93;
-  --p-press: rgba(0, 0, 0, .06); --p-track: rgba(0, 0, 0, .1); --p-vol: #b0b0b5;
+  --p-press: rgba(0, 0, 0, .06); --p-track: rgba(0, 0, 0, .1); --p-ready: hsl(var(--h, 220) 62% 52% / .16); --p-vol: #b0b0b5;
   --p-fill: linear-gradient(90deg, var(--p-accent), var(--p-accent2)); --p-ctrl: var(--p-accent);
   --p-big: linear-gradient(135deg, var(--p-accent), var(--p-accent2)); --p-big-glyph: #fff; --p-line: rgba(0, 0, 0, .08);
   --p-art-shadow: 0 18px 40px rgba(0, 0, 0, .16); --p-thumb-shadow: 0 10px 26px rgba(0, 0, 0, .14);
@@ -675,6 +676,8 @@ button.grow:active { background: var(--press); }
 /* ✕ stops the piece and closes the player; share sends its MIDI */
 .pcorner { position: absolute; top: calc(var(--safe-top) + var(--bar) + 2px); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--p-icon); }
 .pcorner:active { background: var(--p-press); }
+.pcorner:disabled { opacity: .35; }
+.pcorner:disabled:active { background: none; }
 .pcorner svg { width: 22px; height: 22px; }
 #p-close { left: 14px; }
 #p-midi { right: 14px; }
@@ -708,7 +711,10 @@ button.grow:active { background: var(--press); }
 .scrub { position: relative; height: 28px; margin-top: 16px; cursor: pointer; flex: none; }
 .scrub .track { position: absolute; left: 0; right: 0; top: 11px; height: 6px; border-radius: 3px; overflow: hidden; background: var(--p-track); transition: top .2s, height .2s; }
 .scrub.active .track { top: 8px; height: 12px; border-radius: 6px; }
-.scrub .fill { height: 100%; width: 0; background: var(--p-fill); }
+.scrub .fill { position: relative; height: 100%; width: 0; background: var(--p-fill); }
+/* What there is of a piece being made, under what has played: it grows, and goes once all of it is there. */
+.scrub .ready { position: absolute; left: 0; top: 0; height: 100%; width: 0; background: var(--p-ready); transition: width .4s linear, opacity .4s; }
+.scrub .ready.whole { opacity: 0; }
 .times { display: flex; justify-content: space-between; font-size: 12px; color: var(--p-text3); font-variant-numeric: tabular-nums; }
 .pctrl { display: flex; align-items: center; justify-content: space-between; margin: 18px -8px 0; flex: none; }
 .pctrl button { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; color: var(--p-ctrl); }

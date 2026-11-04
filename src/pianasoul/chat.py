@@ -4,7 +4,8 @@
 
 The assistant looks in the local library first, then searches online (YouTube or Bilibili, as chosen), gets the
 chosen video ready in the background through the same queue as the app's downloads (download, transcribe, file it in
-the library folder's Transcribed/), and plays it on the piano over MIDI once it is there.
+the library folder's Transcribed/), and plays it on the piano over MIDI once it can play: while the rest of it is
+transcribed.
 """
 
 from __future__ import annotations
@@ -330,11 +331,13 @@ def spoken_title(title: str) -> str:
 
 
 def _brief(rec: dict) -> dict:
-    """A recording as she sees it: its names (as the tools take them) and what she may need to choose it."""
+    """A recording as she sees it: its names (as the tools take them) and what she may need to choose it (one being
+    made is there to play, as it is made)."""
     keys = ("id", "aliases", "tags", "source_type", "source_url", "midi_path", "notes", "pedal_presses",
-            "duration_s", "file_exists", "score")
+            "duration_s", "score")
     names = title_parts(rec["title"], rec["composer"], rec["performer"])
-    return {"id": rec["id"], **names, **{k: rec[k] for k in keys if k in rec}}
+    return {"id": rec["id"], **names, **{k: rec[k] for k in keys if k in rec},
+            "file_exists": rec["file_exists"] or rec["making"]}
 
 
 def _named(job) -> str:
@@ -554,26 +557,32 @@ class Assistant:
             self.preparing[job_id] = (job, moves, taps)
 
     def _prepared(self, job) -> None:
-        """A piece prepared in the background, once it is there (or could not be): when she is free (no request she
-        is answering, and voice waiting for her name)."""
-        job.finished.wait()
+        """A piece prepared in the background, once it can play (as it is made, or made) or could not be made: when
+        she is free. One that plays as it is made, and then is not made after all, is said too."""
+        job.playable.wait()
+        self._when_free(lambda: self._ready(job))
+        if not job.finished.is_set():
+            job.finished.wait()
+            if job.status == "failed":  # not one stopped in the app
+                self._when_free(lambda: self._not_made(job))
+
+    def _when_free(self, then) -> None:
+        """then(), when she is free: no request she is answering, and voice waiting for her name."""
         while True:
             self.may_play.wait()
             with self._turn:
                 if self.may_play.is_set():
-                    return self._ready(job)
+                    return then()
 
     def _ready(self, job) -> None:
         """It plays if nothing has changed since the request that asked for it (_start: nor on the phone), the first of
         a request's pieces only; else she says it is ready, or that it could not be made. Remembered either way
         (prepared, failed)."""
         _, moves, taps = self.preparing.pop(job.id)
-        rec = self.lib.get(job.result["id"]) if job.result else None
+        rec = self.lib.get(job.recording) if job.recording is not None else None
         if rec is None:
             if job.status == "failed":  # not one stopped in the app
-                title = job.public()["title"]
-                self.failed.append(_named(job))
-                self.piano_news({"error": "not_ready", "title": title} if title else {"error": "link_not_ready"})
+                self._not_made(job)
             return
         self.prepared.append(rec["id"])
         if getattr(self.player, "current_id", None) == rec["id"]:
@@ -592,6 +601,12 @@ class Assistant:
         for rec_id, title in self.played_now:
             self.keep("piece", title, rec_id)
 
+    def _not_made(self, job) -> None:
+        """She says it could not be made, and remembers it (failed)."""
+        title = job.public()["title"]
+        self.failed.append(_named(job))
+        self.piano_news({"error": "not_ready", "title": title} if title else {"error": "link_not_ready"})
+
     def _get_player(self):
         if self.player is None:
             from .playback import Playback
@@ -607,19 +622,20 @@ class Assistant:
             rec = self.lib.get(int(id))
             if not rec:
                 return {"error": "recording_not_found"}
-            if not rec["file_exists"]:
+            if not (rec["file_exists"] or rec["making"]):
                 return {"error": "recording_unavailable"}
             return self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=int(id)))
         if self.pending:
             request = replace(self.pending, from_s=0.0) if from_start else self.pending
             rec = self.lib.get(request.recording_id) if request.recording_id is not None else None
-            if not (rec and rec["file_exists"] if request.recording_id is not None else request.path.is_file()):
+            if not (rec and (rec["file_exists"] or rec["making"]) if request.recording_id is not None
+                    else request.path.is_file()):
                 self.pending = None
                 return {"error": "recording_unavailable"}
             return self._start(request, from_start)
         if self.player and self.player.current:
             path, title = self.player.current
-            if not path.is_file():
+            if not self.player.playable(path):
                 return {"error": "recording_unavailable"}
             position = self.player.position if self.player.state in {"paused", "playing"} and not from_start else 0.0
             return self._start(PlaybackRequest(path, title, position, self.player.current_id), from_start,
@@ -1147,7 +1163,8 @@ class Assistant:
             if making := [_named(job) for job in waiting if not job.finished.is_set()]:
                 state["preparing"] = making
             made = [*self.prepared, *(job.result["id"] for job in waiting if job.finished.is_set() and job.result)]
-            if prepared := [rec for rec in map(self.lib.get, made) if rec and rec["file_exists"]]:
+            prepared = [rec for rec in map(self.lib.get, made) if rec and (rec["file_exists"] or rec["making"])]
+            if prepared:
                 state["prepared"] = [_choice(rec) for rec in prepared]
                 self.selectable_ids.update(rec["id"] for rec in prepared)
             if failed := [*self.failed, *(_named(job) for job in waiting if job.status == "failed")]:

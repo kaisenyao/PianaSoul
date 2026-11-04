@@ -1011,8 +1011,9 @@ class PreparedTests(Base):
 
     def made(self, piece, rec_id=None, status='done'):
         job = self.queue.jobs[f'https://youtu.be/{piece}']
-        job.status, job.result = status, self.lib.get(rec_id) if rec_id else None
+        job.status, job.result, job.recording = status, self.lib.get(rec_id) if rec_id else None, rec_id
         job.finished.set()
+        job.playable.set()
 
     def eventually(self, check) -> bool:
         deadline = time.monotonic() + 5
@@ -1034,6 +1035,38 @@ class PreparedTests(Base):
         self.assertEqual(said['role'], 'assistant')
         self.assertIn('晴天', said['text'])
         self.assertEqual(piece['text'], '周杰伦 - 晴天 (MappleZS)')
+
+    def playing(self, piece, title):
+        """Enough of it there to play as it is made (Downloads): its record, being made, and what there is of it."""
+        from pianasoul.growing import Growing
+        job = self.queue.jobs[f'https://youtu.be/{piece}']
+        rec = self.lib.making(title, source_type='url', source_url=job.source, duration_s=200.0)
+        self.p.growing[Path(rec['midi_path'])] = Growing()
+        job.status, job.recording = 'converting', rec['id']
+        job.playable.set()
+        return rec['id']
+
+    def test_it_plays_as_it_is_made_and_once_made_nothing_more_is_said(self):
+        self.prepare('qingtian')
+        rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+        self.assertEqual(self.p.current_id, rec_id, 'Playing while the rest of it is made')
+        self.assertEqual(self.kept[-1]['recording_id'], rec_id)
+        told = len(self.kept)
+        self.made('qingtian', rec_id)
+        self.assertTrue(self.eventually(lambda: not self.a.preparing))
+        time.sleep(0.1)
+        self.assertEqual(len(self.kept), told, 'Nothing more to say')
+        self.assertIn(rec_id, self.a.prepared)
+
+    def test_one_that_played_as_it_was_made_and_was_not_made_after_all_is_said(self):
+        self.prepare('qingtian')
+        rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+        self.assertTrue(self.eventually(lambda: self.p.current_id == rec_id))
+        self.lib.delete(rec_id)  # as Downloads takes it out
+        self.made('qingtian', status='failed')
+        self.assertTrue(self.said_last('《qingtian》这次没准备好'), 'Said as for one that could not be made at all')
+        self.assertEqual(self.a.failed[-1], 'qingtian')
 
     def test_once_something_else_was_chosen_it_is_only_said_to_be_ready_and_remembered(self):
         changes = {

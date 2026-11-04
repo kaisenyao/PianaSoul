@@ -140,12 +140,13 @@ CREATE TABLE IF NOT EXISTS audio (
 # Columns added since the first libraries were made; an older library gets them when it is opened.
 # fingerprint: the file's sha256, to know it again when it moves; stamp: its size and time, to see it change.
 # named_at: when the chat model was asked for the piece's other names (enrich).
+# making: 1 for a piece being made, which plays as it is (Library.making); its file comes once it is made.
 ADDED_COLUMNS = {"recordings": {"favorited_at": "TEXT", "last_played_at": "TEXT",
                                 "video_title": "TEXT NOT NULL DEFAULT ''", "channel": "TEXT NOT NULL DEFAULT ''",
                                 "views": "INTEGER", "published": "TEXT NOT NULL DEFAULT ''",
                                 "thumbnail": "TEXT NOT NULL DEFAULT ''", "channel_avatar": "TEXT NOT NULL DEFAULT ''",
                                 "fingerprint": "TEXT NOT NULL DEFAULT ''", "stamp": "TEXT NOT NULL DEFAULT ''",
-                                "named_at": "TEXT"},
+                                "named_at": "TEXT", "making": "INTEGER NOT NULL DEFAULT 0"},
                  "playlists": {"description": "TEXT NOT NULL DEFAULT ''"}}
 VIDEO_FIELDS = ("video_title", "channel", "views", "published", "thumbnail", "channel_avatar")
 STOPWORDS = {"the", "a", "an", "of", "in", "and", "by", "for", "piano", "solo", "version", "play", "me"}
@@ -553,13 +554,49 @@ class Library:
         """Copy a MIDI file PianaSoul made into Transcribed/ as '<title>.mid', or '<title> (2).mid' and so on when the
         name is another piece's; the same file already there is used as it is."""
         self.transcribed.mkdir(parents=True, exist_ok=True)
-        safe, n = safe_name(title), 2
-        dest = self.transcribed / f"{safe}.mid"
-        while self._taken(dest) and not (dest.is_file() and filecmp.cmp(src, dest, shallow=False)):
-            dest, n = self.transcribed / f"{safe} ({n}).mid", n + 1
+        dest = self._free(title, src)
         if not dest.exists():
             shutil.copy2(src, dest)
         return dest
+
+    def _free(self, title: str, src: Path | None = None) -> Path:
+        """The name a piece titled so takes in Transcribed/: '<title>.mid', or '<title> (2).mid' and so on when that
+        is another piece's; a file there the same as src is the one wanted."""
+        safe, n = safe_name(title), 2
+        dest = self.transcribed / f"{safe}.mid"
+        while self._taken(dest) and not (src and dest.is_file() and filecmp.cmp(src, dest, shallow=False)):
+            dest, n = self.transcribed / f"{safe} ({n}).mid", n + 1
+        return dest
+
+    def making(self, title: str, *, composer: str = "", performer: str = "", aliases: str = "", tags: str = "",
+               source_type: str, source_url: str, duration_s: float) -> dict:
+        """A new piece being made, from when it can play as it is made (Downloads): its record, under its names and
+        as long as its recording, at the file it will have in Transcribed/, which comes once it is made (made). It is
+        not in the library's lists and searches until then."""
+        with self.lock:
+            dest = self._free(title).resolve()
+            self.execute("""INSERT INTO recordings (title, composer, performer, aliases, tags, source_type, source_url,
+                                midi_path, duration_s, added_at, making) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+                         (title, composer, performer, aliases, tags, source_type, source_url, str(dest),
+                          round(duration_s, 1), _now()))
+            return self._public(self.execute("SELECT * FROM recordings WHERE midi_path = ?", (str(dest),))[0])
+
+    def made(self, rec_id: int, produced: Path) -> dict:
+        """A piece being made, made: its MIDI file into Transcribed/, written whole and then named (by its title as it
+        is now, renamed meanwhile), and it is in the library as any other piece."""
+        with self.lock:
+            rec = self.get(rec_id)
+            dest = Path(rec["midi_path"])
+            if dest.exists():  # a file put there by hand meanwhile: the piece takes the next name
+                dest = self._free(rec["title"]).resolve()
+            self.transcribed.mkdir(parents=True, exist_ok=True)
+            staged = dest.with_name(f".{dest.name}")  # hidden from the library folder's watch until it is whole
+            shutil.copy2(produced, staged)
+            os.replace(staged, dest)
+            dest = self._named(dest, rec["title"])
+            self.execute("UPDATE recordings SET midi_path = ?, making = 0 WHERE id = ?", (str(dest), rec_id))
+            self.refresh(rec_id)
+        return self.get(rec_id)
 
     def _named(self, midi: Path, title: str) -> Path:
         """A file in Transcribed/ is named after its title, as place names a new one; any other file is yours and
@@ -961,7 +998,7 @@ class Library:
             return []
         query_norm = _norm(query)
         scored = []
-        for row in self.execute("SELECT * FROM recordings"):
+        for row in self.execute("SELECT * FROM recordings WHERE NOT making"):  # one being made: in it once made
             hay_text = " ".join(row[f] for f in FIELDS)
             have = _terms(hay_text)
             score = sum(2.0 if len(t) > 1 else 0.5 for t in wanted & have)
@@ -1010,6 +1047,7 @@ class Library:
     def _public(self, row: sqlite3.Row) -> dict:
         """A record, with whether its file is in the library and how it came (origin)."""
         d = dict(row)
+        d["making"] = bool(d["making"])
         d["file_exists"] = self.here(Path(d["midi_path"]))
         d["origin"] = self.origin(Path(d["midi_path"]))
         d["artwork"] = _version(self.piece_artwork(d)) if d["fingerprint"] else None

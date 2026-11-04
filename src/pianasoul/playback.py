@@ -11,6 +11,8 @@ volume: set from any of them, kept in the library, and told to the piano before 
 as the service stops (the Mac app quitting, the Mac restarting, a restart for a key): the next start has it paused
 where it was heard, its list and mode with it, and ▶ goes on from there.
 
+A piece she gets ready plays while it is made (Downloads): as any other, with how much of it is there so far (ready).
+
 It plays on the output chosen in the app, kept in the library by its unique ID (and name). One that is offline is
 waited for, never swapped for another, even of the same name; only when its ID is gone from the Mac altogether (an
 app such as Pianoteq may get a new one each time it starts) is the one output with its name taken instead. Until one
@@ -21,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import random
 import sqlite3
 import threading
@@ -49,7 +52,6 @@ class Playback(Player):
         super().__init__(port=port, lead=lead)
         self.lib = lib
         self.current_id: int | None = None
-        self.duration = 0.0
         self.ids: list[int] = []  # the list, in the order it plays
         self.unshuffled: list[int] | None = None  # its own order, while 随机 is on
         self.scope: dict = {}  # where the list comes from, e.g. {"kind": "artist", "name": "周杰伦"}
@@ -76,6 +78,13 @@ class Playback(Player):
     @current.setter
     def current(self, item: tuple[Path, str] | None) -> None:
         self._current = item
+
+    @property
+    def duration(self) -> float:
+        """How long the piece playing, paused or last played is, as the library has it now: one being made, as long
+        as its recording until it is made."""
+        rec = self.lib.get(self.current_id) if self.current_id is not None else None
+        return (rec or {}).get("duration_s") or 0.0
 
     # ---- where it plays ----------------------------------------------------------------------------
     def chosen(self) -> dict | None:
@@ -119,18 +128,21 @@ class Playback(Player):
     # ---- what the phone shows -------------------------------------------------------------------
     def snapshot(self) -> dict:
         """As it is heard: position moves on after starts_in seconds (the notes leave a lead early, and a next piece
-        comes after a short silence), up to until (the end of the piece; after a pause, where the notes already
-        sent stop sounding)."""
+        comes after a short silence), up to until (the end of the piece, or of what is there of one being made; after
+        a pause, where the notes already sent stop sounding). ready: how much of a piece being made is there."""
         with self._lock:
-            now, position = time.perf_counter(), self.position
+            now, position, duration = time.perf_counter(), self.position, self.duration
+            making = self.growing.get(self.current[0]) if self.current else None
+            ready = min(making.until, duration or math.inf) if making and not making.whole else None
             if self.state == "playing":
-                starts_in, until = max(0.0, self._t0 + position - now), self.duration or None
+                starts_in = max(0.0, self._t0 + position - now)
+                until = max(ready, position) if ready is not None else duration or None
             else:
                 tail = max(0.0, self._last_when - now) if self.state == "paused" else 0.0
                 position, starts_in, until = max(0.0, position - tail), 0.0, position
             return {"id": self.current_id, "state": self.state, "position": round(position, 2),
                     "starts_in": round(starts_in, 2), "until": until if until is None else round(until, 2),
-                    "duration": self.duration, "ended": self.ended,
+                    "duration": duration, "ready": ready if ready is None else round(ready, 2), "ended": self.ended,
                     "mode": self.mode, "ids": list(self.ids), "scope": dict(self.scope), "volume": self.volume}
 
     def changed(self) -> None:
@@ -163,7 +175,7 @@ class Playback(Player):
     # ---- choosing ---------------------------------------------------------------------------------
     def item(self, rec_id: int) -> tuple[Path, str]:
         rec = self.lib.get(rec_id)
-        if not rec or not rec["file_exists"]:
+        if not rec or not (rec["file_exists"] or Path(rec["midi_path"]) in self.growing):
             raise FileNotFoundError(f"recording {rec_id} is not in the library")
         return Path(rec["midi_path"]), rec["title"]
 
@@ -204,8 +216,7 @@ class Playback(Player):
         self.changed()
 
     def _set_current(self, rec_id: int) -> None:
-        rec = self.lib.get(rec_id)
-        self.current_id, self.duration = rec_id, (rec or {}).get("duration_s") or 0.0
+        self.current_id = rec_id
 
     # ---- the transport ----------------------------------------------------------------------------
     def start(self, items, from_s: float = 0.0, on_ready=None) -> None:
@@ -214,6 +225,9 @@ class Playback(Player):
 
     def _launch(self, items, from_s: float) -> None:
         self._run += 1
+        making = self.growing.get(Path(items[0][0]))
+        if making and self.changed not in making.listeners:  # the phone sees it come
+            making.listeners.append(self.changed)
         super()._launch(items, from_s)
         # From its beginning, or from the gap before it (the next piece, a loop of one), unless it is a seek there.
         self._from_start, self._going_on = from_s <= 0 and not self._going_on, False
@@ -221,6 +235,9 @@ class Playback(Player):
         self.ended = False
         if self.current_id is not None:
             self.lib.played(self.current_id)
+        self.changed()
+
+    def waited(self) -> None:
         self.changed()
 
     def pause(self) -> None:
@@ -276,7 +293,7 @@ class Playback(Player):
             ids = self._live()
             i = ids.index(self.current_id) if self.current_id in ids else -1
             if direction < 0:
-                begun = self.position - play.begin(self.current[0], 0.0, self.lead)  # heard, from where it began
+                begun = self.position - self.begin(self.current[0], 0.0)  # heard, from where it began
                 return (self.current_id if begun > RESTART_AFTER_S or i <= 0 else ids[i - 1]), "moved"
             if 0 <= i < len(ids) - 1:
                 return ids[i + 1], "moved"
@@ -367,7 +384,7 @@ class Playback(Player):
                 self.unshuffled = [i for i in self.unshuffled if i != rec_id]
             if rec_id == self.current_id:
                 super().stop()
-                self.current, self.current_id, self.duration, self.ended = None, None, 0.0, False
+                self.current, self.current_id, self.ended = None, None, False
         self.changed()
 
     def _live(self) -> list[int]:
