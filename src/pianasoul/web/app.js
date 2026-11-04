@@ -169,8 +169,26 @@ function listen() {
     else if (e.type === 'playlists') { if (!changing) setPlaylists(e.playlists); }  // changing: as it is here, until answered
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
   };
-  socket.onclose = () => setTimeout(() => load().then(listen, error => error.message === 'signed out' ? signedOut(true)
-                                                                                          : listen()), 2000);
+  // Asked again at once, and half a second later (a page back from the background finds the Mac as it was, even if its
+  // first request fails), then every 2 s; still not back after 1.5 s, the Mac is shown away.
+  socket.onclose = () => {
+    const shown = setTimeout(away, 1500);
+    let tries = 0;
+    const again = () => load().then(() => { clearTimeout(shown); listen(); }, error => {
+      if (error.message === 'signed out') { clearTimeout(shown); return signedOut(true); }
+      setTimeout(again, tries++ ? 2000 : 500);
+    });
+    again();
+  };
+}
+// The service stopped (the Mac app quitting or restarting it, the Mac restarting): what played stops where it was
+// heard, as paused, which is how the Mac has it when it is back (Playback keeps it); ▶ then goes on from there.
+function away() {
+  if (pb().state !== 'playing') return;
+  const at = position();
+  data.playback = {...pb(), state: 'paused', position: at, starts_in: 0, until: at};
+  heardAt = performance.now();
+  refresh();
 }
 async function load() {
   const transcribed = data.features.transcribe;
@@ -286,7 +304,9 @@ async function play(id, ids, scope, from, mode) {
     openPlayer();
   } catch { shake(from); }
 }
-const pausePiano = () => { if (pb().state === 'playing') control('toggle'); };
+const pausePiano = () => { if (pb().state === 'playing') control('pause'); };
+// ▶ or ⏸ as the button shows it: what the page shows is what a tap does, even when the page is behind (away).
+const playOrPause = from => control(pb().state === 'playing' ? 'pause' : 'play', null, null, from);
 function scopeName(scope) {
   if (scope.kind === 'conversation') {
     const c = data.conversations.find(x => x.id === scope.id);
@@ -1713,7 +1733,7 @@ $('#p-info').addEventListener('click', e => {
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);
 })();
-$('#p-toggle').addEventListener('click', e => control('toggle', null, null, e.currentTarget));
+$('#p-toggle').addEventListener('click', e => playOrPause(e.currentTarget));
 $('#p-fav').addEventListener('click', () => { const p = nowPiece(); if (p) favorite([p.id], !p.favorited_at); });
 $('#p-add').innerHTML = ICON.addTo;
 $('#p-add').addEventListener('click', () => { const p = nowPiece(); if (p) pickPlaylist([p.id]); });
@@ -1753,7 +1773,7 @@ $('#p-share').addEventListener('click', async e => {
   if (p && !await shareMidi(p)) shake(button);
 });
 $('#mini').addEventListener('click', openPlayer);
-$('#mini-toggle').addEventListener('click', e => { e.stopPropagation(); control('toggle', null, null, e.currentTarget); });
+$('#mini-toggle').addEventListener('click', e => { e.stopPropagation(); playOrPause(e.currentTarget); });
 
 // ---------- 播放列表 ----------
 function openQueue() {

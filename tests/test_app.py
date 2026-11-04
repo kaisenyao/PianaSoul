@@ -2,6 +2,7 @@
 No paid APIs, models or MIDI devices."""
 import contextlib
 import io
+import sqlite3
 import json
 import os
 from pathlib import Path
@@ -365,6 +366,62 @@ class PlaybackTests(Base):
                              first, 'Only the listener\'s volume, before the first note')
             self.assertEqual(sent[len(first)].type, 'note_on')
 
+    def test_what_plays_is_kept_as_the_service_stops_and_comes_back_paused_there(self):
+        a, b, c = self.ids
+        long = self.lib.add(make_midi(self.root / 'Music' / 'long.mid', seconds=120), 'Liszt - Liebestraum')['id']
+        ids = [a, long, b, c]
+        self.p.select(long, ids, {'kind': 'playlist', 'id': 7})
+        self.p.set_mode('shuffle')
+        shuffled, unshuffled = list(self.p.ids), list(self.p.unshuffled)
+        self.p._sent_to = 42.0  # sent up to 42 s: heard to there as the notes already sent finish
+        self.p.close()  # the service stops: the Mac app quits, say
+        again = Playback(self.lib, port=Mock())
+        self.addCleanup(again.close)
+        self.assertEqual(again.snapshot()['id'], None, 'Taken once the service is up (Core), not by any player')
+        again.resume()
+        snap = again.snapshot()
+        self.assertEqual((snap['id'], snap['state'], snap['ids'], snap['scope'], snap['mode'], again.unshuffled),
+                         (long, 'paused', shuffled, {'kind': 'playlist', 'id': 7}, 'shuffle', unshuffled))
+        self.assertEqual(snap['position'], 42.0, 'Where its sound stopped, not a lead before it')
+        self.assertEqual(self.lib.setting('kept_playback'), '', 'Taken once: a crash later brings back nothing')
+        with patch.object(again, 'start') as start:
+            again.toggle()
+        self.assertEqual((start.call_args.args[0][0][1], start.call_args.args[1]), ('Liszt - Liebestraum', 42.0),
+                         '▶ goes on from there')
+        again.set_mode('order')
+        self.assertEqual(again.ids, unshuffled, 'Shuffle off: the list in its own order again')
+
+    def test_what_comes_back_is_the_piece_in_the_library_whose_file_may_be_away_for_now(self):
+        a, b, c = self.ids
+        self.p.select(a, self.ids)
+        self.p.stop()
+        self.p.close()
+        stopped = Playback(self.lib, port=Mock())
+        stopped.resume()
+        self.assertEqual(stopped.snapshot()['id'], None, 'Stopped: nothing kept')
+        for deleted in (False, True):
+            self.p.select(b, self.ids)
+            self.p.pause()
+            self.p.close()
+            if deleted:  # deleted on the phone: no longer in the library
+                self.lib.delete(b)
+            else:  # renamed in Finder, say: the folder finds it again once it has been scanned
+                Path(self.lib.get(b)['midi_path']).unlink()
+            again = Playback(self.lib, port=Mock())
+            again.resume()
+            self.assertEqual((again.current_id, again.state), (None, 'stopped') if deleted else (b, 'paused'))
+            if not deleted:
+                with self.assertRaises(FileNotFoundError):  # as for any paused piece whose file is away
+                    again.toggle()
+                self.assertEqual(again.state, 'paused')
+                make_midi(Path(self.lib.get(b)['midi_path']))
+
+    def test_the_piano_stops_even_when_what_plays_cannot_be_kept(self):
+        self.p.select(self.ids[0], self.ids)
+        with patch.object(self.lib, 'set_setting', side_effect=sqlite3.OperationalError('database or disk is full')):
+            self.p.close()
+        self.assertEqual(self.p.state, 'stopped')
+
     def test_every_change_is_told(self):
         self.p.select(self.ids[0], self.ids)
         self.p.set_mode('one')
@@ -390,6 +447,17 @@ class ConversationTests(Base):
         self.assertTrue(c.get(cid)['pinned_at'])
         c.delete(cid)
         self.assertEqual(c.all(), [])
+
+    def test_the_pieces_played_in_it_by_number_in_their_order_each_once(self):
+        a, b, c = self.ids
+        conv = Conversations(self.lib)
+        cid = conv.create()
+        conv.add(cid, 'user', '弹晴天')
+        for rec in (b, a, b, None, c):
+            conv.add(cid, 'piece', 'a title', rec)
+        self.assertEqual(conv.played(cid), [b, a, c])
+        conv.forget(a)
+        self.assertEqual(conv.played(cid), [b, c], 'A piece that left the library is not among them')
 
     def test_search_finds_what_was_said_and_the_name(self):
         c = Conversations(self.lib)
@@ -1102,6 +1170,14 @@ class CoreTests(Base):
         core = Core(lib=self.lib, chat=(Scripted(), 'test'))
         self.addCleanup(core.close)
         return core
+
+    def test_what_played_when_the_service_stopped_comes_back_once_it_is_up(self):
+        p = Playback(self.lib, port=Mock())
+        with patch.object(Playback, 'play'), patch.object(p, 'check_connection'):
+            p.select(self.ids[1], self.ids)
+        p.close()
+        core = self.core()
+        self.assertEqual((core.playback.current_id, core.playback.state), (self.ids[1], 'paused'))
 
     def test_she_is_made_with_online_search_only_when_it_is_on(self):
         """Her alone, Online Search & Transcription unticked in the Mac app (PIANASOUL_TRANSCRIBE=0, the advanced extra

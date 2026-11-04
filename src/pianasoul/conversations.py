@@ -108,6 +108,13 @@ class Conversations:
         found = self.all()
         return found[0] if found else None
 
+    def played(self, conversation_id: int) -> list[int]:
+        """The pieces she played in it, by their numbers in the library (never looked up again by name), in the order
+        first played, each once; a piece that left the library is not among them (forget)."""
+        rows = self.lib.execute("SELECT recording_id FROM messages WHERE conversation_id = ? AND role = 'piece' "
+                                "AND recording_id IS NOT NULL ORDER BY id", (conversation_id,))
+        return list(dict.fromkeys(r[0] for r in rows))
+
     def history(self, conversation_id: int) -> list[tuple[str, str]]:
         """The conversation as the chat model reads it again: (role, text), with each piece as a line of hers."""
         lines = []

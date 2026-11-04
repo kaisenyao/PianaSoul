@@ -42,7 +42,14 @@ CASES = [
     ('我最近什么歌听得最多？', 'info'),
     ('有些老歌好久没听了，你帮我翻一翻吧。', 'info'),
     ('今天有点累，陪我聊聊天吧。', 'chat'),
+    # This conversation's pieces (she played 贝加尔湖畔, then 月光): again from the first, or kept as a playlist,
+    # which leaves what plays as it is; and one of the playlists renamed.
+    ('把这段聊天里的歌从头放一遍', 'replay_chat'),
+    ('Play the songs from this chat again, from the first one.', 'replay_chat'),
+    ('把刚才聊天里弹过的曲子整理成一个歌单吧', 'chat_playlist'),
+    ('把歌单「睡前」改名叫「晚安曲」', 'rename'),
 ]
+CHAT_CASES = {'replay_chat', 'chat_playlist', 'rename'}  # in a conversation where she played both pieces
 ENGLISH_TITLES = [expected.split(':', 1)[1] for _, expected in CASES if expected.startswith('library:')]
 
 
@@ -81,11 +88,19 @@ def main():
             original = fixture.a.run_tool
             def safe_tool(name, arguments):
                 trace.append((name, arguments))
-                if name not in {'control_playback', 'search_library', 'play_recording', 'library_info'}:
+                if name not in {'control_playback', 'search_library', 'play_recording', 'library_info', 'play_playlist',
+                                'replay_conversation', 'save_conversation_as_playlist', 'rename_playlist'}:
                     return json.dumps({'error': 'Only playback and the library are enabled in this test.'})
                 return original(name, arguments)
             fixture.a.run_tool = safe_tool
             chat, label = make_chat(instructions(), TOOLS)
+            baikal, moon = (r['id'] for r in fixture.records)
+            if expected in CHAT_CASES:
+                for asked, rec in (('弹一下李健的贝加尔湖畔', baikal), ('再来一首德彪西的月光', moon)):
+                    fixture.a.keep('user', asked)
+                    fixture.a.keep('piece', fixture.lib.get(rec)['title'], rec)
+                chat.load(fixture.a.conversations.history(fixture.a.conversation_id))
+                fixture.lib.new_playlist('睡前', [moon])
             answer = fixture.a.ask(chat, text)
             if fixture.player._thread: fixture.player._thread.join()
             player, pending = fixture.player, fixture.a.pending
@@ -108,6 +123,16 @@ def main():
                 looked = any(name == 'library_info' for name, _ in trace)
                 played = any(name in {'play_recording', 'control_playback'} for name, _ in trace)
                 okay = player.state == 'paused' and player.position == 22 and not played and (looked or expected == 'chat')
+            elif expected == 'replay_chat':
+                okay = 'replay_conversation' in [name for name, _ in trace] and player.state == 'playing' \
+                    and player._from == 0 and player.current[1] == '贝加尔湖畔' and player.ids == [baikal, moon]
+            elif expected == 'chat_playlist':
+                made = [pl for pl in fixture.lib.playlists() if pl['name'] != '睡前']
+                okay = len(made) == 1 and made[0]['ids'] == [baikal, moon] and made[0]['name'] in answer \
+                    and ('2' in answer or '两' in answer) and player.state == 'paused' and player.position == 22
+            elif expected == 'rename':
+                okay = [pl['name'] for pl in fixture.lib.playlists()] == ['晚安曲'] and player.state == 'paused' \
+                    and player.position == 22
             elif expected == 'cancel':
                 okay = player.state == 'stopped' and pending is None
             else:

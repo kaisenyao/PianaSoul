@@ -11,7 +11,7 @@ import threading
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import mido
 import numpy as np
@@ -100,6 +100,11 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/playback', json={'action': 'next'}).json()['id'], b)
         self.assertEqual(self.client.post('/api/playback', json={'action': 'mode', 'value': 'one'}).json()['mode'], 'one')
         self.assertEqual(self.client.post('/api/playback', json={'action': 'toggle'}).json()['state'], 'paused')
+        self.assertEqual(self.client.post('/api/playback', json={'action': 'pause'}).json()['state'], 'paused',
+                         'As the button showed it: a page behind on what plays never does the opposite')
+        self.assertEqual(self.client.post('/api/playback', json={'action': 'play'}).json()['state'], 'playing')
+        self.assertEqual(self.client.post('/api/playback', json={'action': 'play'}).json()['state'], 'playing')
+        self.client.post('/api/playback', json={'action': 'pause'})
         self.assertEqual(self.client.post('/api/playback', json={'action': 'seek', 'value': 0.5}).json()['position'], 0.5)
         self.assertEqual(self.client.post('/api/playback', json={'action': 'jump'}).status_code, 400)
         with patch.object(self.core.playback, 'check_connection', side_effect=LookupError('gone')):
@@ -642,7 +647,7 @@ class StartTests(unittest.TestCase):
              patch('pianasoul.web_tls.fingerprint', return_value='AB CD EF'), \
              patch.object(server, 'listen', side_effect=lambda port: Mock(port=port)) as listened, \
              patch.object(server, 'write_pairing'), patch.object(server, 'certificate_page'), \
-             patch('uvicorn.Config') as config, patch('uvicorn.Server') as served, \
+             patch('uvicorn.Config') as config, patch.object(server, 'serving') as served, \
              patch('builtins.print') as shown, patch.object(server, 'TOKEN', server.TOKEN), \
              patch.object(server, 'core', None), patch.object(server.sys, 'platform', 'darwin'), \
              patch.object(server.subprocess, 'run') as opened:
@@ -690,6 +695,16 @@ class StartTests(unittest.TestCase):
             self.start(['--app'], her=False, new=False, serving=handed_back)
         self.assertEqual(ended.exception.code, 0)
         self.core_made.return_value.close.assert_called_once()
+
+    def test_as_the_service_begins_to_stop_the_piece_is_paused_where_it_is_heard(self):
+        import asyncio
+        import uvicorn
+        with patch.object(uvicorn.Server, '__init__', return_value=None), \
+             patch.object(uvicorn.Server, 'shutdown', new_callable=AsyncMock) as stopped, \
+             patch.object(server, 'core') as core:
+            asyncio.run(server.serving(Mock()).shutdown())
+        core.playback.pause.assert_called_once()
+        stopped.assert_awaited_once()
 
     def test_token_is_kept_privately_across_restarts(self):
         with tempfile.TemporaryDirectory() as tmp, patch('pianasoul.library.DATA_DIR', Path(tmp)):

@@ -212,6 +212,75 @@ class HerPlaylistTests(Base):
         self.assertIsNone(self.p.current_id)
         self.assertTrue(self.lib.playlist(gone)['ids'], 'The playlist keeps it, for when its file is back')
 
+    def chat_with(self, *pieces):
+        """A conversation in which she played these pieces, in this order."""
+        self.a.keep('user', '弹几首给我听')
+        for rec in pieces:
+            self.a.keep('piece', self.lib.get(rec)['title'], rec)
+
+    def test_she_plays_this_conversations_pieces_again_in_their_order(self):
+        a, b, c = self.ids
+        self.chat_with(b, a, b)
+        said = []
+        chat = Scripted([self.call('replay_conversation')])
+        self.a.ask(chat, '把这段聊天里的歌从头放一遍', speak=lambda text, meanwhile=False: said.append(text))
+        self.assertEqual((self.p.current_id, self.p.ids, self.p.scope, self.p.mode),
+                         (b, [b, a], {'kind': 'conversation', 'id': self.a.conversation_id}, 'order'))
+        self.assertIn('好呀，把这段聊天里的曲子从头再弹一遍～', said, 'Her line, as for a playlist')
+        again = self.a.replay_conversation()
+        self.assertEqual((again['pieces'], self.p.ids), (2, [b, a]), 'The piece it started again is not one more')
+
+    def test_she_keeps_this_conversations_pieces_as_a_playlist_and_what_plays_goes_on(self):
+        a, b, c = self.ids
+        self.chat_with(c, a)
+        self.p.select(b, [b])
+        told = []
+        self.a.on_playlists = lambda: told.append(True)
+        result = self.a.save_conversation_as_playlist('雨天的钢琴')
+        made = self.lib.playlists()[0]
+        self.assertEqual(result, {'status': 'created', 'name': '雨天的钢琴', 'pieces': 2})
+        self.assertEqual((made['name'], made['ids']), ('雨天的钢琴', [c, a]))
+        self.assertEqual((self.p.current_id, self.p.state), (b, 'playing'), 'What plays goes on')
+        self.assertEqual(told, [True], 'The phone is told')
+        self.assertEqual(self.a.save_conversation_as_playlist('雨天的钢琴')['error'], 'playlist_exists')
+
+    def test_said_with_a_replay_her_words_still_name_the_playlist_she_made(self):
+        a, b, c = self.ids
+        self.chat_with(a, b)
+        said = []
+        chat = Scripted([self.call('replay_conversation'), self.call('save_conversation_as_playlist', name='雨天')],
+                        '歌单《雨天》也建好啦，一共 2 首～')
+        answer = self.a.ask(chat, '从头放一遍，再整理成歌单', speak=lambda text, meanwhile=False: said.append(text))
+        self.assertEqual(answer, '歌单《雨天》也建好啦，一共 2 首～', 'Not only her line for the replay')
+        self.assertEqual(said[-1], '好呀，把这段聊天里的曲子从头再弹一遍～')
+
+    def test_a_piece_whose_file_is_away_is_kept_in_the_playlist_and_left_out_of_a_replay(self):
+        a, b, c = self.ids
+        self.chat_with(a, b)
+        Path(self.lib.get(b)['midi_path']).unlink()
+        self.assertEqual(self.a.save_conversation_as_playlist('雨天')['pieces'], 2, 'As the library\'s playlists do')
+        self.assertEqual(self.lib.playlists()[0]['ids'], [a, b])
+        self.a.replay_conversation()
+        self.assertEqual(self.p.ids, [a], 'A replay plays: only what can')
+
+    def test_she_renames_a_playlist(self):
+        a, b, c = self.ids
+        pid = self.lib.new_playlist('雨天', [a])['id']
+        self.lib.edit_playlist(pid, '雨天', '下雨时听')
+        self.lib.new_playlist('睡前', [b])
+        self.assertEqual(self.a.rename_playlist('雨天', '窗外的雨'), {'status': 'renamed', 'name': '窗外的雨'})
+        self.assertEqual((self.lib.playlist(pid)['name'], self.lib.playlist(pid)['description']), ('窗外的雨', '下雨时听'))
+        self.assertEqual(self.a.rename_playlist('窗外的雨', '睡前')['error'], 'playlist_exists')
+        self.assertEqual(self.a.rename_playlist('不存在', '新的')['error'], 'playlist_not_found')
+        self.assertEqual(self.a.rename_playlist('窗外的雨', '窗外的雨 ')['status'], 'renamed', 'Its own name again')
+
+    def test_a_conversation_with_no_piece_has_nothing_to_play_again_or_keep(self):
+        self.a.keep('user', '你好')
+        for result in (self.a.replay_conversation(), self.a.save_conversation_as_playlist('空')):
+            self.assertEqual(result, {'error': 'conversation_empty'})
+        self.assertEqual(self.a.playback_reply({'error': 'conversation_empty'}), '这段聊天里还没弹过曲子呢，想听什么告诉我～')
+        self.assertEqual(self.lib.playlists(), [])
+
     def test_with_the_piano_away_she_plays_the_playlist_once_it_is_back(self):
         a, b, c = self.ids
         pid = self.lib.new_playlist('睡前', [b, c])['id']

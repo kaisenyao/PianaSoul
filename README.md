@@ -231,7 +231,9 @@ The app, voice and chat are one assistant, with one library and one set of conve
   a follow-up within six seconds of her reply needs none, unless the piano is playing: its sound would be taken for
   speech. Tap again and she is gray, which is off. Drag right from the orb for the library, your playlists and her conversations, left for the
   player. Make a playlist from any piece (touch and hold it, then Add to Playlist), and play it from its page or by
-  asking her ("play my bedtime playlist"). Settings > How to Use explains the rest.
+  asking her ("play my bedtime playlist"). She can also play the pieces of a conversation again, in their order
+  ("play this chat's songs again"), keep them as a playlist that she names, and rename a playlist when asked.
+  Settings > How to Use explains the rest.
 
 - **Voice.** Say "Hey Jasmine" (or "Xiǎomíng Tóngxué"), then a piece: "Hey Jasmine, play Clair de Lune". "Stop",
   "continue", "start over", "next", "previous", "louder", "softer" and "bye" act at once, in English or Chinese. A
@@ -354,13 +356,16 @@ A request goes: speech recognition, then the assistant with your library, then a
 then the notes. A new piece is searched for while you wait, then downloaded and transcribed in the background; it
 plays once it is there.
 
+What plays is kept when the service stops (the Mac app quits, the Mac restarts): the next start has the piece paused
+where it was heard, with its list, and play goes on from there. The phone shows it paused as soon as the Mac is away.
+
 - **Her words.** What always goes the same way (a control done, a volume step, a notice about the piano, goodbye)
   she says in a ready-made line from `src/pianasoul/lines.py`, recorded once in her voice. Everything else the model
   words.
 
 - **Playing safely.** The model can only play pieces that a library search, a look at your library or a
-  transcription returned in the same request, one of the pieces she prepared lately, or one of your playlists by its
-  name, so it cannot play something it made up. Short requests such as "stop" are done without the model.
+  transcription returned in the same request, one of the pieces she prepared lately, one of your playlists by its
+  name, or the pieces she played in the conversation, so it cannot play something it made up. Short requests such as "stop" are done without the model.
 
 - **Another chat model.** Anthropic can do the chat: set `PIANASOUL_MODEL=anthropic:claude-haiku-5-5` and
   `ANTHROPIC_API_KEY`. Speech recognition still needs `OPENAI_API_KEY`.

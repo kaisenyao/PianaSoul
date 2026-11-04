@@ -7,7 +7,9 @@ when played from its start: play.begin), and otherwise goes to the one before; n
 下一首 does: Assistant.step). When the list is over, its first piece waits at 0:00 (ended), as an album does.
 
 Chat, voice and the phone all play through the one Playback, so they always agree on what is playing, and on its
-volume: set from any of them, kept in the library, and told to the piano before each piece.
+volume: set from any of them, kept in the library, and told to the piano before each piece. What plays is kept too
+as the service stops (the Mac app quitting, the Mac restarting, a restart for a key): the next start has it paused
+where it was heard, its list and mode with it, and ▶ goes on from there.
 
 It plays on the output chosen in the app, kept in the library by its unique ID (and name). One that is offline is
 waited for, never swapped for another, even of the same name; only when its ID is gone from the Mac altogether (an
@@ -31,6 +33,7 @@ from .play import GAP_S, Output, Player
 log = logging.getLogger(__spec__.name)
 MODES = ("order", "one", "shuffle")
 RESTART_AFTER_S = 3.0  # ⏮ this long after a piece began starts it over
+KEPT = "kept_playback"  # the library setting what plays is kept in from one run to the next (close, resume)
 DEFAULT_VOLUME = 80  # percent, until one is chosen: about where MIDI's own default (100 of 127) is
 PLAY_S = 30.0  # heard this long, a piece of unknown length counts as played
 
@@ -384,6 +387,57 @@ class Playback(Player):
                 pass
         self.ended = True
         self.changed()
+
+    # ---- from one run to the next ---------------------------------------------------------------------
+    def close(self) -> None:
+        """Stop, the notes already sent finishing, and close the output; what plays is kept for the next start. A
+        piece playing is paused first, as for ▶ after any pause: kept where its sound stops, the notes sent ahead
+        (a lead) heard once."""
+        try:
+            with self._lock:
+                if self.state == "playing":
+                    super().pause()
+                self._keep()
+        finally:
+            super().close()
+
+    def _keep(self) -> None:
+        """The piece paused, where it goes on, its list and mode, kept in the library; nothing paused (stopped, the
+        list over), nothing is kept."""
+        kept = ""
+        if self.current_id is not None and self.state == "paused":
+            kept = json.dumps({"id": self.current_id, "position": self._offset, "ids": self.ids,
+                               "unshuffled": self.unshuffled, "scope": self.scope, "mode": self.mode})
+        try:
+            self.lib.set_setting(KEPT, kept)
+        except sqlite3.Error as exc:  # what plays not kept is less than the piano not stopping
+            log.warning("what plays was not kept for the next start: %s", exc)
+
+    def resume(self) -> None:
+        """What played when the service last stopped, paused where it was, without a sound (close): once the service
+        is up (Core), so that a start that fails takes nothing. Taken once: a service that ends without stopping (a
+        crash) brings back nothing from before. A piece no longer in the library brings back nothing; one whose file
+        is not there yet (moved, renamed, on a disk not mounted) waits paused, as it would at any time, until the
+        folder finds it."""
+        saved = self.lib.setting(KEPT, "")
+        if not saved:
+            return
+        self.lib.set_setting(KEPT, "")
+        try:
+            kept = json.loads(saved)
+            rec = self.lib.get(kept["id"])
+            _check_mode(kept["mode"])
+            position = max(0.0, float(kept["position"]))
+        except (ValueError, KeyError, TypeError):
+            return
+        if rec is None:  # deleted meanwhile
+            return
+        self._set_current(rec["id"])
+        self.current = Path(rec["midi_path"]), rec["title"]
+        self.mode, self.scope = kept["mode"], dict(kept["scope"] or {})
+        self.ids, self.unshuffled = list(dict.fromkeys(kept["ids"] or [kept["id"]])), kept["unshuffled"]
+        self.state, self._offset = "paused", min(position, self.duration or position)
+        log.debug("paused where it was when the service stopped: %s at %s", rec["title"], play.clock(self._offset))
 
     # ---- the end of a piece -------------------------------------------------------------------------
     def after_run(self) -> None:

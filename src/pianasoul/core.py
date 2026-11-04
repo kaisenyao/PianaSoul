@@ -54,6 +54,7 @@ class Core:
             self.assistant.restore(self.chat)
             self.assistant.on_message = lambda message: self.emit({"type": "message", "message": message})
             self.assistant.on_busy = self._busy_changed
+            self.assistant.on_playlists = self.playlists_changed
             self.worker = Worker()  # typed requests, in order
         self.playback.listeners.append(self._playback_changed)
         self.downloads.listeners.append(self._downloads_changed)
@@ -74,6 +75,7 @@ class Core:
         if self.assistant:
             self._name.set()
             threading.Thread(target=self._name_pieces, daemon=True).start()
+        self.playback.resume()  # last: a Core that failed to start has taken nothing
 
     def emit(self, event: dict) -> None:
         for listener in list(self.listeners):

@@ -189,6 +189,18 @@ def end_with_the_app(stdin=sys.stdin, patience: float = 10) -> None:
     threading.Thread(target=watch, name='app', daemon=True).start()
 
 
+def serving(config):
+    """uvicorn's server, which pauses the piece as it begins to stop: kept where it is heard then (Playback.close),
+    and the phones told so, while the connections still open are given their time to close."""
+    import uvicorn
+
+    class Serving(uvicorn.Server):
+        async def shutdown(self, sockets=None):
+            core.playback.pause()
+            await super().shutdown(sockets)
+    return Serving(config)
+
+
 def voice_parts() -> VoiceParts:
     """Loaded once per server, so that the orb starts quickly."""
     global _parts
@@ -365,14 +377,20 @@ def play(id: int = Body(), ids: list[int] = Body(default=[]), scope: dict = Body
 @app.post('/api/playback')
 def playback(action: str = Body(embed=True), value: float | str | None = Body(default=None, embed=True),
              index: int | None = Body(default=None, embed=True)):
-    """▶/⏸ (toggle), ✕ (stop: back to 0:00), ⏮ (prev), ⏭ (next), seek (value: seconds), mode (value), remove or
-    move (value: an id), volume (value: percent)."""
+    """▶ (play) and ⏸ (pause) as the button showed them, so that a page behind on what plays still does what it
+    showed; toggle (the Mac's menu); ✕ (stop: back to 0:00), ⏮ (prev), ⏭ (next), seek (value: seconds), mode
+    (value), remove or move (value: an id), volume (value: percent)."""
     p = core.playback
-    if action in {'toggle', 'stop', 'prev', 'next', 'seek'}:
+    if action in {'play', 'pause', 'toggle', 'stop', 'prev', 'next', 'seek'}:
         _tapped()
     try:
         if action == 'toggle':
             p.toggle()
+        elif action == 'play':
+            if p.state != 'playing':
+                p.toggle()
+        elif action == 'pause':
+            p.pause()
         elif action == 'stop':
             p.stop()
         elif action in {'prev', 'next'}:
@@ -1009,6 +1027,11 @@ def main(argv=None):
     from .core import Core, installed, transcription_state, version as running
     from .library import DATA_DIR, move_old_library
     from .web_tls import CA_FILE, fingerprint, local_name, prepare_https
+    # SIGTERM (the Mac app quitting) or Control+C, from the start: an exit, never at once, so that once the core is made
+    # it is closed (the finally below): the notes already sent finish, and what plays is kept. While serving, uvicorn
+    # stops first, then hands the signal back.
+    for stop in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(stop, lambda *_: sys.exit(0))
     sockets = listen(PORT), listen(CERT_PORT)  # first: nothing starts while another PianaSoul runs
     if args.app:
         end_with_the_app()
@@ -1030,52 +1053,48 @@ def main(argv=None):
     except Exception as exc:  # her chat model did not start
         her, why = False, f'her chat model did not start: {exc}'
         core = Core(assistant=False)
-    version = running()
-    print('Features: ' + '; '.join([
-        f'transcription and online search {transcription_state()}',
-        f'her {"on" if her else f"off ({why})"}']), flush=True)
-    tls = DATA_DIR / 'phone-tls'
     try:
-        host, new = prepare_https(tls)
-    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-        parser.exit(2, f'Cannot set up HTTPS: {exc}\n')
-    _where = host, tls
-    write_pairing()
-    certificate_page(tls, sockets[1])
-    # The address with its token is a key to the library: shown in a terminal, but never in the Mac app's log.
-    address = f'https://{host}:{PORT}/' + ('' if args.app else f'#token={TOKEN}')
-    print(voice_parts().describe(core.label, 'app', address=address) if her else
-          startup('app', library=f'{core.lib.count()} piece(s) in {core.lib.music_dir}', address=address), flush=True)
-    if new and not args.app:  # the one step by hand, shown only now: the iPhone learns to trust this Mac
-        print(f'\nFirst time on this Mac: let the iPhone trust it, once.\n\n'
-              f'  1. Send     Finder shows {CA_FILE}: right-click > Share > AirDrop\n'
-              f'  2. Install  iPhone Settings > General > VPN & Device Management > Install\n'
-              f'  3. Trust    Settings > General > About > Certificate Trust Settings\n'
-              f'              > turn on "PianaSoul on {local_name().removesuffix(".local")}"\n'
-              f'  4. Open     the address above in Safari > Share > Add to Home Screen\n\n'
-              f'  The file: {tls / CA_FILE}\n'
-              f'  Or open http://{host}:{CERT_PORT}/ on the phone: it shows how.\n'
-              f'  Its SHA-256 fingerprint, the same as in the phone\'s certificate details:\n'
-              f'  {fingerprint(tls)}\n', flush=True)
-        if sys.platform == 'darwin':
-            subprocess.run(['open', '-R', str(tls / CA_FILE)], check=False)
-    if not args.app:
-        said = ' or '.join(f'"{w}"' for w in voice_parts().wake.words) if her else ''
-        print('Keep the address private.\n' + (f'Tap the orb and say {said}, then your request. ' if her else '') +
-              'Control+C quits.\n', flush=True)
-    # Only what matters shows, as with ./run.sh voice: no request log, no "running on 0.0.0.0" to mistake for the
-    # address, and no error for quitting while a phone in the background never says goodbye (it stops in 2 s).
-    logging.getLogger('uvicorn.error').addFilter(
-        lambda record: 'timeout graceful shutdown exceeded' not in record.getMessage())
-    config = uvicorn.Config(app, ssl_certfile=str(tls / 'cert.pem'), ssl_keyfile=str(tls / 'key.pem'),
-                            ws=websocket_protocol(), ws_max_size=1 << 20, ws_max_queue=4, timeout_graceful_shutdown=2,
-                            log_level='warning')
-    # SIGTERM (the Mac app quitting) or Control+C: uvicorn stops serving, then hands the signal back. It ends the
-    # program as an exit, never at once, so that the piano is closed first: the notes already sent finish.
-    for stop in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(stop, lambda *_: sys.exit(0))
-    try:
-        uvicorn.Server(config).run(sockets=[sockets[0]])
+        version = running()
+        print('Features: ' + '; '.join([
+            f'transcription and online search {transcription_state()}',
+            f'her {"on" if her else f"off ({why})"}']), flush=True)
+        tls = DATA_DIR / 'phone-tls'
+        try:
+            host, new = prepare_https(tls)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            parser.exit(2, f'Cannot set up HTTPS: {exc}\n')
+        _where = host, tls
+        write_pairing()
+        certificate_page(tls, sockets[1])
+        # The address with its token is a key to the library: shown in a terminal, but never in the Mac app's log.
+        address = f'https://{host}:{PORT}/' + ('' if args.app else f'#token={TOKEN}')
+        print(voice_parts().describe(core.label, 'app', address=address) if her else
+              startup('app', library=f'{core.lib.count()} piece(s) in {core.lib.music_dir}', address=address), flush=True)
+        if new and not args.app:  # the one step by hand, shown only now: the iPhone learns to trust this Mac
+            print(f'\nFirst time on this Mac: let the iPhone trust it, once.\n\n'
+                  f'  1. Send     Finder shows {CA_FILE}: right-click > Share > AirDrop\n'
+                  f'  2. Install  iPhone Settings > General > VPN & Device Management > Install\n'
+                  f'  3. Trust    Settings > General > About > Certificate Trust Settings\n'
+                  f'              > turn on "PianaSoul on {local_name().removesuffix(".local")}"\n'
+                  f'  4. Open     the address above in Safari > Share > Add to Home Screen\n\n'
+                  f'  The file: {tls / CA_FILE}\n'
+                  f'  Or open http://{host}:{CERT_PORT}/ on the phone: it shows how.\n'
+                  f'  Its SHA-256 fingerprint, the same as in the phone\'s certificate details:\n'
+                  f'  {fingerprint(tls)}\n', flush=True)
+            if sys.platform == 'darwin':
+                subprocess.run(['open', '-R', str(tls / CA_FILE)], check=False)
+        if not args.app:
+            said = ' or '.join(f'"{w}"' for w in voice_parts().wake.words) if her else ''
+            print('Keep the address private.\n' + (f'Tap the orb and say {said}, then your request. ' if her else '') +
+                  'Control+C quits.\n', flush=True)
+        # Only what matters shows, as with ./run.sh voice: no request log, no "running on 0.0.0.0" to mistake for the
+        # address, and no error for quitting while a phone in the background never says goodbye (it stops in 2 s).
+        logging.getLogger('uvicorn.error').addFilter(
+            lambda record: 'timeout graceful shutdown exceeded' not in record.getMessage())
+        config = uvicorn.Config(app, ssl_certfile=str(tls / 'cert.pem'), ssl_keyfile=str(tls / 'key.pem'),
+                                ws=websocket_protocol(), ws_max_size=1 << 20, ws_max_queue=4, timeout_graceful_shutdown=2,
+                                log_level='warning')
+        serving(config).run(sockets=[sockets[0]])
     finally:
         core.close()
     return 0

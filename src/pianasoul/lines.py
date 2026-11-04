@@ -22,6 +22,10 @@ LINES = {
     "playlist": {"zh": ["好呀，这就放你的歌单《{piece}》。", "来啦，歌单《{piece}》开始咯～"],
                  "en": ["Here's your playlist {piece}.", "Playing your playlist {piece}."]},
     "playlist_shuffled": {"zh": ["好呀，随机播放你的歌单《{piece}》。"], "en": ["Shuffling your playlist {piece}."]},
+    # This conversation's pieces again, from the first; or none played in it yet
+    "replay": {"zh": ["好呀，把这段聊天里的曲子从头再弹一遍～"], "en": ["Here are this conversation's pieces again, from the first."]},
+    "conversation_empty": {"zh": ["这段聊天里还没弹过曲子呢，想听什么告诉我～"],
+                           "en": ["We haven't played anything in this conversation yet. What would you like to hear?"]},
     "resume": {"zh": ["来啦，我们接着弹。", "好呀，接着给你弹。"],
                "en": ["Of course, let's carry on.", "Here we go, picking up where we left off."]},
     "restart": {"zh": ["好，那我从头再给你弹一遍。", "没问题，我们从头开始。"],

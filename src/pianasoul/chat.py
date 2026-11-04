@@ -41,7 +41,9 @@ MAX_TOOL_ROUNDS = 8
 MATCH_SCORE = 2.0  # a library match on a whole word (two characters or more), not on one character by chance
 VOLUME_STEP = 10  # percent, for "louder" and "softer"
 LIST_MOST, OVERVIEW_MOST, MOST_PLAYED = 40, 15, 20  # library_info: pieces in one answer, artists in its overview, most played
-ACTIONS = {"play_recording", "control_playback", "play_playlist", "set_volume"}  # tools that do something she then confirms
+ACTIONS = {"play_recording", "control_playback", "play_playlist", "replay_conversation", "set_volume",
+           "save_conversation_as_playlist", "rename_playlist"}  # tools that do something she then confirms
+PLAYS = {"play_recording", "control_playback", "play_playlist", "replay_conversation"}  # their result, said with her line (playback_reply)
 WAITS = {"search_online": "searching"}  # a long step, and her line for it
 PREPARED_KEPT = 5  # the latest pieces she prepared in the background, remembered to be asked for
 # Typed to, she answers as a person texting would: her reply after a moment at least (the dots show meanwhile), and
@@ -121,6 +123,13 @@ ask; you may offer to.
 When the user asks for one of their own playlists (歌单; the application state lists their names), call play_playlist
 with its name as listed, shuffle=true if they ask to shuffle; do not search the library or online for it. If there is
 no such playlist, say which there are; if it has no pieces, say so.
+The pieces of this conversation are those you played in it, in that order (not those only asked about, found
+missing, or prepared and not played). When the user asks to hear them again ("把这段聊天里的歌从头放一遍"), call
+replay_conversation. When they ask to keep them as a playlist ("把这段聊天里的歌整理成歌单"), choose a short name that
+fits them, in the language you answer in, and call save_conversation_as_playlist; it does not change what plays. Then
+tell them its name and how many pieces it has, and that they can rename it anytime, here or on their phone
+("歌单建好啦，我暂时叫它《雨天的钢琴》，一共 8 首，想换名字随时告诉我～"). To rename one of their playlists, call
+rename_playlist. If this conversation has no pieces yet, say so.
 Use update_recording to correct a piece's names, or to add aliases (names in other languages) or tags, when useful.
 Never invent results: report only what the tools returned."""
 
@@ -224,6 +233,19 @@ TOOLS = [
                     "first piece in its order, or shuffled when asked. Not for a piece: use play_recording.",
      "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "shuffle": {"type": "boolean"}},
                     "required": ["name"], "additionalProperties": False}},
+    {"name": "replay_conversation",
+     "description": "Play again the pieces played in this conversation, in the order they were played, from the first: "
+                    "a list for now, not a playlist.",
+     "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"name": "save_conversation_as_playlist",
+     "description": "Make a new playlist (歌单) of the pieces played in this conversation, in their order, named as "
+                    "you choose. What plays does not change.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"}},
+                    "required": ["name"], "additionalProperties": False}},
+    {"name": "rename_playlist",
+     "description": "Rename one of the user's playlists, named as the application state lists them.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "new_name": {"type": "string"}},
+                    "required": ["name", "new_name"], "additionalProperties": False}},
     {"name": "control_playback",
      "description": "Control the current or pending piece using application-owned state. Never supply a recording ID. "
                     "pause keeps position (also for waiting/not ready); resume continues; restart starts at zero; retry repeats a failed attempt; "
@@ -314,14 +336,16 @@ REPLY_LINES = {  # a playback result, its error or status, and her line for it
     "recording_unavailable": "file_missing", "recording_not_found": "which_piece", "nothing_to_play": "what_to_play",
     "paused": "pause", "stopped": "cancel", "nothing is playing": "nothing_playing", "not_started": "ready",
     "not_ready": "not_ready", "link_not_ready": "link_not_ready", "nothing_next": "nothing_next",
+    "conversation_empty": "conversation_empty",
 }
 
 
 @dataclass(frozen=True)
 class PlaybackRequest:
     """A piece to play, from where. A request with a scope brings its own list (ids) and mode: a playlist, named
-    for her line; without one, the piece plays alone (the conversation is not a play queue). moved: a step in the
-    list that plays (next, previous, from_first, restart; her line), which stays as it is."""
+    for her line, or this conversation's pieces played again (replay); without one, the piece plays alone (the
+    conversation is not a play queue). moved: a step in the list that plays (next, previous, from_first, restart; her
+    line), which stays as it is."""
     path: Path
     title: str
     from_s: float = 0.0
@@ -331,6 +355,7 @@ class PlaybackRequest:
     scope: dict | None = None
     mode: str | None = None
     moved: str = ""
+    replay: bool = False
 
 
 class Assistant:
@@ -373,6 +398,7 @@ class Assistant:
         self.on_message = None  # called with each message kept in a conversation
         self.last_kept = None  # (conversation, role, text) of the latest message kept
         self.on_busy = None  # called with True when she starts on a request, False when she has answered
+        self.on_playlists = None  # called when she made or renamed a playlist
         self._turn = threading.RLock()  # one request at a time, typed or spoken
 
     # ---- the conversation ------------------------------------------------------------------------
@@ -579,7 +605,8 @@ class Assistant:
                     "instruction": "While you were getting it, the user changed what plays on their phone, so it was "
                                    "not started. Do not start it: say in a few words that it is ready whenever they "
                                    "want it."}
-        how = request.moved or (("playlist_shuffled" if request.mode == "shuffle" else "playlist") if request.playlist
+        how = request.moved or ("replay" if request.replay else
+                                ("playlist_shuffled" if request.mode == "shuffle" else "playlist") if request.playlist
                                 else "restart" if from_start else "resume" if request.from_s > 0 else "playing")  # lines.py
         announced = False
         try:
@@ -698,6 +725,58 @@ class Assistant:
             Path(first["midi_path"]), first["title"], recording_id=first["id"], playlist=found["name"],
             ids=tuple(p["id"] for p in pieces), scope={"kind": "playlist", "id": found["id"]},
             mode="shuffle" if shuffle else "order"))
+
+    def _conversation_pieces(self) -> list[dict]:
+        """The pieces of this conversation (Conversations.played) that can play: in the library, with their files."""
+        if self.conversation_id is None:
+            return []
+        recs = map(self.lib.get, self.conversations.played(self.conversation_id))
+        return [rec for rec in recs if rec and rec["file_exists"]]
+
+    def replay_conversation(self) -> dict:
+        """This conversation's pieces again, in their order, from the first: the list that plays now, in order."""
+        pieces = self._conversation_pieces()
+        if not pieces:
+            return {"error": "conversation_empty"}
+        first = pieces[0]
+        self._touch()
+        result = self._start(PlaybackRequest(
+            Path(first["midi_path"]), first["title"], recording_id=first["id"], ids=tuple(p["id"] for p in pieces),
+            scope={"kind": "conversation", "id": self.conversation_id}, mode="order", replay=True))
+        return result if result.get("error") else {**result, "pieces": len(pieces)}
+
+    def save_conversation_as_playlist(self, name: str) -> dict:
+        """A new playlist of this conversation's pieces, in their order, under the name she chose; what plays goes
+        on. As the library's playlists do, it keeps a piece whose file is away for now."""
+        ids = self.conversations.played(self.conversation_id) if self.conversation_id is not None else []
+        if not ids:
+            return {"error": "conversation_empty"}
+        found, playlists = self._playlist(name)
+        if found is not None:
+            return {"error": "playlist_exists", "playlists": [p["name"] for p in playlists]}
+        try:
+            made = self.lib.new_playlist(name, ids)
+        except ValueError as exc:  # no name, or too long
+            return {"error": str(exc)}
+        if self.on_playlists:
+            self.on_playlists()
+        return {"status": "created", "name": made["name"], "pieces": len(made["ids"])}
+
+    def rename_playlist(self, name: str, new_name: str) -> dict:
+        """One of the user's playlists under another name; its description stays."""
+        found, playlists = self._playlist(name)
+        if found is None:
+            return {"error": "playlist_not_found", "playlists": [p["name"] for p in playlists]}
+        other, _ = self._playlist(new_name)
+        if other is not None and other["id"] != found["id"]:
+            return {"error": "playlist_exists", "playlists": [p["name"] for p in playlists]}
+        try:
+            renamed = self.lib.edit_playlist(found["id"], new_name, found["description"])
+        except ValueError as exc:
+            return {"error": str(exc)}
+        if self.on_playlists:
+            self.on_playlists()
+        return {"status": "renamed", "name": renamed["name"]}
 
     def library_info(self, about: str = "overview", name: str = "") -> dict:
         """The user's library, to talk about it (library_info in TOOLS); the pieces it names may be played."""
@@ -964,6 +1043,7 @@ class Assistant:
         self.selectable_ids.clear()
         progress_spoken = False
         playback_announced = False
+        confirms = False  # an action besides playing (a playlist made, the volume): her words say it
         chinese = is_chinese(text)
         action = match_command(text)
         if action is not None:
@@ -1056,9 +1136,10 @@ class Assistant:
                         self.tell(line(WAITS[call.name], chinese), meanwhile=True)
                         progress_spoken = True
                     raw = self.run_tool(call.name, call.arguments)
+                    confirms = confirms or call.name in ACTIONS - PLAYS
                     library_searched = library_searched or call.name == "search_library"
                     results.append((call, raw))
-                    if call.name in {"play_recording", "control_playback", "play_playlist"}:
+                    if call.name in PLAYS:
                         playback_result = json.loads(raw)
                         if playback_result.get("error") in {"playback_connection_unavailable", "recording_unavailable", "recording_not_found", "nothing_to_play"}:
                             chat.discard_turn()  # the unfinished tool exchange; earlier turns and the pending piece stay
@@ -1068,7 +1149,7 @@ class Assistant:
                 reply = model_reply(chat.send_tool_results, results)
             if reply.tool_calls:  # still calling tools after MAX_TOOL_ROUNDS: give this request up
                 chat.discard_turn()
-            if playback_announced:
+            if playback_announced and not confirms:  # her line said it all as it began to play
                 return ""
             words = reply.text.strip()
             if said_ahead and words.startswith(said_ahead):  # given up with words said already, as it went on
