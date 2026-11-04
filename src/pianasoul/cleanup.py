@@ -20,6 +20,7 @@ LEGATO_MIN_DUR = 0.06      # leave grace notes and staccato alone
 LEGATO_MAX_DUR = 0.60      # leave long, phrase-ending notes alone
 LEGATO_OVERLAP = 0.02      # finger legato: hold 20 ms into the next note
 INNER_VOICE_HOLD = 0.05    # a higher key held 50 ms past this onset makes this an inner voice
+RESOLUTION, TEMPO = 960, 120.0  # every piece's MIDI file: ticks to a beat, and the beats a minute they are counted at
 
 
 @dataclass
@@ -167,7 +168,7 @@ def clean(midi: pretty_midi.PrettyMIDI, *, keep_soft_pedal: bool = False,
     if pedal_ramps:
         ccs = smooth_pedal(ccs, report)
 
-    out = pretty_midi.PrettyMIDI(resolution=960, initial_tempo=120.0)
+    out = pretty_midi.PrettyMIDI(resolution=RESOLUTION, initial_tempo=TEMPO)
     piano = pretty_midi.Instrument(program=0, name="Piano")
     piano.notes = sorted(notes, key=lambda n: (n.start, n.pitch))
     piano.control_changes = sorted(ccs, key=lambda c: c.time)

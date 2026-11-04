@@ -5,6 +5,8 @@ button): the same work on the same Mac. A recording put in the library folder is
 after everything asked for. Each piece has a status (queued, downloading, converting) and a progress that goes once
 round: the download is the first part of it, the transcription the rest, estimated from how fast this Mac
 transcribed before. A recording in the library folder (Library.audio) shows the status of its piece's making.
+
+The transcription's process starts with the piece, so its model loads while the recording downloads.
 """
 
 from __future__ import annotations
@@ -219,31 +221,34 @@ class Downloads:
 
     def _make(self, job: Job) -> dict:
         print(f"  · getting {job.title or job.source} ready…", flush=True)
-        if job.local:
-            return self._file(job, Path(job.source), {})
         from .download import download_audio, task_id
+        from .pipeline import Options, Transcription
 
         def progress(fraction: float) -> None:
             self._check(job)
             job.progress = DOWNLOAD_SHARE * fraction
             self.changed()
 
-        try:
-            started = time.monotonic()
-            audio, details = download_audio(job.source, AUDIO_DIR, progress)
-            log.debug("downloaded in %.1f s: %s", time.monotonic() - started, audio.name)
-            rec = self._file(job, audio, details)
-        except Exception:
-            if job.stopped.is_set():  # whatever the downloader made of the stop, nothing it got stays
-                for leftover in AUDIO_DIR.glob(f"{task_id(job.source)}.*"):
-                    leftover.unlink(missing_ok=True)
-                raise Stopped() from None
-            raise  # the audio stays for a retry
+        with tempfile.TemporaryDirectory() as made, \
+                Transcription(Path(made), Options(), output_name="piece", stopped=job.stopped) as apart:
+            if job.local:
+                return self._file(job, Path(job.source), {}, apart)
+            try:
+                started = time.monotonic()
+                audio, details = download_audio(job.source, AUDIO_DIR, progress)
+                log.debug("downloaded in %.1f s: %s", time.monotonic() - started, audio.name)
+                rec = self._file(job, audio, details, apart)
+            except Exception:
+                if job.stopped.is_set():  # whatever the downloader made of the stop, nothing it got stays
+                    for leftover in AUDIO_DIR.glob(f"{task_id(job.source)}.*"):
+                        leftover.unlink(missing_ok=True)
+                    raise Stopped() from None
+                raise  # the audio stays for a retry
         for leftover in AUDIO_DIR.glob(f"{audio.stem}.*"):  # no longer needed once the MIDI is in the library
             leftover.unlink(missing_ok=True)
         return rec
 
-    def _file(self, job: Job, audio: Path, details: dict) -> dict:
+    def _file(self, job: Job, audio: Path, details: dict, apart) -> dict:
         """The transcription starts at once; meanwhile the video's page is read (a YouTube video: its channel's
         picture and the rest, a second or two) and the piece named from what is known of it (the model, a second
         or two), and once both are done it is filed under its names."""
@@ -264,7 +269,7 @@ class Downloads:
         self._check(job)
         job.status = "converting"
         self.changed()
-        rec = self._transcribe(job, audio, job.video.get("duration_s") or details.get("duration_s") or 0, side)
+        rec = self._transcribe(job, audio, job.video.get("duration_s") or details.get("duration_s") or 0, side, apart)
         if details:
             self.lib.set_video(rec["id"], details)
             rec = self.lib.get(rec["id"])
@@ -284,10 +289,8 @@ class Downloads:
             setattr(job, name, getattr(job, name) or named.get(name, ""))
         job.artist, job.performer = self.lib.known_artist(job.artist), self.lib.known_artist(job.performer)
 
-    def _transcribe(self, job: Job, audio: Path, seconds: float, named: threading.Thread) -> dict:
+    def _transcribe(self, job: Job, audio: Path, seconds: float, named: threading.Thread, apart) -> dict:
         """The piece made, then filed under its names once named is done (_file)."""
-        from .pipeline import Options, convert_apart
-
         started, base = time.monotonic(), 0.0 if job.local else DOWNLOAD_SHARE
         ticking = threading.Event()
 
@@ -300,22 +303,21 @@ class Downloads:
         if seconds:
             threading.Thread(target=tick, daemon=True).start()
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                try:  # in a process of its own: the piece playing meanwhile goes on undisturbed
-                    info = convert_apart(audio, Path(tmp), Options(), output_name="piece", stopped=job.stopped)
-                except InterruptedError:
-                    raise Stopped() from None
-                took = time.monotonic() - started
-                log.debug("transcribed in %.1f s on %s: %.0f s of music", took, info.get("device"),
-                          info.get("audio_duration_s") or 0)
-                self._check(job)
-                named.join()
-                self._check(job)
-                if info.get("audio_duration_s"):  # the whole of it: its process and the model's loading too
-                    self._speed = took / info["audio_duration_s"]
-                return file_result(self.lib, Path(info["files"]["midi"]), job.title, composer=job.artist,
-                                   performer=job.performer, aliases=job.aliases, tags=job.tags,
-                                   source_type="local" if job.local else "url", source_url=job.source)
+            try:  # in a process of its own: the piece playing meanwhile goes on undisturbed
+                info = apart.convert(audio)
+            except InterruptedError:
+                raise Stopped() from None
+            took = time.monotonic() - started
+            log.debug("transcribed in %.1f s on %s: %.0f s of music", took, info.get("device"),
+                      info.get("audio_duration_s") or 0)
+            self._check(job)
+            named.join()
+            self._check(job)
+            if info.get("audio_duration_s"):  # the whole of it: its process and the model's loading too
+                self._speed = took / info["audio_duration_s"]
+            return file_result(self.lib, Path(info["files"]["midi"]), job.title, composer=job.artist,
+                               performer=job.performer, aliases=job.aliases, tags=job.tags,
+                               source_type="local" if job.local else "url", source_url=job.source)
         finally:
             ticking.set()
 

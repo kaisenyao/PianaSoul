@@ -37,6 +37,26 @@ def make_midi(path: Path, seconds: float = 1.0) -> Path:
     return path
 
 
+def transcription(convert):
+    """The transcription's process (pipeline.Transcription) stood in for by convert(audio, out, options, output_name,
+    stopped), which makes the piece whole (no parts); or by an error it fails with."""
+    class Apart:
+        def __init__(self, out, options, *, output_name=None, stopped=None):
+            self.given = out, options, output_name, stopped
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def convert(self, audio, part=None):
+            if isinstance(convert, Exception):
+                raise convert
+            return convert(audio, *self.given)
+    return patch('pianasoul.pipeline.Transcription', Apart)
+
+
 def piece_made(downloads: Downloads, source: str, **details) -> dict:
     """Queue a piece and wait for it: its library record, or {'error': ...}."""
     job = downloads.add(source, **details)
@@ -1177,7 +1197,7 @@ class DownloadTests(Base):
         details = {'video_title': '稻香 钢琴版', 'channel': 'MappleZS', 'views': 520000, 'published': '2020-01-02',
                    'thumbnail': 'https://i.ytimg.com/x.jpg'}
         with patch('pianasoul.download.download_audio', return_value=(audio, details)), \
-             patch('pianasoul.pipeline.convert_apart', side_effect=convert), \
+             transcription(convert), \
              patch('pianasoul.downloads._video_page', return_value={'channel_avatar': 'https://yt3/a.jpg'}):
             d = self.downloads(name_piece=lambda query, video, artists: {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS',
                                                                 'aliases': 'Rice Field'})
@@ -1199,7 +1219,7 @@ class DownloadTests(Base):
         with patch.object(online, 'resolved', return_value='https://m.bilibili.com/video/BV1We4y1g7sj/?share_source=x'), \
              patch.dict(online._avatars, {video: 'https://i1.hdslb.com/bfs/face/up.jpg'}), \
              patch('pianasoul.download.download_audio', return_value=(audio, {'video_title': '晴天 钢琴', 'channel': 'UP'})) as got, \
-             patch('pianasoul.pipeline.convert_apart', side_effect=convert):
+             transcription(convert):
             rec = piece_made(self.downloads(), 'https://b23.tv/AbCdEfG')
         self.assertEqual(got.call_args.args[0], video)
         self.assertEqual((rec['source_url'], rec['channel'], rec['channel_avatar']),
@@ -1210,7 +1230,7 @@ class DownloadTests(Base):
         audio.write_bytes(b'x')
         seen = []
         convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
-        with patch('pianasoul.pipeline.convert_apart', side_effect=convert):
+        with transcription(convert):
             d = self.downloads(name_piece=lambda query, video, artists: seen.append(video) or {'piece': '想见你', 'artist': '八三夭'})
             rec = piece_made(d, str(audio))
         self.assertEqual(seen[0]['file_name'], '想见你想见你想见你 钢琴', 'The model has its name to go on')
@@ -1229,7 +1249,7 @@ class DownloadTests(Base):
         audio.write_bytes(b'x')
         convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
         with patch('pianasoul.download.download_audio', return_value=(audio, {'video_title': '小幸運 鋼琴版'})), \
-             patch('pianasoul.pipeline.convert_apart', side_effect=convert), \
+             transcription(convert), \
              patch('pianasoul.downloads._video_page', return_value={}):
             d = self.downloads(name_piece=lambda query, video, artists: {'piece': '小幸运', 'artist': 'JerryC', 'performer': 'Melody'})
             rec = piece_made(d, 'https://youtu.be/abcdefghijk', artist='田馥甄', query='我想听小幸运')
@@ -1250,7 +1270,7 @@ class DownloadTests(Base):
             named.set()
             return {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS'}
         with patch('pianasoul.download.download_audio', return_value=(audio, {'video_title': '稻香 钢琴'})), \
-             patch('pianasoul.pipeline.convert_apart', side_effect=convert), \
+             transcription(convert), \
              patch('pianasoul.downloads._video_page', return_value={'channel_avatar': 'https://yt3/a.jpg'}):
             d = self.downloads(name_piece=name_piece)
             seen = []
@@ -1268,7 +1288,7 @@ class DownloadTests(Base):
             d.stop(jobs[0].id)
             return {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS'}
         with patch('pianasoul.download.download_audio', return_value=(audio, {})), \
-             patch('pianasoul.pipeline.convert_apart'), \
+             transcription(Mock()), \
              patch('pianasoul.downloads._video_page', return_value={}):
             d = self.downloads(name_piece=name_piece)
             jobs.append(d.add('https://youtu.be/abcdefghijk', query='稻香'))
@@ -1282,7 +1302,8 @@ class DownloadTests(Base):
             gate.wait(2)
             progress(0.5)  # the next step sees the stop
             raise AssertionError('not reached')
-        with patch('pianasoul.download.download_audio', side_effect=download):
+        with patch('pianasoul.download.download_audio', side_effect=download), \
+             transcription(AssertionError('not reached')):
             d = self.downloads()
             first = d.add('https://www.youtube.com/watch?v=aaaaaaaaaaa')
             second = d.add('https://www.youtube.com/watch?v=bbbbbbbbbbb')

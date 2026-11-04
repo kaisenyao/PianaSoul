@@ -1,11 +1,13 @@
 """Audio file -> raw MIDI -> cleaned MIDI + info.json; in this process (convert_file), or in one of its own
-(convert_apart, which runs this module)."""
+(Transcription, which runs this module), which can hand on the notes as they are made (parts)."""
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import os
+import queue
 import subprocess
 import sys
 import tempfile
@@ -17,10 +19,11 @@ from pathlib import Path
 import pretty_midi
 
 from .audio import load_audio
-from .cleanup import SUSTAIN, clean, pedal_intervals
+from .cleanup import RESOLUTION, SOFT, SUSTAIN, TEMPO, clean, pedal_intervals
 
 log = logging.getLogger(__spec__.name)
 EXTRAS_DIR = "extras"
+PART = '{"part": '  # how a part's line begins, among what Transcription's process says
 
 
 @dataclass
@@ -48,20 +51,41 @@ def summarize(midi: pretty_midi.PrettyMIDI) -> dict:
     }
 
 
-def transcribe_audio(engine, audio_path, options: Options):
-    """Run the model and clean-up. Returns (raw_midi, clean_midi, info)."""
+def transcribe_audio(engine, audio_path, options: Options, part=None):
+    """Run the model and clean-up. Returns (raw_midi, clean_midi, info). part(midi, until, length), when given, has
+    the clean notes as the model makes them (engine.TranskunEngine.transcribe: each time those that start before
+    until), and how long the recording is; the last, until math.inf, with what the clean-up of the whole adds at its
+    end. Together they are the clean MIDI: the clean-up goes a note at a time (legato and pedal ramps, which look at
+    the notes around, are for a whole piece only)."""
+    if part and (options.legato or options.pedal_ramps):
+        raise ValueError("legato and pedal ramps clean up a whole piece, not its parts")
     t0 = time.time()
     audio = load_audio(audio_path, engine.sample_rate)
+    length = len(audio) / engine.sample_rate
     t1 = time.time()
-    raw, device = engine.transcribe(audio)
+    last = []  # the last part, held for the clean-up of the whole
+
+    def in_parts(midi, until):
+        midi = clean(midi, keep_soft_pedal=options.keep_soft_pedal)[0]
+        if until == math.inf:
+            last.append(midi)
+        else:
+            part(midi, until, length)
+
+    raw, device = engine.transcribe(audio, in_parts if part else None, () if options.keep_soft_pedal else (SOFT,))
     t2 = time.time()
     cleaned, report = clean(raw, keep_soft_pedal=options.keep_soft_pedal,
                             legato=options.legato, pedal_ramps=options.pedal_ramps)
+    if part:
+        if report.final_pedal_release_added:  # the pedal down at the end: let up after the last note
+            last[0].instruments[0].control_changes.append(
+                max((c for c in cleaned.instruments[0].control_changes if c.number == SUSTAIN), key=lambda c: c.time))
+        part(last[0], math.inf, length)
     info = {
         "source": Path(audio_path).name,
         "engine": engine.version,
         "device": device,
-        "audio_duration_s": round(len(audio) / engine.sample_rate, 3),
+        "audio_duration_s": round(length, 3),
         "transcribe_seconds": round(t2 - t1, 1),
         "total_seconds": round(time.time() - t0, 1),
         "raw": summarize(raw),
@@ -85,42 +109,108 @@ def unique_path(path: Path, overwrite: bool) -> Path:
     raise RuntimeError(f"too many existing copies of {path}")
 
 
-def convert_apart(audio_path, out_dir, options: Options, *, output_name: str | None = None,
-                  stopped: threading.Event | None = None) -> dict:
+class Transcription:
     """convert_file in a process of its own, which ends with the piece (the model's memory with it): its loading and
     its work then never hold this process's interpreter, where the thread that sends the piano its notes must run on
     time (in the service's own process, a transcription held it for seconds at a time and the piece playing
-    stalled). What it says (the GPU failing over to the CPU, say) is passed on. InterruptedError once stopped is
-    set: the process is ended at once; it also ends by itself when this one does. RuntimeError with its error when it
-    fails."""
-    child = subprocess.Popen([sys.executable, "-I", "-B", "-m", __spec__.name, str(audio_path), str(out_dir),
-                              json.dumps(vars(options)), output_name or ""],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    while True:
+    stalled). It starts before its recording is there, so the model loads while the recording downloads. What it
+    says (the GPU failing over to the CPU, say) is passed on. It ends by itself when this process does, and at once
+    when closed (with) or stopped."""
+
+    def __init__(self, out_dir, options: Options, *, output_name: str | None = None,
+                 stopped: threading.Event | None = None):
+        self.stopped = stopped
+        self._child = subprocess.Popen([sys.executable, "-I", "-B", "-m", __spec__.name, str(out_dir),
+                                        json.dumps(vars(options)), output_name or ""],
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self._lines: queue.Queue = queue.Queue()  # what it says, line by line; None once it has said all
+        self._error: list[str] = []
+        self._readers = [threading.Thread(target=self._read, daemon=True),
+                         threading.Thread(target=lambda: self._error.append(self._child.stderr.read()), daemon=True)]
+        for reader in self._readers:
+            reader.start()
+
+    def _read(self) -> None:
+        for line in self._child.stdout:
+            self._lines.put(line.rstrip("\n"))
+        self._lines.put(None)
+
+    def __enter__(self) -> Transcription:
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def close(self) -> None:
+        if self._child.poll() is None:
+            self._child.kill()
+        self._child.wait()
+        for reader in self._readers:  # what it said is read to its end
+            reader.join()
+        for pipe in (self._child.stdin, self._child.stdout, self._child.stderr):
+            pipe.close()
+
+    def convert(self, audio_path, part=None) -> dict:
+        """The recording transcribed: its info, once the piece is made. part(midi, until, length), when given, has its
+        notes as they are made (transcribe_audio), on this thread. InterruptedError once stopped is set: the process
+        is ended at once. RuntimeError with its error when it fails."""
         try:
-            out, err = child.communicate(timeout=0.25)
-            break
-        except subprocess.TimeoutExpired:
-            if stopped is not None and stopped.is_set():
-                child.kill()
-                child.communicate()
-                raise InterruptedError("stopped") from None
-    lines = out.splitlines()
-    done = child.returncode == 0 and bool(lines)
-    for line in lines[:-1] if done else lines:
-        print(line, flush=True)
-    if not done:
-        raise RuntimeError(err.strip() or f"the transcription ended with {child.returncode}")
-    return json.loads(lines[-1])
+            self._child.stdin.write(json.dumps({"audio": str(audio_path), "parts": part is not None}) + "\n")
+            self._child.stdin.close()
+        except OSError:  # it has ended already: what it said says why
+            pass
+        said = None  # its latest line: its info, once it is done
+        while True:
+            if self.stopped is not None and self.stopped.is_set():
+                self.close()
+                raise InterruptedError("stopped")
+            try:
+                line = self._lines.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            if line is None:
+                break
+            if line.startswith(PART):
+                if part:
+                    part(*_part_heard(json.loads(line)["part"]))
+                continue
+            if said is not None:
+                print(said, flush=True)
+            said = line
+        self.close()
+        if self._child.returncode != 0 or said is None:
+            if said is not None:
+                print(said, flush=True)
+            error = "".join(self._error).strip()
+            raise RuntimeError(error or f"the transcription ended with {self._child.returncode}")
+        return json.loads(said)
+
+
+def _part_said(midi: pretty_midi.PrettyMIDI, until: float, length: float) -> str:
+    """A part (transcribe_audio's) as Transcription's process says it: one line, which _part_heard reads."""
+    piano = midi.instruments[0]
+    return PART + json.dumps({"until": None if until == math.inf else until, "length": length,
+                              "notes": [[n.start, n.end, n.pitch, n.velocity] for n in piano.notes],
+                              "controls": [[c.time, c.number, c.value] for c in piano.control_changes]}) + "}"
+
+
+def _part_heard(part: dict) -> tuple[pretty_midi.PrettyMIDI, float, float]:
+    midi = pretty_midi.PrettyMIDI(resolution=RESOLUTION, initial_tempo=TEMPO)
+    piano = pretty_midi.Instrument(program=0, name="Piano")
+    piano.notes = [pretty_midi.Note(velocity, pitch, start, end) for start, end, pitch, velocity in part["notes"]]
+    piano.control_changes = [pretty_midi.ControlChange(number, value, at) for at, number, value in part["controls"]]
+    midi.instruments.append(piano)
+    return midi, math.inf if part["until"] is None else part["until"], part["length"]
 
 
 def convert_file(engine, audio_path, out_dir, options: Options, overwrite: bool = False,
-                 *, output_name: str | None = None) -> dict:
+                 *, output_name: str | None = None, part=None) -> dict:
+    """part: as transcribe_audio's."""
     audio_path, out_dir = Path(audio_path), Path(out_dir)
     if output_name is not None and (not output_name or output_name in {".", ".."}
                                    or "/" in output_name or "\\" in output_name):
         raise ValueError("output_name must be a filename stem")
-    raw, cleaned, info = transcribe_audio(engine, audio_path, options)
+    raw, cleaned, info = transcribe_audio(engine, audio_path, options, part)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / EXTRAS_DIR).mkdir(exist_ok=True)
     midi_path = unique_path(out_dir / f"{output_name or audio_path.stem}.mid", overwrite)
@@ -141,7 +231,8 @@ def convert_file(engine, audio_path, out_dir, options: Options, overwrite: bool 
     return info
 
 
-if __name__ == "__main__":  # convert_apart's process: one piece, then its info as the last line
+if __name__ == "__main__":  # Transcription's process: the model, then the piece it is given, its info as the last line
+    import select
     import signal
     import warnings
 
@@ -158,9 +249,16 @@ if __name__ == "__main__":  # convert_apart's process: one piece, then its info 
     try:
         from .engine import TranskunEngine
 
-        audio_path, out_dir, options, name = sys.argv[1:5]
-        made = convert_file(TranskunEngine(), audio_path, out_dir, Options(**json.loads(options)),
-                            output_name=name or None)
+        out_dir, options, name = sys.argv[1:4]
+        engine = TranskunEngine()  # meanwhile, its recording comes
+        if engine.device == "mps" and not select.select([sys.stdin], [], [], 0)[0]:
+            engine.warm()  # while the recording is not there yet
+        task = sys.stdin.readline()
+        if not task:  # none after all (its download failed): nothing to do
+            sys.exit(0)
+        task = json.loads(task)
+        made = convert_file(engine, task["audio"], out_dir, Options(**json.loads(options)), output_name=name or None,
+                            part=(lambda *part: print(_part_said(*part), flush=True)) if task["parts"] else None)
     except Exception as exc:
-        sys.exit(str(exc))  # its error, whole, for convert_apart to say
+        sys.exit(str(exc))  # its error, whole, for Transcription to say
     print(json.dumps(made), flush=True)

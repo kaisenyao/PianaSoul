@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul.downloads import Downloads
 from pianasoul.library import Library, artist_key
-from test_app import Base, piece_made
+from test_app import Base, piece_made, transcription
 from test_library import make_midi
 
 JPEG = b'\xff\xd8\xff\xe0' + b'picture' * 10
@@ -86,7 +86,7 @@ class NewPieceTests(Base):
         audio.write_bytes(b'x')
         asked = []
         convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid', note=75))}}
-        with patch('pianasoul.pipeline.convert_apart', side_effect=convert):
+        with transcription(convert):
             d = Downloads(self.lib, name_piece=lambda query, video, artists: asked.append(artists) or
                                          {'piece': '稻香', 'artist': '周杰伦', 'performer': 'mapplezs'})
             rec = piece_made(d, str(audio))
