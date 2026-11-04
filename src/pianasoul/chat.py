@@ -583,9 +583,9 @@ class Assistant:
         if not results:  # often too many words for the sites: the same ones again would find nothing again
             return {"results": [], "instruction": "Nothing found for these words: search once more with fewer, "
                                                   "such as the piece and \"piano\".", **note}
-        for r in results:
-            known = self.lib.by_source(r["url"])
-            r["in_library"] = known["id"] if known and known["file_exists"] else None
+        for r in results:  # made from it, or from its copy on another site (online.merged)
+            known = next((k for k in map(self.lib.by_source, r["urls"]) if k and k["file_exists"]), None)
+            r["in_library"] = known["id"] if known else None
         keys = ("url", "channel", "duration_s", "views", "description", "in_library")
         return {"results": [{"title": r["video_title"], "site": online.SOURCES[r["site"]], **{k: r[k] for k in keys},
                              "flags": online.describe(r["flags"])} for r in results], **note}

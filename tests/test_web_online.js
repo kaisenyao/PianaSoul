@@ -29,9 +29,13 @@ function harness() {
 const videos = (site, n) => Array.from({length: n}, (_, i) => ({url: `https://${site}/${i}`, site}));
 const urls = state => state.found.map(v => v.url);
 
-function severalSitesVideosAreMergedInTurnEachVideoOnce() {
+function severalSitesVideosAreMergedInTurnEachVideoOnceWithTheAddressesOfItsCopies() {
   const {merged} = harness();
-  for (const c of CASES) assert.deepEqual(plain(merged(c.lists)).map(v => v.url), c.merged, c.case);
+  for (const c of CASES) {
+    const found = plain(merged(c.lists));
+    assert.deepEqual(found.map(v => v.url), c.merged, c.case);
+    assert.deepEqual(found.map(v => v.urls), c.urls || c.merged.map(url => [url]), c.case);
+  }
 }
 
 async function everySiteChosenIsAskedAtOnceAndEachShowsAsItComes() {
@@ -183,7 +187,7 @@ function theWordsForItInBothLanguages() {
 }
 
 (async () => {
-  severalSitesVideosAreMergedInTurnEachVideoOnce();
+  severalSitesVideosAreMergedInTurnEachVideoOnceWithTheAddressesOfItsCopies();
   await everySiteChosenIsAskedAtOnceAndEachShowsAsItComes();
   await aSiteTurnedOnIsAskedAndOneTurnedOffLetGoOf();
   await onlyTheLatestSearchShows();

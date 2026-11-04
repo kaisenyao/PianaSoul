@@ -1909,7 +1909,7 @@ dragToReorder($('#queue-list'), () => pb().ids, (id, at, ids) => {
 // always on), or paste a link; watch one there, download it (the same queue she uses by voice), then play it:
 // download, the ring while it is made, play. Each site's videos show as they come, merged as hers are.
 const online = onlineSearch(api, () => renderCands());
-const jobFor = c => data.jobs.find(j => j.source === c.url);
+const jobFor = c => data.jobs.find(j => c.urls.includes(j.source));  // of any copy of it (merged)
 // Why a site could not be searched, as the site's: it cannot be reached, or will not search for now; or else that it
 // failed. In full when none could be, in short (cause) above the videos of those that could.
 const failure = ({reason, source}) => reason === 'unreachable' && T.sites[source] ? T.unreachable(T.sites[source])
@@ -1934,7 +1934,7 @@ function renderCands() {
     : failed.length ? `<p class="note">${esc(T.partly(failed.map(cause), answered.map(s => T.sites[s])))}</p>` : '';
   if (!found.length) { body.innerHTML = `${note}<div class="empty">${esc(T.nothing)}</div>`; return; }
   body.innerHTML = note + found.map((c, i) => {
-    const rec = data.recordings.find(r => r.source_url === c.url), job = jobFor(c);
+    const rec = data.recordings.find(r => c.urls.includes(r.source_url)), job = jobFor(c);
     const btn = rec ? `<button class="addbtn" data-play="${rec.id}" aria-label="${esc(T.playNow)}">${ICON_PLAY_CIRCLE}</button>`
               : job ? ringButton(job)
               : `<button class="addbtn" data-add="${i}" aria-label="${esc(T.download)}">${ICON_DOWNLOAD}</button>`;
@@ -2044,7 +2044,8 @@ $('#add-body').addEventListener('click', e => {
     play(+made.dataset.play, listIds($('#library-list')), {kind: 'library'}, made);
     return;
   }
-  const video = e.target.closest('.cand > a'), job = video && jobFor({url: video.getAttribute('href')});
+  const video = e.target.closest('.cand > a'), c = video && online.state.found.find(f => f.url === video.getAttribute('href'));
+  const job = c && jobFor(c);
   if (job) {  // one being prepared plays, as in the library, rather than its video
     e.preventDefault();
     playPreparing(job, video);

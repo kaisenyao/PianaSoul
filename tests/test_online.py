@@ -224,9 +224,11 @@ class Sites:
 
 
 class SitesTests(unittest.TestCase):
-    def test_several_sites_videos_are_merged_in_turn_each_video_once(self):
+    def test_several_sites_videos_are_merged_in_turn_each_video_once_with_the_addresses_of_its_copies(self):
         for case in CASES:
-            self.assertEqual([v['url'] for v in online.merged(case['lists'])], case['merged'], case['case'])
+            found = online.merged(case['lists'])
+            self.assertEqual([v['url'] for v in found], case['merged'], case['case'])
+            self.assertEqual([v['urls'] for v in found], case.get('urls', [[url] for url in case['merged']]), case['case'])
 
     def test_each_site_is_asked_for_piano_in_its_own_word(self):
         for query, site, asked_as in (('周杰伦 晴天 piano', 'bilibili', '周杰伦 晴天 钢琴'),

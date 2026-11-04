@@ -264,13 +264,20 @@ def for_site(query: str, source: str) -> str:
 
 def merged(lists: list[list[dict]]) -> list[dict]:
     """Several sites' videos as one list: the first of each, then the second of each, and so on (round robin, the
-    usual way to merge the ranked lists of several engines), a video already in it left out (_same). The phone's
-    merge (web/online.js) is the same, tested with the same cases."""
+    usual way to merge the ranked lists of several engines), a video already in it left out (_same). The one kept
+    has the addresses of every copy (urls, its own first), for the piece made from any of them. The phone's merge
+    (web/online.js) is the same, tested with the same cases."""
     together = []
     for rank in range(max(map(len, lists), default=0)):
         for videos in lists:
-            if rank < len(videos) and not any(_same(videos[rank], kept) for kept in together):
-                together.append(videos[rank])
+            if rank >= len(videos):
+                continue
+            video = videos[rank]
+            kept = next((k for k in together if _same(video, k)), None)
+            if kept is None:
+                together.append({**video, "urls": [video["url"]]})
+            elif video["url"] not in kept["urls"]:
+                kept["urls"].append(video["url"])
     return together
 
 

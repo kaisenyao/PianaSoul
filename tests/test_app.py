@@ -865,6 +865,18 @@ class AssistantTests(Base):
         self.a.taps_asked, self.a.taps = 0, 1  # the phone's player, used while she got it
         self.assertIn('Answer in the language of the request', self.a.play_recording(self.ids[0])['instruction'])
 
+    def test_a_performance_found_on_both_sites_is_in_the_library_by_the_address_of_either(self):
+        bilibili = 'https://www.bilibili.com/video/BV1Aa411A7aA'
+        made = self.lib.add(make_midi(self.root / 'Music' / '童话.mid'), '光良 - 童话', source_type='url',
+                            source_url=bilibili)
+        found = {'youtube': 'https://www.youtube.com/watch?v=abcdefghijk', 'bilibili': bilibili}
+        videos = lambda query, n, site: [{'url': found[site], 'video_title': '光良 - 童话 钢琴版', 'channel': 'A',
+                                          'duration_s': 263, 'views': None, 'description': '', 'flags': [], 'site': site}]
+        with patch('pianasoul.online.search', side_effect=videos):
+            results = self.a.search_online('光良 童话 piano')['results']
+        self.assertEqual([(r['url'], r['in_library']) for r in results], [(found['youtube'], made['id'])],
+                         "YouTube's kept, and the piece made from Bilibili's is that one")
+
     def test_her_line_about_the_piano_is_made_once(self):
         # The piano gone while playing: Core sends her line, and voice says it; tapped again and again on the phone,
         # the same. Not again while hers is the last thing there, and the same line, whichever of hers it was.

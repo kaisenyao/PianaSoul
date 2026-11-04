@@ -10,8 +10,9 @@ const linkIn = q => q.match(/https?:\/\/[!-~]+/i)?.[0];  // up to a space, a CJK
 
 // Several sites' videos as one list: the first of each, then the second of each, and so on (round robin, the usual
 // way to merge the ranked lists of several engines), a video already in it left out: the same address, or the same
-// title and length (to 2 s), as one performance posted on both sites is. The Mac's merge for her (online.merged) is
-// the same, tested with the same cases.
+// title and length (to 2 s), as one performance posted on both sites is. The one kept has the addresses of every copy
+// (urls, its own first), for the piece made from any of them, or being made. The Mac's merge for her (online.merged)
+// is the same, tested with the same cases.
 const titleOf = video => (video.video_title || '').toLowerCase().split(/\s+/).filter(Boolean).join(' ');
 const same = (a, b) => a.url === b.url
   || !!titleOf(a) && titleOf(a) === titleOf(b) && Math.abs((a.duration_s || 0) - (b.duration_s || 0)) <= 2;
@@ -20,7 +21,10 @@ export function merged(lists) {
   for (let rank = 0; rank < Math.max(0, ...lists.map(videos => videos.length)); rank++) {
     for (const videos of lists) {
       const video = videos[rank];
-      if (video && !together.some(kept => same(video, kept))) together.push(video);
+      if (!video) continue;
+      const kept = together.find(k => same(video, k));
+      if (!kept) together.push({...video, urls: [video.url]});
+      else if (!kept.urls.includes(video.url)) kept.urls.push(video.url);
     }
   }
   return together;
