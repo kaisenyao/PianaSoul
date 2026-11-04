@@ -673,7 +673,7 @@ button.grow:active { background: var(--press); }
 .pcorner:active { background: var(--p-press); }
 .pcorner svg { width: 22px; height: 22px; }
 #p-close { left: 14px; }
-#p-share { right: 14px; }
+#p-midi { right: 14px; }
 .pinfo { height: 100%; overflow-y: auto; padding: calc(var(--safe-top) + var(--bar)) 20px calc(var(--safe-bottom) + 24px); }
 /* With artwork the art is a card: the picture in front, the notes behind; a tap turns it over */
 .art {

@@ -57,6 +57,7 @@ const ICON = {
   updown: svg('<path d="M8 9.5 12 5.5l4 4M8 14.5l4 4 4-4"/>', ' stroke-width="2.2"'),
   chevron: '<svg viewBox="0 0 8 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l6 6-6 6"/></svg>',
   share: svg('<path d="M12 15V3.5M7.5 8 12 3.5 16.5 8"/><path d="M8 11H6.5A1.5 1.5 0 0 0 5 12.5v7A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-7a1.5 1.5 0 0 0-1.5-1.5H16"/>'),
+  save: svg('<path d="M12 3.5V15M7.5 10.5 12 15l4.5-4.5"/><path d="M8 11H6.5A1.5 1.5 0 0 0 5 12.5v7A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-7a1.5 1.5 0 0 0-1.5-1.5H16"/>'),
   pin: svg('<path d="M12 17v5"/><path d="M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2v.8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>'),
 };
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12.5l4 4 8-9"/></svg>';
@@ -1396,7 +1397,7 @@ function pieceMenu(key, row) {
   showCtx(row, pieceText(p) + pieceSide(p), [
     [p.favorited_at ? T.unfavorite : T.favorite, ICON.heart, () => favorite([id], !p.favorited_at)],
     [T.addToPlaylist, ICON.addTo, () => pickPlaylist([id])],
-    canShareMidi && [T.shareMidi, ICON.share, () => shareMidi(p).then(shared => shared || hud(T.shareFailed))],
+    [T[MIDI_OUT.text], MIDI_OUT.icon, () => sendMidi(p).then(sent => sent || hud(T[MIDI_OUT.failed]))],
     [T.edit, ICON.edit, () => openEdit(id)],
     [T.selectSeveral, ICON.select, () => setSelecting(true, id)],
     pl && [T.removeFromPlaylistLong, ICON.trash, () => foldAway(list, key, () => removeFromPlaylist(playlistById(pl.id), [id])), true],
@@ -1764,7 +1765,6 @@ $('#p-next').addEventListener('click', e => control('next', null, null, e.curren
 $('#p-mode').addEventListener('click', () => control('mode', MODES[(MODES.indexOf(pb().mode) + 1) % MODES.length]));
 $('#p-queue').addEventListener('click', openQueue);
 $('#p-queue').innerHTML = ICON.queue;
-$('#p-share').innerHTML = ICON.share;
 $('#p-close').innerHTML = ICON.close;
 // ✕, once confirmed: the piece stops for good (played again, it starts over) and the player closes onto the page it
 // covered; with nothing playing, that page has no mini player.
@@ -1773,26 +1773,38 @@ $('#p-close').addEventListener('click', () => openAction(T.stop, () => {
   pop();
   control('stop');
 }));
-// Sharing hands the piece's .mid file to the phone's share sheet (AirDrop, Messages, Files, GarageBand…): from the
-// player, or a piece's menu. False when it could not go (not when the sheet was closed).
-async function shareMidi(p) {
+// A piece's .mid file goes out from the player, or its menu: to the share sheet (AirDrop, Messages, Files,
+// GarageBand…) in Apple's WebKit (every browser on an iPhone or iPad, and Safari), into the Downloads in any other.
+// Chrome says it can share a .mid (canShare), then refuses it ("Permission denied"), on Android and on a computer
+// alike. Told by the engine, not by "Android" in the user agent: a tablet's desktop mode leaves that out.
+const SHARES_MIDI = navigator.vendor === 'Apple Computer, Inc.'
+  && !!navigator.canShare?.({files: [new File([''], 'piece.mid', {type: 'audio/midi'})]});
+const MIDI_OUT = SHARES_MIDI ? {icon: ICON.share, label: 'share', text: 'shareMidi', failed: 'shareFailed'}
+  : {icon: ICON.save, label: 'downloadMidi', text: 'downloadMidi', failed: 'downloadFailed'};
+// False when it could not go (not when the share sheet was closed).
+async function sendMidi(p) {
   const name = p.title.replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g, '_') + '.mid';  // as the library names its files
   try {
     const got = await fetch(`/api/recordings/${p.id}/midi`);
     if (!got.ok) return false;
     const blob = await got.blob();
-    await navigator.share({files: [new File([blob], name, {type: 'audio/midi'})], title: p.piece});
+    if (SHARES_MIDI) {
+      await navigator.share({files: [new File([blob], name, {type: 'audio/midi'})], title: p.piece});
+    } else {  // as audio/x-midi, MIDI's other name: typed audio/midi, Android's Chrome saves it as ….mid.rtx
+      const url = URL.createObjectURL(new Blob([blob], {type: 'audio/x-midi'}));
+      Object.assign(document.createElement('a'), {href: url, download: name}).click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
     return true;
   } catch (error) {
     return error?.name === 'AbortError';
   }
 }
-// Android's Chrome shares no .mid: there, sharing is not offered at all.
-const canShareMidi = !!navigator.canShare?.({files: [new File([''], 'piece.mid', {type: 'audio/midi'})]});
-$('#p-share').hidden = !canShareMidi;
-$('#p-share').addEventListener('click', async e => {
+$('#p-midi').innerHTML = MIDI_OUT.icon;
+$('#p-midi').dataset.tLabel = MIDI_OUT.label;
+$('#p-midi').addEventListener('click', async e => {
   const p = nowPiece(), button = e.currentTarget;
-  if (p && !await shareMidi(p)) shake(button);
+  if (p && !await sendMidi(p)) shake(button);
 });
 $('#mini').addEventListener('click', openPlayer);
 $('#mini-toggle').addEventListener('click', e => { e.stopPropagation(); playOrPause(e.currentTarget); });

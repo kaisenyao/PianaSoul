@@ -20,6 +20,7 @@ const zh = {
   selected: n => `已选择${n}首`, choose: '选择曲目', all: '全选', none: '取消全选',
   deleteN: n => `删除${n}首`, delete: '删除', removeN: n => `移出${n}首`,
   unfavoriteN: n => `取消收藏${n}首`, forgetN: n => `删除${n}条记录`, shareMidi: '分享MIDI…', shareFailed: '无法分享。请重试。',
+  downloadMidi: '下载MIDI', downloadFailed: '无法下载。请重试。',
   trash: '废纸篓', moveToTrash: '移到Mac的废纸篓', trashN: n => `将${n}首移到Mac的废纸篓`,
   queued: '等待下载', downloadingNow: '正在下载…', converting: '正在转换为MIDI…', stopDownload: '停止下载',
   artist: '原作者', performer: '演奏者',
@@ -88,7 +89,7 @@ const zh = {
       ['播放列表', '播放器右下角。列表就是你轻点曲目时所在的列表；向左轻扫可移除，按住右侧拖移可重新排序。'],
       ['音量', '播放键下方的音量条调节钢琴的音量，按住后左右拖移。也可以跟她说“小声一点”。'],
       ['停止', '轻点播放器左上角的✕并确认，这首曲目会停止（再次播放时从头开始），播放器也会关闭。'],
-      ['分享', '轻点播放器右上角的分享按钮，或按住曲目并轻点“分享MIDI…”，即可分享这首曲目的MIDI。'],
+      ['分享或下载', '轻点播放器右上角的按钮，或按住曲目并轻点“分享MIDI…”（安卓上是“下载MIDI”），即可分享或下载这首曲目的MIDI。'],
     ]},
     {id: 'library', icon: 'piano', title: '曲库和添加曲目', items: [
       ['查找曲目', '在曲库中搜索；没有找到时，可以直接在下方上传文件或在线搜索钢琴版。要查找已有曲目的其他版本，请轻点右上角的＋。'],
@@ -135,7 +136,7 @@ const zh = {
       ['播放列表', '播放器右下角。列表就是你轻点曲目时所在的列表；向左轻扫可移除，按住右侧拖移可重新排序。'],
       ['音量', '播放键下方的音量条调节钢琴的音量，按住后左右拖移。'],
       ['停止', '轻点播放器左上角的✕并确认，这首曲目会停止（再次播放时从头开始），播放器也会关闭。'],
-      ['分享', '轻点播放器右上角的分享按钮，或按住曲目并轻点“分享MIDI…”，即可分享这首曲目的MIDI。'],
+      ['分享或下载', '轻点播放器右上角的按钮，或按住曲目并轻点“分享MIDI…”（安卓上是“下载MIDI”），即可分享或下载这首曲目的MIDI。'],
     ]},
     {id: 'library', icon: 'piano', title: '曲库和添加曲目', items: [
       ['曲库', '即Mac上的“音乐 › PianaSoul”文件夹：在其中添加、重命名或移动文件，手机上会立即同步。'],
@@ -180,6 +181,7 @@ const en = {
   selected: n => `${n} Selected`, choose: 'Select Pieces', all: 'Select All', none: 'Deselect All',
   deleteN: n => `Delete ${n} ${n === 1 ? 'Piece' : 'Pieces'}`, delete: 'Delete', removeN: n => `Remove ${n}`,
   unfavoriteN: n => `Unfavorite ${n}`, forgetN: n => `Remove ${n}`, shareMidi: 'Share MIDI…', shareFailed: 'Couldn’t share. Try again.',
+  downloadMidi: 'Download MIDI', downloadFailed: 'Couldn’t download. Try again.',
   trash: 'Trash', moveToTrash: 'Move to the Mac’s Trash',
   trashN: n => `Move ${n} ${n === 1 ? 'Piece' : 'Pieces'} to the Mac’s Trash`,
   queued: 'Waiting', downloadingNow: 'Downloading…', converting: 'Converting to MIDI…', stopDownload: 'Stop Download',
@@ -255,7 +257,7 @@ const en = {
       ['Playing next', 'Bottom right of the player. The list is wherever you chose the piece; swipe left to remove, drag the handle to reorder.'],
       ['Volume', 'The bar under the controls sets the piano’s volume: touch it and drag. Or tell her “a little softer”.'],
       ['Stop', 'Tap ✕ at the top left of the player and confirm: the piece stops (played again, it starts over) and the player closes.'],
-      ['Share', 'Tap the share button at the top right of the player, or touch and hold a piece and tap Share MIDI…, to send its MIDI.'],
+      ['Share or Download', 'Tap the button at the top right of the player, or touch and hold a piece and tap Share MIDI… (Download MIDI on Android), to send or save its MIDI.'],
     ]},
     {id: 'library', icon: 'piano', title: 'Library and New Pieces', items: [
       ['Finding', 'Search the library; when nothing is found, upload files or search online for piano versions right there. For another version of a piece you have, tap + at the top right.'],
@@ -303,7 +305,7 @@ const en = {
       ['Playing next', 'Bottom right of the player. The list is wherever you chose the piece; swipe left to remove, drag the handle to reorder.'],
       ['Volume', 'The bar under the controls sets the piano’s volume: touch it and drag.'],
       ['Stop', 'Tap ✕ at the top left of the player and confirm: the piece stops (played again, it starts over) and the player closes.'],
-      ['Share', 'Tap the share button at the top right of the player, or touch and hold a piece and tap Share MIDI…, to send its MIDI.'],
+      ['Share or Download', 'Tap the button at the top right of the player, or touch and hold a piece and tap Share MIDI… (Download MIDI on Android), to send or save its MIDI.'],
     ]},
     {id: 'library', icon: 'piano', title: 'Library and New Pieces', items: [
       ['The library', 'It’s the Music › PianaSoul folder on the Mac: add, rename, or move files there, and the phone updates at once.'],
