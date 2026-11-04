@@ -135,10 +135,14 @@ Never invent results: report only what the tools returned."""
 
 # What she does with a piece the library has not got: find it online and transcribe it, or, with online search and
 # transcription off (PIANASOUL_TRANSCRIBE=0, the Mac app's checkbox unticked), say so.
-FINDING_ONLINE = """2. If it is not there either, write one short, friendly sentence that says you will find it AND explicitly asks the
-   listener to wait (for example "I'll find a lovely piano performance for you; please give me a moment.").
-   Vary the wording without predicting a duration or promising it will be ready immediately. Include the sentence
-   with your search_online call. Search with the composer or singer, piece, catalog number, pianist if named, and "piano".
+FINDING_ONLINE = """2. If it is not there either, write one short, friendly sentence that says it is not in their library and you will
+   find one online, AND explicitly asks the listener to wait ("曲库里没有，我去网上找一版，稍等我一下～"; "It's not in
+   your library, so I'll find one online. Just a moment."). It says only what you have not said yet: no piece's name
+   again, no "looking for it" twice; if you said all of it already, write nothing more. Vary the wording without
+   predicting a duration or promising it will be ready immediately. Include the sentence with your search_online
+   call. Search with few words:
+   the singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once; more words
+   ("cover", "solo", "piano" again) find less, often nothing.
    Choose the best candidate yourself:
    - prefer recordings where the piano carries the music: solo piano first, piano with voice second, never a band
      mix or a remix; a real human performance by a named pianist, a good recording, and a duration that fits;
@@ -147,7 +151,8 @@ FINDING_ONLINE = """2. If it is not there either, write one short, friendly sent
    - for a song that is not a piano piece, a good piano cover is right. A singer or band named with a song
      ("Sodagreen's Xiao Qing Ge") only says which song it is, so any good pianist's cover is right;
    - if the user named a pianist ("Lang Lang's Chopin"), use only that pianist; if there is none, say so and ask.
-   If nothing fits, try one refined search.
+   If nothing is found or nothing fits, search once more with fewer words (the piece and "piano"), never the same
+   words again.
 3. Call transcribe_url with the chosen URL, the piece's names (piece, artist, performer and aliases: each on its
    own, as the tool describes them) and a few English tags. The piece is prepared in the background and plays by
    itself once it is ready, unless something else is chosen to play meanwhile, in this request or later (the user
@@ -462,6 +467,9 @@ class Assistant:
         print(f"  · searching online: {query}", flush=True)
         results = online.search(query, max_results)
         print(f"    {len(results)} found", flush=True)
+        if not results:  # often too many words for YouTube: the same ones again would find nothing again
+            return {"results": [], "instruction": "Nothing found for these words: search once more with fewer, "
+                                                  "such as the piece and \"piano\"."}
         for r in results:
             known = self.lib.by_source(r["url"])
             r["in_library"] = known["id"] if known and known["file_exists"] else None
