@@ -1,10 +1,11 @@
 """The piano as a music app plays it: one piece at a time from a list, in one of three modes.
 
 The list is where the piece was chosen: the library, 收藏, 最近播放, an artist or a playlist; a piece she chose, or
-one tapped in a conversation, plays alone (the conversation is not a play queue). 顺序 and 随机 play the list once and
-stop; 单曲循环 plays the piece again and again. ⏮ starts the piece over 3 seconds after it began (where it begins
-when played from its start: play.begin), and otherwise goes to the one before; neither button wraps around (her
-下一首 does: Assistant.step). When the list is over, its first piece waits at 0:00 (ended), as an album does.
+one tapped in a conversation, plays alone (the conversation is not a play queue), and several asked of her at once
+play in the order asked (line_up). 顺序 and 随机 play the list once and stop; 单曲循环 plays the piece again and again.
+⏮ starts the piece over 3 seconds after it began (where it begins when played from its start: play.begin), and
+otherwise goes to the one before; neither button wraps around (her 下一首 does: Assistant.step). When the list is
+over, its first piece waits at 0:00 (ended), as an album does.
 
 Chat, voice and the phone all play through the one Playback, so they always agree on what is playing, and on its
 volume: set from any of them, kept in the library, and told to the piano before each piece. What plays is kept too
@@ -53,6 +54,7 @@ class Playback(Player):
         self.ids: list[int] = []  # the list, in the order it plays
         self.unshuffled: list[int] | None = None  # its own order, while 随机 is on
         self.scope: dict = {}  # where the list comes from, e.g. {"kind": "artist", "name": "周杰伦"}
+        self.listed = 0  # which list it is: counts the lists chosen (select, show), so that her pieces join only theirs
         self.mode = "order"
         self.ended = False  # the list has played to its end
         self.listeners: list = []  # called after every change, on whichever thread made it
@@ -182,6 +184,7 @@ class Playback(Player):
             self._set_current(rec_id)
             self.mode = mode or self.mode
             self.ids, self.scope, self.unshuffled = ids, dict(scope or {}), None
+            self.listed += 1
             log.debug("the list: %d piece(s) from %s, %s", len(ids), self.scope.get("kind", "one choice"), self.mode)
             if self.mode == "shuffle":
                 self._shuffle()
@@ -199,6 +202,7 @@ class Playback(Player):
             if rec_id not in self.ids:
                 self.ids.append(rec_id)
             self.scope, self.unshuffled = dict(scope or {}), None
+            self.listed += 1
             if self.mode == "shuffle":
                 self._shuffle()
         self.changed()
@@ -348,6 +352,25 @@ class Playback(Player):
             if self.unshuffled is not None:
                 self.unshuffled = [i for i in self.unshuffled if i != rec_id]
         self.changed()
+
+    def line_up(self, rec_id: int, after: list[int], listed: int | None) -> bool:
+        """rec_id joins the list that plays, after the last of the pieces after (those of her request) still to come,
+        or else next: if it is still the list listed numbers, and goes on (playing, paused, or from one piece to the
+        next). True when it joined; otherwise nothing changes. One in the list already moves there."""
+        with self._lock:
+            going_on = self.state != "stopped" or self.completed is not None
+            if listed != self.listed or self.ended or not going_on or rec_id == self.current_id:
+                return False
+            ids = [i for i in self.ids if i != rec_id]
+            now = ids.index(self.current_id) if self.current_id in ids else len(ids) - 1
+            at = 1 + max([now, *(i for i in range(now + 1, len(ids)) if ids[i] in after)])
+            self.ids = [*ids[:at], rec_id, *ids[at:]]
+            if self.unshuffled is not None:  # its own order too: after the same piece
+                rest = [i for i in self.unshuffled if i != rec_id]
+                place = rest.index(ids[at - 1]) + 1 if at and ids[at - 1] in rest else len(rest)
+                self.unshuffled = [*rest[:place], rec_id, *rest[place:]]
+        self.changed()
+        return True
 
     def move(self, rec_id: int, index: int) -> None:
         """Put a piece at index in the list."""

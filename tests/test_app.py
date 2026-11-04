@@ -173,6 +173,42 @@ class PlaybackTests(Base):
         self.p.remove(b)
         self.assertEqual(self.p.ids, [c, a])
 
+    def test_a_piece_lined_up_comes_after_the_pieces_of_its_request_still_to_come(self):
+        a, b, c = self.ids
+        self.p.select(a, [a, b], {'kind': 'conversation', 'id': 1})
+        listed = self.p.listed
+        self.assertTrue(self.p.line_up(c, [a, b], listed))
+        self.assertEqual(self.p.ids, [a, b, c])
+        self.p.select(a, [a, b, c], {'kind': 'library'})
+        self.assertTrue(self.p.line_up(c, [a], self.p.listed), 'One in the list already moves there')
+        self.assertEqual(self.p.ids, [a, c, b], 'Next, when none of its request is still to come')
+        self.assertFalse(self.p.line_up(a, [a], self.p.listed), 'Not the piece playing')
+
+    def test_a_piece_lined_up_keeps_its_place_in_the_list_s_own_order_while_shuffled(self):
+        a, b, c = self.ids
+        self.p.select(a, [a, b], {'kind': 'conversation', 'id': 1})
+        self.p.set_mode('shuffle')
+        self.p.line_up(c, [a], self.p.listed)
+        self.assertEqual(self.p.ids, [a, c, b])
+        self.p.set_mode('order')
+        self.assertEqual(self.p.ids, [a, c, b])
+
+    def test_only_the_list_it_was_lined_up_for_takes_it_while_it_goes_on(self):
+        a, b, c = self.ids
+        self.p.select(a, [a], {'kind': 'conversation', 'id': 1})
+        listed = self.p.listed
+        self.p.pause()
+        self.assertTrue(self.p.line_up(b, [a], listed), 'Paused, it goes on later')
+        self.p.state, self.p.completed = 'stopped', ('晴天', time.perf_counter())
+        self.assertTrue(self.p.line_up(c, [a, b], listed), 'From one piece to the next')
+        self.p.show(a, [a], {'kind': 'favorites'})
+        self.assertFalse(self.p.line_up(c, [a], listed), 'Another list, tapped on the phone')
+        for over in (self.p.stop, self.p._end_list):
+            self.p.select(a, [a], {'kind': 'conversation', 'id': 1})
+            over()
+            self.assertFalse(self.p.line_up(b, [a], self.p.listed), over.__name__)
+            self.assertEqual(self.p.ids, [a])
+
     def test_a_natural_finish_plays_the_next_piece_after_a_short_silence(self):
         a, b, c = self.ids
         self.p.select(a, self.ids)
