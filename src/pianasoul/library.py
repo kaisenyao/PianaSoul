@@ -336,7 +336,9 @@ def file_result(lib: "Library", produced: Path, title: str, *, source_type: str,
 
 
 def upgrade(db: sqlite3.Connection) -> None:
-    """Bring a library made by an earlier version up to this one's tables and columns."""
+    """Bring a library made by an earlier version up to this one's tables and columns, and its links' form."""
+    from .downloads import clean_url  # here: downloads imports this module
+
     db.executescript(SCHEMA)
     for table, columns in ADDED_COLUMNS.items():
         have = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
@@ -344,6 +346,12 @@ def upgrade(db: sqlite3.Connection) -> None:
             if name not in have:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
     db.execute("CREATE INDEX IF NOT EXISTS recordings_fingerprint ON recordings(fingerprint)")
+    # A Bilibili video's link as an earlier version kept it (m., av…, a trailing slash, ?p=1) takes the one form it has
+    # now, so that its piece is known when the video comes back.
+    for (url,) in db.execute("SELECT DISTINCT source_url FROM recordings "
+                             "WHERE source_url LIKE '%bilibili.com/video/%'").fetchall():
+        if (canonical := clean_url(url)) != url:
+            db.execute("UPDATE recordings SET source_url = ? WHERE source_url = ?", (canonical, url))
     db.commit()
 
 

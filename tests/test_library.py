@@ -9,6 +9,7 @@ from unittest.mock import patch
 import mido
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
+from pianasoul.downloads import clean_url
 from pianasoul.library import Library, enrich, file_result, make_title, title_parts
 from pianasoul.llm import Refused
 
@@ -154,6 +155,23 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(rec['title'], 'Old')
         self.assertIsNone(rec['favorited_at'])
         self.assertEqual(rec['channel_avatar'], '')
+
+    def test_a_bilibili_link_kept_in_an_earlier_form_takes_the_one_it_has_now(self):
+        links = {'https://www.bilibili.com/video/BV1We4y1g7sj/': 'https://www.bilibili.com/video/BV1We4y1g7sj',
+                 'https://m.bilibili.com/video/av170001?p=1': 'https://www.bilibili.com/video/BV17x411w7KC',
+                 'https://www.bilibili.com/video/BV1We4y1g7sj/?p=2': 'https://www.bilibili.com/video/BV1We4y1g7sj?p=2',
+                 'https://b23.tv/AbCdEfG': 'https://b23.tv/AbCdEfG',  # followed only online: as it was
+                 'https://www.youtube.com/watch?v=abcdefghijk': 'https://www.youtube.com/watch?v=abcdefghijk'}
+        ids = {link: self.lib.add(make_midi(self.music / f'{i}.mid', note=60 + i), f'Piece {i}', source_type='url',
+                                  source_url=link)['id'] for i, link in enumerate(links)}
+        for _ in range(2):  # and opened again, nothing more changes
+            self.lib.close()
+            self.lib = Library(self.root / 'data' / 'library.db', self.music)
+            self.addCleanup(self.lib.close)
+            self.assertEqual({link: self.lib.get(i)['source_url'] for link, i in ids.items()}, links)
+        pasted = 'https://www.bilibili.com/video/BV1We4y1g7sj/?spm_id_from=333.337&vd_source=abc'
+        self.assertEqual(self.lib.by_source(clean_url(pasted))['id'], ids['https://www.bilibili.com/video/BV1We4y1g7sj/'],
+                         'The piece is known when its video comes back')
 
     def test_pieces_are_named_in_other_languages_once_each(self):
         nocturne = self.lib.add(make_midi(self.music / 'Chopin - Nocturne Op. 9 No. 2.mid'), 'Chopin - Nocturne Op. 9 No. 2')

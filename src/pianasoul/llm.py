@@ -50,6 +50,11 @@ class Refused(RuntimeError):
     """A request the provider would not take for its words (REFUSED): asked again, it would be refused again."""
 
 
+def is_refusal(code) -> bool:
+    """An error's code is REFUSED, as Model Studio spells it either way (data_inspection_failed in compatible mode)."""
+    return str(code or "").replace("_", "").casefold() == REFUSED.casefold()
+
+
 @dataclass
 class ToolCall:
     id: str
@@ -126,7 +131,7 @@ def refusals():
     try:
         yield
     except APIError as exc:
-        if exc.code != REFUSED:
+        if not is_refusal(exc.code):
             raise
         raise Refused(f"{REFUSED}: {exc.message}") from exc
 
@@ -193,7 +198,7 @@ class OpenAIChat:
             elif event.type in {"response.failed", "error"}:
                 error = getattr(getattr(event, "response", None), "error", None) or event
                 message = getattr(error, "message", error)
-                if getattr(error, "code", None) == REFUSED:
+                if is_refusal(getattr(error, "code", None)):
                     raise Refused(f"{REFUSED}: {message}")
                 raise RuntimeError(f"the model failed: {message}")
         if resp is None:

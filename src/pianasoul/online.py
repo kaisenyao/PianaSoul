@@ -84,7 +84,8 @@ def reason_of(exc: BaseException) -> str:
             return "refused" if exc.status in REFUSED_STATUS else "failed"
         if isinstance(exc, (TransportError, TimeoutError, ConnectionError, socket.gaierror)):
             return "unreachable"
-        if "not a bot" in str(exc):  # YouTube's "Sign in to confirm you're not a bot"
+        # YouTube's "Sign in to confirm you're not a bot"; what yt-dlp says of a Bilibili video's risk-control page.
+        if "not a bot" in str(exc) or "exceeded the rate limit" in str(exc):
             return "refused"
         # An ExtractorError says its cause; a DownloadError, the error it reports.
         exc = getattr(exc, "cause", None) or (getattr(exc, "exc_info", None) or (None, None))[1] or exc.__cause__

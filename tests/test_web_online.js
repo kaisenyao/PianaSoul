@@ -61,7 +61,9 @@ async function aFailureSaysWhyAndOffersTheOtherSite() {
   h.search.find('晴天', 'youtube');
   await h.fail({error: 'unreachable', source: 'youtube'});
   assert.deepEqual([h.state().failed, h.state().offer], [{reason: 'unreachable', source: 'youtube'}, 'bilibili']);
-  h.search.find('晴天', 'bilibili');
+  h.search.follow('bilibili');  // the other site chosen elsewhere, heard of by an event or when the Mac is back
+  assert.deepEqual([h.asked.at(-1).q, h.asked.at(-1).source, h.state().source, h.state().offer],
+                   ['晴天', 'bilibili', 'bilibili', ''], 'Searched on it: the failure and its offer gone');
   await h.fail({error: 'refused', source: 'bilibili'});
   assert.deepEqual([h.state().failed, h.state().offer], [{reason: 'refused', source: 'bilibili'}, ''],
                    'Refused: the same site again, later and without a proxy');
@@ -75,6 +77,18 @@ async function aFailureSaysWhyAndOffersTheOtherSite() {
   h.search.find('晴天', 'youtube');
   await h.fail({error: 'transcribe_off'});
   assert.deepEqual([h.state().failed, h.state().found], [{reason: 'failed', source: 'youtube'}, []]);
+}
+
+async function aLinkSharedInWordsIsSearchedAsTheLink() {
+  const h = harness();
+  h.search.find('【晴天 钢琴版-哔哩哔哩】 https://b23.tv/AbCdEfG', 'youtube');  // as Bilibili's app copies it
+  assert.deepEqual([h.asked[0].q, h.state().query], ['https://b23.tv/AbCdEfG', 'https://b23.tv/AbCdEfG']);
+  h.search.follow('bilibili');
+  assert.equal(h.asked.length, 1, 'A link: not searched again on another site');
+  await h.fail({error: 'unreachable', source: 'bilibili'});
+  assert.equal(h.state().offer, '', 'Nor offered on one');
+  h.search.find('晴天 钢琴', 'youtube');
+  assert.equal(h.asked[1].q, '晴天 钢琴', 'Words without a link, as they are');
 }
 
 function theWordsForItInBothLanguages() {
@@ -100,6 +114,8 @@ function theWordsForItInBothLanguages() {
   await searchesTheSiteChosen();
   await anotherSiteSearchesAgainAndOnlyTheLatestShows();
   await aFailureSaysWhyAndOffersTheOtherSite();
+  await aLinkSharedInWordsIsSearchedAsTheLink();
   theWordsForItInBothLanguages();
-  console.log('Online search passed: the site chosen, only the latest search shown, a failure said as why, and its words.');
+  console.log('Online search passed: the site chosen, only the latest search shown, a failure said as why, a link ' +
+              'shared with words around it, and its words.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

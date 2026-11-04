@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -45,6 +46,25 @@ def video_details(info: dict) -> dict:
             "duration_s": info.get("duration")}
 
 
+class _Said:
+    """What yt-dlp says, on stderr as it says it when quiet (its warnings and errors); its warnings kept too."""
+
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    def debug(self, message: str) -> None:
+        pass
+
+    info = debug
+
+    def warning(self, message: str) -> None:
+        self.warnings.append(message)
+        print(f"WARNING: {message}", file=sys.stderr, flush=True)
+
+    def error(self, message: str) -> None:
+        print(message, file=sys.stderr, flush=True)
+
+
 def download_audio(url: str, cache_dir: Path, progress=None) -> tuple[Path, dict]:
     """Reuse a valid cache without network access, otherwise download atomically. Returns the audio and the
     video's details (video_details). progress(fraction) follows the download; it may raise to stop it."""
@@ -70,6 +90,7 @@ def download_audio(url: str, cache_dir: Path, progress=None) -> tuple[Path, dict
     from yt_dlp import YoutubeDL
 
     with tempfile.TemporaryDirectory(dir=cache_dir, prefix=f".{key}-") as tmp:
+        said = _Said()
         options = {
             "format": "bestaudio/best",
             "outtmpl": str(Path(tmp) / "audio.%(ext)s"),
@@ -82,6 +103,7 @@ def download_audio(url: str, cache_dir: Path, progress=None) -> tuple[Path, dict
             "fragment_retries": 2,
             "extractor_retries": 2,
             "quiet": True,
+            "logger": said,
             "noprogress": True,
             "fixup": "never",
             "ffmpeg_location": ffmpeg_exe(),
@@ -106,11 +128,9 @@ def download_audio(url: str, cache_dir: Path, progress=None) -> tuple[Path, dict
                 raise ValueError("live/upcoming streams are not supported")
             if (info.get("duration") or 0) > MAX_AUDIO_S:
                 raise ValueError(f"the video is longer than {MAX_AUDIO_S // 60} minutes")
-            # A Bilibili video without its audio on its own is a preview, as of one for its UP主's supporters only:
-            # not the piece, which bestaudio/best would quietly take it for.
-            if site_of(url) == "bilibili" and not any(f.get("vcodec") == "none" for f in info.get("formats") or []):
-                raise ValueError("Bilibili has no audio of this video on its own: only a preview, as of a video for "
-                                 "its uploader's supporters")
+            # A Bilibili video for its UP主's supporters only: yt-dlp takes its preview, as it warns, not the piece.
+            if site_of(url) == "bilibili" and any("only the preview" in w for w in said.warnings):
+                raise ValueError("Bilibili gives only a preview of this video: it is for its uploader's supporters")
             info = ydl.process_ie_result(info, download=True)
             downloaded = Path(ydl.prepare_filename(info))
         if not valid_audio(downloaded):

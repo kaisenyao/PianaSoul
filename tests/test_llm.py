@@ -266,6 +266,17 @@ class ModelStudioTests(unittest.TestCase):
                 places.REAL_COMPLETE_JSON("Name it.")
         self.assertEqual(len(server.requests), 4, 'Each asked once: the SDK does not ask again')
 
+    def test_a_refusal_spelt_as_in_compatible_mode_is_one_too(self):
+        in_error = httpx2.Response(400, json={"error": {"code": "data_inspection_failed", "type": "data_inspection_failed",
+                                                        "message": "Input data may contain inappropriate content."}})
+        mid_answer = streamed({"type": "response.output_text.delta", "delta": "好"}, {
+            "type": "error", "code": "data_inspection_failed", "message": "Output data may contain inappropriate content."})
+        with line(PIANASOUL_MODEL="qwen", DASHSCOPE_API_KEY="dashscope-test"), Server(in_error, mid_answer):
+            with self.assertRaisesRegex(llm.Refused, "^DataInspectionFailed: .*Input data may contain"):
+                places.REAL_COMPLETE_JSON("Name it.")
+            with self.assertRaisesRegex(llm.Refused, "^DataInspectionFailed: Output data may contain"):
+                llm.make_chat("instructions", [])[0].send_user("你好")
+
 
 if __name__ == "__main__":
     unittest.main()

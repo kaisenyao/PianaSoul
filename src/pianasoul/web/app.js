@@ -204,6 +204,7 @@ async function load() {
   try { localStorage.setItem('features', JSON.stringify(data.features)); } catch {}
   applyFeatures(transcribed);
   applySettings();
+  if (openSheet === $('#sheet-add')) online.follow(data.settings.search_source);  // the site chosen while the Mac was away
   renderRecent();
   sent.length = 0;  // what waited for her while the Mac was away: kept by now, and read again below, or gone with it
   followCurrent();

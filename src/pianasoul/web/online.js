@@ -1,16 +1,19 @@
 // Searching online from the phone (GET /api/online), by name on the site chosen (YouTube or Bilibili: one setting,
-// for her and every phone), or by a video's link. The latest search is the one shown: one still on its way when
-// another starts, or when it is let go of, shows nothing when it comes back. One that fails says why, never that
-// nothing was found: failed is {reason, source}, the reason unreachable, refused or failed, as the Mac says it; and
-// a site that cannot be reached, searched by name, offers the other (offer).
+// for her and every phone), or by a video's link, on its own or in words around it (as Bilibili's app shares one).
+// The latest search is the one shown: one still on its way when another starts, or when it is let go of, shows
+// nothing when it comes back. One that fails says why, never that nothing was found: failed is {reason, source}, the
+// reason unreachable, refused or failed, as the Mac says it; and a site that cannot be reached, searched by name,
+// offers the other (offer).
 export const SOURCES = ['youtube', 'bilibili'];
 const isLink = q => /^https?:\/\//i.test(q);
+const linkIn = q => q.match(/https?:\/\/[!-~]+/i)?.[0];  // up to a space, a CJK character or a 】
 
 export function onlineSearch(get, onChange) {
   const state = {query: '', source: '', searching: false, found: [], failed: null, offer: ''};
   let run = 0;
 
   async function find(query, source) {
+    query = linkIn(query) || query;
     const mine = ++run;
     Object.assign(state, {query, source, searching: true, found: [], failed: null, offer: ''});  // the spinner
     onChange(state);

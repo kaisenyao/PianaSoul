@@ -168,6 +168,8 @@ class FailureTests(unittest.TestCase):
                 (ExtractorError('HTTP Error 429', cause=HTTPError(answered(429))), 'refused'),
                 (HTTPError(answered(412)), 'refused'),
                 (ExtractorError('Sign in to confirm you’re not a bot. Use --cookies'), 'refused'),
+                (DownloadError('ERROR: [BiliBili] 1GJ411x7h7: You have exceeded the rate limit. Try again later'),
+                 'refused'),  # yt-dlp's words for Bilibili's risk-control page instead of the video's
                 (HTTPError(answered(404)), 'failed'),
                 (ExtractorError('Video unavailable'), 'failed'),
                 (ValueError('provide a single video URL, not a playlist or channel'), 'failed')):
@@ -227,27 +229,38 @@ class LinkTests(unittest.TestCase):
 
 
 class DownloadTests(unittest.TestCase):
-    def download(self, url, formats):
+    def download(self, url, formats, warning=''):
+        """yt-dlp's answer for a video of these formats, saying warning (as it does, to its logger) while it reads it."""
         ydl = MagicMock()
         ydl.__enter__.return_value = ydl
-        ydl.extract_info.return_value = {'_type': 'video', 'duration': 240, 'formats': formats}
         ydl.prepare_filename.return_value = '/nowhere/audio.m4a'
         with tempfile.TemporaryDirectory() as tmp, patch('yt_dlp.YoutubeDL', return_value=ydl) as made, \
-                patch.object(download, 'valid_audio', return_value=False):
+                patch.object(download, 'valid_audio', return_value=False), patch('sys.stderr', io.StringIO()) as said:
+            def extract_info(url, download):
+                if warning:
+                    made.call_args.args[0]['logger'].warning(warning)
+                return {'_type': 'video', 'duration': 240, 'formats': formats}
+            ydl.extract_info.side_effect = extract_info
             try:
                 download.download_audio(url, Path(tmp))
             except RuntimeError:  # its audio, made up here, is not real: the download got that far
                 pass
-        ydl.options = made.call_args.args[0]  # what yt-dlp was made with
+        ydl.options, ydl.said = made.call_args.args[0], said.getvalue()  # what yt-dlp was made with, and said
         return ydl
 
     def test_a_bilibili_preview_is_not_taken_for_the_piece(self):
-        preview = [{'format_id': '32', 'vcodec': None, 'acodec': None}]
+        legacy = [{'format_id': '16', 'ext': 'mp4', 'vcodec': None, 'acodec': None}]  # one file, its audio in it
+        warning = ('[BiliBili] BV1Cc411C7cC: This is a supporter-only video, only the preview will be extracted: '
+                   '充电专属. Use --cookies-from-browser or --cookies for the authentication.')  # as yt-dlp says it
         with self.assertRaisesRegex(ValueError, 'only a preview'):
-            self.download('https://www.bilibili.com/video/BV1Cc411C7cC', preview)
+            self.download('https://www.bilibili.com/video/BV1Cc411C7cC', legacy, warning)
+        self.download('https://www.bilibili.com/video/BV1nx411u79K', legacy).process_ie_result.assert_called_once()
         whole = [{'format_id': '30280', 'vcodec': 'none', 'acodec': 'mp4a.40.2'}, {'format_id': '100026', 'vcodec': 'hev1'}]
         self.download('https://www.bilibili.com/video/BV1Aa411A7aA', whole).process_ie_result.assert_called_once()
-        self.download('https://www.youtube.com/watch?v=abcdefghijk', preview).process_ie_result.assert_called_once()
+
+    def test_what_yt_dlp_says_is_on_stderr_as_before(self):
+        self.assertEqual(self.download('https://www.youtube.com/watch?v=abcdefghijk', [], 'a warning').said,
+                         'WARNING: a warning\n')
 
     def test_bilibili_s_audio_is_asked_for_a_part_at_a_time(self):
         whole = [{'format_id': '30280', 'vcodec': 'none', 'acodec': 'mp4a.40.2'}]
