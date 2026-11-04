@@ -1334,8 +1334,10 @@ function fitField(field) {
 }
 for (const field of document.querySelectorAll('textarea.fline')) field.addEventListener('input', () => fitField(field));
 
-// A single-line field's clear button (style.css): a tap empties it as typing would (its input event), the keyboard
-// staying up. A search field shows it whenever it has text; a text field while it is edited and has text, as iOS.
+// A single-line field's clear button (style.css), as Apple's guidelines have it for search fields and for iOS text
+// fields: a tap empties it as typing would (its input event), the keyboard staying up. A search field shows it
+// whenever it has text; a text field (a name) while it is edited and has text. Not for text of many lines (a message,
+// a description), nor on the Mac, whose text fields have none.
 function clearable(input) {
   const clear = Object.assign(document.createElement('button'), {type: 'button', className: 'clear'});
   clear.dataset.tLabel = 'clearText';  // named in the page's language, and again as it changes (applySettings)
@@ -1352,7 +1354,7 @@ function clearable(input) {
   for (const type of ['input', 'focus', 'blur']) input.addEventListener(type, shown);
   shown();
 }
-for (const input of document.querySelectorAll('.field input, .frow input, input.fline')) clearable(input);
+for (const input of document.querySelectorAll('.field input, .frow input, input.fline, .alert-field input')) clearable(input);
 $('#group-foot').addEventListener('click', e => {
   if (e.target.closest('#group-add') && state.session?.kind === 'playlist') openPick(state.session.id);
 });
