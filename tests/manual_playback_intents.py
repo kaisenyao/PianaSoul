@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 from statistics import median
 import time
 from unittest.mock import Mock, patch
@@ -55,8 +56,9 @@ CASES = [
     ('来一首致爱丽丝', 'library:Beethoven - Für Elise (Lang Lang)'),
     ('弹一下卡农吧', 'library:Pachelbel - Canon in D (Kassia)'),
     # Not in the library: online only after the library was searched, on the site chosen; one version prepared, the
-    # next good ones handed over with it, and the piece plays once it is made. YouTube out of reach: she says why and
-    # where else to look, and does not search again. The version she chose cannot be had: the next one plays.
+    # next good ones handed over with it, and the piece plays once it is made, her words two at most (two_lines).
+    # YouTube out of reach: she says why and where else to look, and does not search again. The version she chose
+    # cannot be had: the next one plays.
     ('弹一首陈奕迅的十年', 'online:youtube'),
     ('弹一首陈奕迅的十年', 'online:bilibili'),
     ('弹一首陈奕迅的十年', 'unreachable'),
@@ -97,6 +99,16 @@ VIDEOS = {
                  ('BV1Pd4y1h7dD', '【钢琴】十年（陈奕迅）高还原 附琴谱', '指尖的旋律', 246, 73000),
                  ('BV1Ra411k7eE', '陈奕迅 十年 钢琴伴奏 KTV', '伴奏大全', 245, 41000)],
 }
+
+
+# Her words for a piece found online: two at most, what she will do and her news of it, which is said right before
+# its first note, so that neither asks to wait or says when it plays.
+WAITING = re.compile(r'稍等|等我|等一下|稍候|准备好|好了就|\bmoment\b|\bhang on\b|\bbear with me\b|\bready\b|\bas soon as\b',
+                     re.I)
+
+
+def two_lines(said):
+    return len(said) <= 2 and not any(WAITING.search(words) for words in said)
 
 
 def by_title(fixture, title):
@@ -200,7 +212,7 @@ def check(expected, fixture, answer, said, trace, results, asked, playing):
         return 'search_online' in names and 'search_library' in names[:names.index('search_online')] \
             and all(online.PIANO_WORD[site] in online.for_site(w, site) for w in words) \
             and prepared_well(trace, results, site) \
-            and '十年' in player.current[1] and player.state == 'playing' and player._from == 0
+            and '十年' in player.current[1] and player.state == 'playing' and player._from == 0 and two_lines(said)
     if expected == 'unreachable':
         return names.count('search_online') == 1 and 'transcribe_url' not in names \
             and ('哔哩哔哩' in answer or 'Bilibili' in answer) and player.state == 'paused' and player.position == 22
@@ -208,7 +220,8 @@ def check(expected, fixture, answer, said, trace, results, asked, playing):
         sent = next((a for name, a in trace if name == 'transcribe_url'), {})
         versions = [clean_url(v['url']) for v in sent.get('alternatives') or []]
         return prepared_well(trace, results, 'youtube') and asked[1:2] == versions[:1] \
-            and player.state == 'playing' and fixture.lib.get(player.current_id)['source_url'] == versions[0]
+            and player.state == 'playing' and fixture.lib.get(player.current_id)['source_url'] == versions[0] \
+            and two_lines(said)
     if expected.startswith('several:'):  # all she said names both: the plan may come before a search, the news after
         titles = expected[8:].split(',')
         first, then = (by_title(fixture, t) for t in titles)

@@ -257,9 +257,10 @@ The app, voice and chat are one assistant, with one library and one set of conve
 
 - **The iPhone app.** Tap the orb and she comes on in color: say what you would like, no name needed the first time
   (a piece playing pauses while she listens, as it does for her name). After that, say her name before a new request;
-  a follow-up within six seconds of her reply needs none, unless the piano is playing: its sound would be taken for
-  speech. Tap again and she is gray, which is off. Drag right from the orb for the library, your playlists and her conversations, left for the
-  player. Make a playlist from any piece (touch and hold it, then Add to Playlist), and play it from its page or by
+  a follow-up within six seconds of her reply needs none, unless the piano is playing, or a piece she found is about to:
+  its sound would be taken for speech. Tap again and she is gray, which is off. Drag right from the orb for the library, your playlists and her conversations, left for the
+  player. A piece being prepared, in the library or in Search Online, plays when you tap it, as soon as it can; its
+  ring stops it. Make a playlist from any piece (touch and hold it, then Add to Playlist), and play it from its page or by
   asking her ("play my bedtime playlist"). She can also play the pieces of a conversation again, in their order
   ("play this chat's songs again"), keep them as a playlist that she names, and rename a playlist when asked.
   Settings > How to Use explains the rest.
@@ -414,7 +415,9 @@ where it was heard, with its list, and play goes on from there. The phone shows 
 
 - **Her words.** What always goes the same way (a control done, a volume step, a notice about the piano, goodbye)
   she says in a ready-made line from `src/pianasoul/lines.py`, recorded once in her voice. Everything else the model
-  words.
+  words. For a piece she finds online she says two sentences at most, neither asking you to wait: what she will do as
+  she goes online, and her news of it, which voice keeps until the piece can play and says right before its first
+  note, or after six seconds if it cannot play by then.
 
 - **Playing safely.** The model can only play pieces that a library search, a look at your library or a
   transcription returned in the same request, one of the pieces she prepared lately, one of your playlists by its

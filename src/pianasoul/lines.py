@@ -1,13 +1,13 @@
-"""Her ready-made lines: what she says when something always goes the same way (a control done, a notice, a wait
-she is starting on), in Chinese and in English. Everything else she says, the chat model words.
+"""Her ready-made lines: what she says when something always goes the same way (a control done, a notice, going
+online for a piece), in Chinese and in English. Everything else she says, the chat model words.
 
 A short request (playback_commands) is answered with her line, typed or spoken, and so are a notice
-(Assistant.piano_news), a wait she starts on, a piece that could not be played for want of the piano or of the piece,
-and a request the model could not answer. Otherwise, a spoken request's piece is introduced by her line as it begins
-to play (Assistant._start: a new piece or playlist, resume, retry, restart, next, previous), and the rest, pause and
-cancel among them, the model words, typed or spoken, with her line only when it wrote nothing. Spoken, a line
-without a piece's name in it is said from a recording of her voice, made once (voice.READY): at once, and the same
-each time.
+(Assistant.piano_news), going online with nothing said yet, a piece that could not be played for want of the piano or
+of the piece, and a request the model could not answer. Otherwise, a spoken request's piece is introduced by her line
+as it begins to play (Assistant._start: a new piece or playlist, resume, retry, restart, next, previous), one she
+found online by her news of it instead (Assistant.ask), and the rest, pause and cancel among them, the model words,
+typed or spoken, with her line only when it wrote nothing. Spoken, a line without a piece's name in it is said from a
+recording of her voice, made once (voice.READY): at once, and the same each time.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ LINES = {
     # Her name alone: she is listening (spoken only, not kept in the conversation)
     "greet": {"zh": ["诶，我在呢！", "来啦～想听点什么呀？", "嗯嗯，你说～"],
               "en": ["Hi! I'm here.", "Yes? I'm listening!", "Mm-hmm, go ahead!"]},
-    # A wait she is starting on, when she has not said anything yet
-    "searching": {"zh": ["我去找找看，等我一会儿哦～"], "en": ["Let me look for it. Bear with me a moment."]},
+    # Going online for a piece, when she has not said anything yet: what she will do, not that it takes a while
+    "searching": {"zh": ["好呀，我去网上找一版～"], "en": ["Sure, I'll find a version online."]},
     # Playing: a new piece, the same one from where it was or from the start, or the one already playing
     "playing": {"zh": ["好啦，这就给你弹《{piece}》。", "来啦，《{piece}》送给你～", "《{piece}》，听好咯～"],
                 "en": ["Here's {piece}, just for you.", "Coming up: {piece}.", "Let me play {piece} for you."]},
