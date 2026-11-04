@@ -18,7 +18,7 @@ from pianasoul.core import Core
 from pianasoul.downloads import Downloads
 from pianasoul.folder import Folder
 from pianasoul.library import Library
-from test_app import piece_made
+from test_app import piece_made, transcription
 from test_library import make_midi
 
 
@@ -246,7 +246,7 @@ class TranscribeOnceTests(unittest.TestCase):
 
     def test_once_this_mac_can_transcribe_each_is_made_once_and_then_only_when_asked(self):
         item = self.put('Clair de Lune.mp3')
-        with patch('pianasoul.pipeline.convert_apart', side_effect=self.convert), \
+        with transcription(self.convert), \
              patch('pianasoul.core.installed', return_value=True):
             core = self.core(transcribe=True)
             deadline = time.monotonic() + 5
@@ -277,7 +277,7 @@ class TranscribeOnceTests(unittest.TestCase):
             return self.convert(audio, out, options, output_name, stopped)
         for name in ('a.mp3', 'b.mp3', 'c.mp3'):
             self.put(name)
-        with patch('pianasoul.pipeline.convert_apart', side_effect=convert):
+        with transcription(convert):
             d = Downloads(self.lib)
             for name in ('a.mp3', 'b.mp3'):
                 d.add(str(self.music / name), auto=True)
@@ -291,7 +291,7 @@ class TranscribeOnceTests(unittest.TestCase):
 
     def test_a_failed_transcription_says_why(self):
         item = self.put('Noise.mp3')
-        with patch('pianasoul.pipeline.convert_apart', side_effect=RuntimeError('could not decode audio')):
+        with transcription(RuntimeError('could not decode audio')):
             d = Downloads(self.lib)
             piece_made(d, str(self.music / 'Noise.mp3'))
         failed = self.lib.audio_item(item['id'])

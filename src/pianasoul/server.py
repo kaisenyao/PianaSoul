@@ -339,7 +339,11 @@ def test_output():
 
 @app.get('/api/recordings/{rec_id}/notes')
 def notes(rec_id: int):
-    """The piece's notes for its picture: [start, length, pitch, velocity], in seconds."""
+    """The piece's notes for its picture: [start, length, pitch, velocity], in seconds; of one being made, those there
+    so far."""
+    rec = core.lib.get(rec_id)
+    if rec and (making := core.downloads.growing.get(Path(rec['midi_path']))):
+        return making.notes()
     rec = _recording(rec_id)
     if rec_id not in _notes:
         import pretty_midi

@@ -9,6 +9,11 @@ transcribed before. A recording in the library folder (Library.audio) shows the 
 She may give a piece other versions besides the one she chose (the next good ones of her search): one that cannot
 be made (its download, its transcription, a preview only, too long) gives way to the next, in its place in the
 queue, and the piece fails only when none could be made.
+
+The transcription's process starts with the piece, so its model loads while the recording downloads. A new piece
+can play while the rest of it is transcribed: once enough of it is there (growing.Growing.plays), it has its record,
+marked as being made (Library.making), and it is in the library once it is made; if it is not made after all (it
+fails, or is stopped), its record goes, and its next version, if it has one, can play in its turn.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import online
+from .growing import Growing
 from .library import CACHE_DIR, file_result, make_title
 
 log = logging.getLogger(__spec__.name)
@@ -107,8 +113,11 @@ class Job:
     progress: float = 0.0
     result: dict | None = None
     error: str = ""
+    recording: int | None = None  # its piece's record: from when it can play as it is made, and once it is made
     stopped: threading.Event = field(default_factory=threading.Event)  # set by stop() only
     finished: threading.Event = field(default_factory=threading.Event)
+    # It can play (as it is made, or made), or it ended; a version that could play and went clears it (_transcribe)
+    playable: threading.Event = field(default_factory=threading.Event)
 
     @property
     def local(self) -> bool:
@@ -121,7 +130,7 @@ class Job:
     def public(self) -> dict:
         return {"id": self.id, "source": self.source, "title": self.title or self.video.get("video_title", ""),
                 "status": self.status, "progress": round(self.progress, 3),
-                "duration_s": self.video.get("duration_s"), "audio": self.audio}
+                "duration_s": self.video.get("duration_s"), "audio": self.audio, "recording": self.recording}
 
 
 class Downloads:
@@ -129,6 +138,8 @@ class Downloads:
         self.lib = lib
         self.jobs: list[Job] = []  # queued and running, in order
         self.listeners: list = []  # called after every change, on the downloads' thread or the caller's
+        self.unmade: list = []  # called with a record's id when its piece played as it was made, and was not made
+        self.growing: dict[Path, Growing] = {}  # the pieces being made that can play, by the file each will have
         self.name_piece = name_piece  # (query, video, artists) -> {piece, artist, performer, aliases}, or None: the video's
         self._speed = SECONDS_PER_SECOND
         self._ids = itertools.count(1)
@@ -140,8 +151,15 @@ class Downloads:
             return [j.public() for j in self.jobs]
 
     def changed(self) -> None:
+        with self._cond:
+            self._cond.notify_all()  # those waiting for a piece to change (wait)
         for listener in list(self.listeners):
             listener()
+
+    def wait(self, until) -> None:
+        """Until until() is true, looked at again each time a piece changes."""
+        with self._cond:
+            self._cond.wait_for(until)
 
     # ---- asking for a piece -------------------------------------------------------------------------
     def add(self, source: str, *, piece: str = "", artist: str = "", performer: str = "", aliases: str = "",
@@ -162,8 +180,9 @@ class Downloads:
                       query.strip(), dict(video or {}), auto, [dict(v) for v in versions])
             known = self.lib.by_source(source)
             if known and known["file_exists"]:
-                job.status, job.result = "done", known
+                job.status, job.result, job.recording = "done", known, known["id"]
                 job.finished.set()
+                job.playable.set()
                 return job
             recording = self.lib.audio_at(Path(source)) if local else None
             if recording:
@@ -173,6 +192,11 @@ class Downloads:
             self._cond.notify_all()
         self.changed()
         return job
+
+    def making(self, rec_id: int) -> Job | None:
+        """The job making the piece of this record, while it plays as it is made."""
+        with self._cond:
+            return next((j for j in self.jobs if j.recording == rec_id), None)
 
     def stop(self, job_id: int) -> None:
         """Stop a piece: it leaves the queue at once, and nothing it made stays (a transcription under way ends at
@@ -187,6 +211,7 @@ class Downloads:
                 job.status, job.error = "stopped", "stopped"
                 self._ended(job)
                 job.finished.set()
+                job.playable.set()  # (or not: it ended)
         self.changed()
 
     # ---- the work -------------------------------------------------------------------------------------
@@ -202,7 +227,7 @@ class Downloads:
             self.changed()
             try:
                 job.result = self._make(job)
-                job.status = "done"
+                job.status, job.recording = "done", job.result["id"]
             except Stopped:
                 log.debug("stopped: %s", job.title or job.source)
                 job.status, job.error = "stopped", "stopped"
@@ -216,6 +241,7 @@ class Downloads:
                     self.jobs.remove(job)
             self._ended(job)
             job.finished.set()
+            job.playable.set()  # (or not: it ended)
             self.changed()
 
     def _next_version(self, job: Job) -> bool:
@@ -230,7 +256,7 @@ class Downloads:
             job.source, job.performer, job.video, job.progress, job.error = source, version["performer"], {}, 0.0, ""
             known = self.lib.by_source(source)
             if known and known["file_exists"]:
-                job.status, job.result = "done", known
+                job.status, job.result, job.recording = "done", known, known["id"]
                 return False
             job.status = "queued"
             print(f"  · trying another version: {job.title or source}", flush=True)
@@ -248,52 +274,62 @@ class Downloads:
 
     def _make(self, job: Job) -> dict:
         print(f"  · getting {job.title or job.source} ready…", flush=True)
-        if job.local:
-            return self._file(job, Path(job.source), {})
         from .download import download_audio, task_id
+        from .pipeline import Options, Transcription
 
         def progress(fraction: float) -> None:
             self._check(job)
             job.progress = DOWNLOAD_SHARE * fraction
             self.changed()
 
-        try:
-            started = time.monotonic()
-            audio, details = download_audio(job.source, AUDIO_DIR, progress)
-            log.debug("downloaded in %.1f s: %s", time.monotonic() - started, audio.name)
-            rec = self._file(job, audio, details)
-        except Exception:
-            if job.stopped.is_set():  # whatever the downloader made of the stop, nothing it got stays
-                for leftover in AUDIO_DIR.glob(f"{task_id(job.source)}.*"):
-                    leftover.unlink(missing_ok=True)
-                raise Stopped() from None
-            raise  # the audio stays for a retry
+        with tempfile.TemporaryDirectory() as made, \
+                Transcription(Path(made), Options(), output_name="piece", stopped=job.stopped) as apart:
+            if job.local:
+                return self._file(job, Path(job.source), {}, apart)
+            try:
+                started = time.monotonic()
+                audio, details = download_audio(job.source, AUDIO_DIR, progress)
+                log.debug("downloaded in %.1f s: %s", time.monotonic() - started, audio.name)
+                rec = self._file(job, audio, details, apart)
+            except Exception:
+                if job.stopped.is_set():  # whatever the downloader made of the stop, nothing it got stays
+                    for leftover in AUDIO_DIR.glob(f"{task_id(job.source)}.*"):
+                        leftover.unlink(missing_ok=True)
+                    raise Stopped() from None
+                raise  # the audio stays for a retry
         for leftover in AUDIO_DIR.glob(f"{audio.stem}.*"):  # no longer needed once the MIDI is in the library
             leftover.unlink(missing_ok=True)
         return rec
 
-    def _file(self, job: Job, audio: Path, details: dict) -> dict:
+    def _file(self, job: Job, audio: Path, details: dict, apart) -> dict:
         """The transcription starts at once; meanwhile the video's page is read (a YouTube video: its channel's
         picture and the rest, a second or two) and the piece named from what is known of it (the model, a second
         or two), and once both are done it is filed under its names."""
         details = dict(details)
+        named = threading.Event()  # its names are there: given (she gives them), or found
+        if job.piece:
+            named.set()
 
         def meanwhile():
             try:
                 details.update(_video_page(job.source))
             except Exception as exc:  # the piece is made all the same, with what the download said of the video
                 log.debug("the video's page not read: %s", exc)
-            if not job.piece:
-                started = time.monotonic()
-                self._name(job, details)
-                log.debug("named in %.1f s: %s", time.monotonic() - started, job.title)
-                self.changed()  # the phone shows its name from now on
+            try:
+                if not job.piece:
+                    started = time.monotonic()
+                    self._name(job, details)
+                    log.debug("named in %.1f s: %s", time.monotonic() - started, job.title)
+                    self.changed()  # the phone shows its name from now on
+            finally:
+                named.set()
         side = threading.Thread(target=meanwhile, name="naming", daemon=True)
         side.start()
         self._check(job)
         job.status = "converting"
         self.changed()
-        rec = self._transcribe(job, audio, job.video.get("duration_s") or details.get("duration_s") or 0, side)
+        rec = self._transcribe(job, audio, job.video.get("duration_s") or details.get("duration_s") or 0, side, named,
+                               apart)
         if details:
             self.lib.set_video(rec["id"], details)
             rec = self.lib.get(rec["id"])
@@ -313,12 +349,15 @@ class Downloads:
             setattr(job, name, getattr(job, name) or named.get(name, ""))
         job.artist, job.performer = self.lib.known_artist(job.artist), self.lib.known_artist(job.performer)
 
-    def _transcribe(self, job: Job, audio: Path, seconds: float, named: threading.Thread) -> dict:
-        """The piece made, then filed under its names once named is done (_file)."""
-        from .pipeline import Options, convert_apart
-
+    def _transcribe(self, job: Job, audio: Path, seconds: float, side: threading.Thread, named: threading.Event,
+                    apart) -> dict:
+        """The piece made, then filed under its names once the side's work is done (_file). A new piece plays as it
+        is made once enough of it is there (Growing.plays) and it is named: its record comes then (one made before,
+        whose file is gone, is made again whole)."""
         started, base = time.monotonic(), 0.0 if job.local else DOWNLOAD_SHARE
         ticking = threading.Event()
+        growing, anew = Growing(), self.lib.by_source(job.source) is None
+        playing: Path | None = None  # the file it will have, once it plays as it is made
 
         def tick():  # the rest of the way round, as the transcription is expected to go
             while not ticking.wait(0.5):
@@ -326,27 +365,56 @@ class Downloads:
                 job.progress = base + (1 - base) * min(0.97, done)
                 self.changed()
 
+        def part(midi, until, length):  # as it is made (on this thread)
+            nonlocal playing
+            growing.add(midi, until, length)
+            if anew and job.recording is None and not growing.whole and growing.plays():
+                named.wait()
+                self._check(job)
+                rec = self.lib.making(job.title, composer=job.artist, performer=job.performer, aliases=job.aliases,
+                                      tags=job.tags, source_type="local" if job.local else "url",
+                                      source_url=job.source, duration_s=length)
+                playing = Path(rec["midi_path"])
+                self.growing[playing] = growing
+                job.recording = rec["id"]
+                log.debug("plays as it is made, %.1f s of it there: %s", until, job.title)
+                job.playable.set()
+                self.changed()
+
         if seconds:
             threading.Thread(target=tick, daemon=True).start()
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                try:  # in a process of its own: the piece playing meanwhile goes on undisturbed
-                    info = convert_apart(audio, Path(tmp), Options(), output_name="piece", stopped=job.stopped)
-                except InterruptedError:
-                    raise Stopped() from None
-                took = time.monotonic() - started
-                log.debug("transcribed in %.1f s on %s: %.0f s of music", took, info.get("device"),
-                          info.get("audio_duration_s") or 0)
-                self._check(job)
-                named.join()
-                self._check(job)
-                if info.get("audio_duration_s"):  # the whole of it: its process and the model's loading too
-                    self._speed = took / info["audio_duration_s"]
-                return file_result(self.lib, Path(info["files"]["midi"]), job.title, composer=job.artist,
-                                   performer=job.performer, aliases=job.aliases, tags=job.tags,
-                                   source_type="local" if job.local else "url", source_url=job.source)
+            try:  # in a process of its own: the piece playing meanwhile goes on undisturbed
+                info = apart.convert(audio, part)
+            except InterruptedError:
+                raise Stopped() from None
+            took = time.monotonic() - started
+            log.debug("transcribed in %.1f s on %s: %.0f s of music", took, info.get("device"),
+                      info.get("audio_duration_s") or 0)
+            self._check(job)
+            side.join()
+            self._check(job)
+            if info.get("audio_duration_s"):  # the whole of it: its process and the model's loading too
+                self._speed = took / info["audio_duration_s"]
+            produced = Path(info["files"]["midi"])
+            if job.recording is not None:
+                return self.lib.made(job.recording, produced)
+            return file_result(self.lib, produced, job.title, composer=job.artist, performer=job.performer,
+                               aliases=job.aliases, tags=job.tags, source_type="local" if job.local else "url",
+                               source_url=job.source)
+        except BaseException:
+            if job.recording is not None:  # it played as it was made: it goes, from the player too
+                job.playable.clear()  # until its next version can play, if it has one, or it ends
+                gone, job.recording = job.recording, None
+                growing.fail()
+                self.lib.delete(gone)
+                for listener in list(self.unmade):
+                    listener(gone)
+            raise
         finally:
             ticking.set()
+            if playing is not None:  # made, its file plays from now on (a player already on it goes on as it was)
+                del self.growing[playing]
 
     @staticmethod
     def _check(job: Job) -> None:

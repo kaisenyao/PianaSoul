@@ -37,6 +37,26 @@ def make_midi(path: Path, seconds: float = 1.0) -> Path:
     return path
 
 
+def transcription(convert):
+    """The transcription's process (pipeline.Transcription) stood in for by convert(audio, out, options, output_name,
+    stopped), which makes the piece whole (no parts); or by an error it fails with."""
+    class Apart:
+        def __init__(self, out, options, *, output_name=None, stopped=None):
+            self.given = out, options, output_name, stopped
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def convert(self, audio, part=None):
+            if isinstance(convert, Exception):
+                raise convert
+            return convert(audio, *self.given)
+    return patch('pianasoul.pipeline.Transcription', Apart)
+
+
 def piece_made(downloads: Downloads, source: str, **details) -> dict:
     """Queue a piece and wait for it: its library record, or {'error': ...}."""
     job = downloads.add(source, **details)
@@ -1002,14 +1022,23 @@ class AssistantTests(Base):
 
 class Queue:
     """The downloads queue as she sees it: a piece is queued once (asked for again, the same one), and is made, or
-    not, when the test says."""
+    not, when the test says (changed)."""
     def __init__(self):
         self.jobs = {}
+        self.changes = threading.Condition()
 
     def add(self, source, **names):
         if source not in self.jobs:
             self.jobs[source] = Job(len(self.jobs) + 1, source, piece=names.get('piece', ''))
         return self.jobs[source]
+
+    def changed(self):
+        with self.changes:
+            self.changes.notify_all()
+
+    def wait(self, until):
+        with self.changes:
+            self.changes.wait_for(until)
 
 
 class PreparedTests(Base):
@@ -1048,8 +1077,10 @@ class PreparedTests(Base):
 
     def made(self, piece, rec_id=None, status='done'):
         job = self.queue.jobs[f'https://youtu.be/{piece}']
-        job.status, job.result = status, self.lib.get(rec_id) if rec_id else None
+        job.status, job.result, job.recording = status, self.lib.get(rec_id) if rec_id else None, rec_id
         job.finished.set()
+        job.playable.set()
+        self.queue.changed()
 
     def eventually(self, check) -> bool:
         deadline = time.monotonic() + 5
@@ -1083,6 +1114,86 @@ class PreparedTests(Base):
         self.assertEqual(said['role'], 'assistant')
         self.assertIn('晴天', said['text'])
         self.assertEqual(piece['text'], '周杰伦 - 晴天 (MappleZS)')
+
+    def playing(self, piece, title):
+        """Enough of it there to play as it is made (Downloads): its record, being made, and what there is of it."""
+        from pianasoul.growing import Growing
+        job = self.queue.jobs[f'https://youtu.be/{piece}']
+        rec = self.lib.making(title, source_type='url', source_url=job.source, duration_s=200.0)
+        self.p.growing[Path(rec['midi_path'])] = Growing()
+        job.status, job.recording = 'converting', rec['id']
+        job.playable.set()
+        self.queue.changed()
+        return rec['id']
+
+    def test_it_plays_as_it_is_made_and_once_made_nothing_more_is_said(self):
+        self.prepare('qingtian')
+        rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+        self.assertEqual(self.p.current_id, rec_id, 'Playing while the rest of it is made')
+        self.assertEqual(self.kept[-1]['recording_id'], rec_id)
+        told = len(self.kept)
+        self.made('qingtian', rec_id)
+        self.assertTrue(self.eventually(lambda: not self.a.preparing))
+        time.sleep(0.1)
+        self.assertEqual(len(self.kept), told, 'Nothing more to say')
+        self.assertIn(rec_id, self.a.prepared)
+
+    def test_one_that_played_as_it_was_made_and_was_not_made_after_all_is_said(self):
+        self.prepare('qingtian')
+        rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+        self.assertTrue(self.eventually(lambda: self.p.current_id == rec_id))
+        self.lib.delete(rec_id)  # as Downloads takes it out
+        self.made('qingtian', status='failed')
+        self.assertTrue(self.said_last('《qingtian》这次没准备好'), 'Said as for one that could not be made at all')
+        self.assertEqual(self.a.failed[-1], 'qingtian')
+
+    def went(self, piece, then):
+        """Not made after all, what there was of it goes (Downloads), from the player too (Core), and its next version
+        (then) is tried."""
+        job = self.queue.jobs[f'https://youtu.be/{piece}']
+        job.playable.clear()
+        gone, job.recording = job.recording, None
+        self.lib.delete(gone)
+        self.p.forget(gone)
+        job.source, job.status = f'https://youtu.be/{then}', 'queued'
+        self.queue.changed()
+
+    def test_not_made_after_all_its_next_version_plays_in_its_place(self):
+        for where in ('playing', 'lined up'):
+            with self.subTest(where=where):
+                self.fresh()
+                if where == 'playing':
+                    self.prepare('qingtian')
+                else:
+                    self.play_and_prepare()
+                first = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+                if where == 'playing':
+                    self.assertTrue(self.eventually(lambda: self.p.current_id == first))
+                else:
+                    self.assertTrue(self.joined('周杰伦 - 晴天 (Jason Piano)'))
+                told = len(self.kept)
+                self.went('qingtian', then='qingtian-kassia')
+                self.assertTrue(self.eventually(lambda: self.a.preparing), 'Being prepared again')
+                self.assertNotIn(first, self.a.prepared, 'What there was of it is gone')
+                self.assertEqual(len(self.kept), told, 'Nothing said while another version is tried')
+                second = self.playing('qingtian', '周杰伦 - 晴天 (Kassia)')
+                if where == 'playing':
+                    self.assertTrue(self.eventually(lambda: self.p.current_id == second), 'In its place')
+                    self.assertEqual(self.kept[-1]['recording_id'], second)
+                else:
+                    self.assertTrue(self.joined('周杰伦 - 晴天 (Kassia)'))
+                    self.assertEqual((self.p.current_id, self.p.ids), (self.ids[1], [self.ids[1], second]))
+                self.made('qingtian', second)
+                self.assertTrue(self.eventually(lambda: not self.a.preparing))
+                self.assertEqual(list(self.a.failed), [], 'Made after all')
+
+    def test_her_next_goes_to_one_being_made_that_follows(self):
+        self.play_and_prepare()
+        rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+        self.assertTrue(self.joined('周杰伦 - 晴天 (Jason Piano)'))
+        self.a.ask(Scripted(), '下一首')
+        self.assertEqual(self.p.current_id, rec_id)
 
     def test_once_something_else_was_chosen_it_is_only_said_to_be_ready_and_remembered(self):
         changes = {
@@ -1322,7 +1433,7 @@ class DownloadTests(Base):
         details = {'video_title': '稻香 钢琴版', 'channel': 'MappleZS', 'views': 520000, 'published': '2020-01-02',
                    'thumbnail': 'https://i.ytimg.com/x.jpg'}
         with patch('pianasoul.download.download_audio', return_value=(audio, details)), \
-             patch('pianasoul.pipeline.convert_apart', side_effect=convert), \
+             transcription(convert), \
              patch('pianasoul.downloads._video_page', return_value={'channel_avatar': 'https://yt3/a.jpg'}):
             d = self.downloads(name_piece=lambda query, video, artists: {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS',
                                                                 'aliases': 'Rice Field'})
@@ -1344,7 +1455,7 @@ class DownloadTests(Base):
         with patch.object(online, 'resolved', return_value='https://m.bilibili.com/video/BV1We4y1g7sj/?share_source=x'), \
              patch.dict(online._avatars, {video: 'https://i1.hdslb.com/bfs/face/up.jpg'}), \
              patch('pianasoul.download.download_audio', return_value=(audio, {'video_title': '晴天 钢琴', 'channel': 'UP'})) as got, \
-             patch('pianasoul.pipeline.convert_apart', side_effect=convert):
+             transcription(convert):
             rec = piece_made(self.downloads(), 'https://b23.tv/AbCdEfG')
         self.assertEqual(got.call_args.args[0], video)
         self.assertEqual((rec['source_url'], rec['channel'], rec['channel_avatar']),
@@ -1355,7 +1466,7 @@ class DownloadTests(Base):
         audio.write_bytes(b'x')
         seen = []
         convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
-        with patch('pianasoul.pipeline.convert_apart', side_effect=convert):
+        with transcription(convert):
             d = self.downloads(name_piece=lambda query, video, artists: seen.append(video) or {'piece': '想见你', 'artist': '八三夭'})
             rec = piece_made(d, str(audio))
         self.assertEqual(seen[0]['file_name'], '想见你想见你想见你 钢琴', 'The model has its name to go on')
@@ -1374,7 +1485,7 @@ class DownloadTests(Base):
         audio.write_bytes(b'x')
         convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
         with patch('pianasoul.download.download_audio', return_value=(audio, {'video_title': '小幸運 鋼琴版'})), \
-             patch('pianasoul.pipeline.convert_apart', side_effect=convert), \
+             transcription(convert), \
              patch('pianasoul.downloads._video_page', return_value={}):
             d = self.downloads(name_piece=lambda query, video, artists: {'piece': '小幸运', 'artist': 'JerryC', 'performer': 'Melody'})
             rec = piece_made(d, 'https://youtu.be/abcdefghijk', artist='田馥甄', query='我想听小幸运')
@@ -1395,7 +1506,7 @@ class DownloadTests(Base):
             named.set()
             return {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS'}
         with patch('pianasoul.download.download_audio', return_value=(audio, {'video_title': '稻香 钢琴'})), \
-             patch('pianasoul.pipeline.convert_apart', side_effect=convert), \
+             transcription(convert), \
              patch('pianasoul.downloads._video_page', return_value={'channel_avatar': 'https://yt3/a.jpg'}):
             d = self.downloads(name_piece=name_piece)
             seen = []
@@ -1413,7 +1524,7 @@ class DownloadTests(Base):
             d.stop(jobs[0].id)
             return {'piece': '稻香', 'artist': '周杰伦', 'performer': 'MappleZS'}
         with patch('pianasoul.download.download_audio', return_value=(audio, {})), \
-             patch('pianasoul.pipeline.convert_apart'), \
+             transcription(Mock()), \
              patch('pianasoul.downloads._video_page', return_value={}):
             d = self.downloads(name_piece=name_piece)
             jobs.append(d.add('https://youtu.be/abcdefghijk', query='稻香'))
@@ -1434,8 +1545,7 @@ class DownloadTests(Base):
                 raise ValueError('the video is longer than 20 minutes')
             return audio, {'video_title': url[-11:]}
         convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
-        for made in (patch('pianasoul.download.download_audio', side_effect=download),
-                     patch('pianasoul.pipeline.convert_apart', side_effect=convert),
+        for made in (patch('pianasoul.download.download_audio', side_effect=download), transcription(convert),
                      patch('pianasoul.downloads._video_page', return_value={})):
             made.start()
             self.addCleanup(made.stop)
@@ -1474,14 +1584,16 @@ class DownloadTests(Base):
         job = d.add('https://youtu.be/aaaaaaaaaaa', piece='晴天',
                     versions=[{'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': 'MappleZS'}])
         job.finished.wait(5)
-        self.assertEqual((job.status, job.result['id'], asked), ('done', self.ids[0], ['aaaaaaaaaaa']))
+        self.assertEqual((job.status, job.result['id'], job.recording, asked),
+                         ('done', self.ids[0], self.ids[0], ['aaaaaaaaaaa']))
 
     def test_a_piece_stopped_tries_no_other_version(self):
         gate = threading.Event()
         def download(url, folder, progress):
             gate.wait(2)
             raise ValueError('stopped meanwhile')
-        with patch('pianasoul.download.download_audio', side_effect=download) as downloaded:
+        with patch('pianasoul.download.download_audio', side_effect=download) as downloaded, \
+             transcription(AssertionError('not reached')):
             d = self.downloads()
             job = d.add('https://youtu.be/aaaaaaaaaaa', versions=[{'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': ''}])
             time.sleep(0.1)
@@ -1496,7 +1608,8 @@ class DownloadTests(Base):
             gate.wait(2)
             progress(0.5)  # the next step sees the stop
             raise AssertionError('not reached')
-        with patch('pianasoul.download.download_audio', side_effect=download):
+        with patch('pianasoul.download.download_audio', side_effect=download), \
+             transcription(AssertionError('not reached')):
             d = self.downloads()
             first = d.add('https://www.youtube.com/watch?v=aaaaaaaaaaa')
             second = d.add('https://www.youtube.com/watch?v=bbbbbbbbbbb')

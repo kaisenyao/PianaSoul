@@ -4,7 +4,8 @@
 
 The assistant looks in the local library first, then searches online (YouTube and Bilibili, those chosen), gets the
 chosen video ready in the background through the same queue as the app's downloads (download, transcribe, file it in
-the library folder's Transcribed/), and plays it on the piano over MIDI once it is there.
+the library folder's Transcribed/), and plays it on the piano over MIDI once it can play: while the rest of it is
+transcribed.
 """
 
 from __future__ import annotations
@@ -368,11 +369,13 @@ def spoken_title(title: str) -> str:
 
 
 def _brief(rec: dict) -> dict:
-    """A recording as she sees it: its names (as the tools take them) and what she may need to choose it."""
+    """A recording as she sees it: its names (as the tools take them) and what she may need to choose it (one being
+    made is there to play, as it is made)."""
     keys = ("id", "aliases", "tags", "source_type", "source_url", "midi_path", "notes", "pedal_presses",
-            "duration_s", "file_exists", "score")
+            "duration_s", "score")
     names = title_parts(rec["title"], rec["composer"], rec["performer"])
-    return {"id": rec["id"], **names, **{k: rec[k] for k in keys if k in rec}}
+    return {"id": rec["id"], **names, **{k: rec[k] for k in keys if k in rec},
+            "file_exists": rec["file_exists"] or rec["making"]}
 
 
 def _named(job) -> str:
@@ -620,29 +623,60 @@ class Assistant:
         self.asked_now.moves = self.moves
 
     def _prepared(self, job) -> None:
-        """A piece prepared in the background, once it is there (or could not be): when she is free (no request she
-        is answering, and voice waiting for her name)."""
-        job.finished.wait()
+        """A piece prepared in the background, once it can play (as it is made, or made) or could not be made: when
+        she is free (_ready). One that plays as it is made is followed until it is made: not made after all, its next
+        version (Downloads._next_version) is ready in its turn, in its place (went); with none, she says it could not
+        be made."""
+        went = False  # a version of it that played as it was made went
+        while True:
+            job.playable.wait()
+            following = self._when_free(lambda: self._ready(job, went))
+            if following is None:
+                return
+            rec, lineup = following
+            if rec is not None:  # until it is made, or its version goes (another is tried, or it ended)
+                self.downloads.wait(lambda: job.finished.is_set() or job.source != rec["source_url"])
+                if job.status == "done" and job.source == rec["source_url"]:
+                    return
+                went = True
+            with self._turn:
+                if rec is not None and rec["id"] in self.prepared:  # gone, its number free for another piece
+                    self.prepared.remove(rec["id"])
+                if job.id in self.preparing:  # asked for again meanwhile: that request waits for it
+                    return
+                self.preparing[job.id] = (job, lineup)
+
+    def _when_free(self, then):
+        """then(), when she is free: no request she is answering, and voice waiting for her name. Returns what it
+        returns."""
         while True:
             self.may_play.wait()
             with self._turn:
                 if self.may_play.is_set():
-                    return self._ready(job)
+                    return then()
 
-    def _ready(self, job) -> None:
-        """Its request still the latest to ask for pieces, it joins the list where its pieces play, after them; or,
-        nothing of it playing, it plays: at the end of their list once it is over, or by itself if nothing has changed
-        since the request (_start: nor on the phone). Else she says it is ready; or that it could not be made, which
-        stops nothing. Remembered either way (prepared, failed)."""
+    def _ready(self, job, went: bool = False) -> tuple | None:
+        """What she does with it once it can play (_place), remembered (prepared); or, once it ended, that it could not
+        be made, which stops nothing (failed). Returns what she follows while it is made (_prepared): its record being
+        made, or None when its version went just now, and the Lineup of the request that sent it; None once she is
+        done with it."""
         _, lineup = self.preparing.pop(job.id)
-        rec = self.lib.get(job.result["id"]) if job.result else None
+        rec = self.lib.get(job.recording) if job.recording is not None else None
         if rec is None:
+            if not job.finished.is_set():
+                return None, lineup
             if job.status == "failed":  # not one stopped in the app
-                title = job.public()["title"]
-                self.failed.append(_named(job))
-                self.piano_news({"error": "not_ready", "title": title} if title else {"error": "link_not_ready"})
-            return
+                self._not_made(job)
+            return None
         self.prepared.append(rec["id"])
+        self._place(rec, lineup, went)
+        return (rec, lineup) if rec["making"] else None
+
+    def _place(self, rec: dict, lineup: Lineup, went: bool) -> None:
+        """Its request still the latest to ask for pieces, it joins the list where its pieces play, after them; or,
+        nothing of it playing, it plays: at the end of their list once it is over, or once what played of it went
+        (went: a version of it that played as it was made was not made), or by itself if nothing has changed since
+        the request (_start: nor on the phone). Else she says it is ready."""
         player = self._get_player()
         if player.current_id == rec["id"]:
             return  # chosen meanwhile, by her or on the phone: nothing to say
@@ -653,7 +687,8 @@ class Assistant:
             self.keep("piece", rec["title"], rec["id"])
             return
         unchanged = lineup is self.lineup and lineup.listed is None and self.moves == lineup.moves
-        if not (theirs and player.ended or unchanged):
+        in_its_place = went and player.current_id is None
+        if not (theirs and (player.ended or in_its_place) or unchanged):
             self.piano_news({"status": "not_started", "title": rec["title"]})
             return
         # After their list played to its end, what was done on the phone within it does not hold it back.
@@ -668,6 +703,12 @@ class Assistant:
         self.piano_news(result)
         for rec_id, title in self.played_now:
             self.keep("piece", title, rec_id)
+
+    def _not_made(self, job) -> None:
+        """She says it could not be made, and remembers it (failed)."""
+        title = job.public()["title"]
+        self.failed.append(_named(job))
+        self.piano_news({"error": "not_ready", "title": title} if title else {"error": "link_not_ready"})
 
     def _get_player(self):
         if self.player is None:
@@ -684,7 +725,7 @@ class Assistant:
             rec = self.lib.get(int(id))
             if not rec:
                 return {"error": "recording_not_found"}
-            if not rec["file_exists"]:
+            if not (rec["file_exists"] or rec["making"]):
                 return {"error": "recording_unavailable"}
             lined_up = self.asked_now is not None and bool(self.asked_now.ids or self.after_reply)
             return self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=int(id),
@@ -692,13 +733,14 @@ class Assistant:
         if self.pending:
             request = replace(self.pending, from_s=0.0) if from_start else self.pending
             rec = self.lib.get(request.recording_id) if request.recording_id is not None else None
-            if not (rec and rec["file_exists"] if request.recording_id is not None else request.path.is_file()):
+            if not (rec and (rec["file_exists"] or rec["making"]) if request.recording_id is not None
+                    else request.path.is_file()):
                 self.pending = None
                 return {"error": "recording_unavailable"}
             return self._start(request, from_start)
         if self.player and self.player.current:
             path, title = self.player.current
-            if not path.is_file():
+            if not self.player.playable(path):
                 return {"error": "recording_unavailable"}
             position = self.player.position if self.player.state in {"paused", "playing"} and not from_start else 0.0
             return self._start(PlaybackRequest(path, title, position, self.player.current_id), from_start,
@@ -1035,7 +1077,7 @@ class Assistant:
             return {"status": "nothing_next"}
         self._touch()
         rec = self.lib.get(target)
-        if not rec or not rec["file_exists"]:
+        if not rec or not (rec["file_exists"] or rec["making"]):
             return {"error": "recording_unavailable"}
         moved = "from_first" if how == "around" else "restart" if target == self.player.current_id \
             else "next" if direction > 0 else "previous"
@@ -1308,7 +1350,8 @@ class Assistant:
             if making := [_named(job) for job in waiting if not job.finished.is_set()]:
                 state["preparing"] = making
             made = [*self.prepared, *(job.result["id"] for job in waiting if job.finished.is_set() and job.result)]
-            if prepared := [rec for rec in map(self.lib.get, made) if rec and rec["file_exists"]]:
+            prepared = [rec for rec in map(self.lib.get, made) if rec and (rec["file_exists"] or rec["making"])]
+            if prepared:
                 state["prepared"] = [_choice(rec) for rec in prepared]
                 self.selectable_ids.update(rec["id"] for rec in prepared)
             if failed := [*self.failed, *(_named(job) for job in waiting if job.status == "failed")]:
