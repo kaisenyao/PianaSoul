@@ -433,7 +433,10 @@ uv pip install --python .venv/bin/python -e ".[advanced]" httpx
 for test in tests/test_web_*.js; do node "$test"; done
 ```
 
-`.venv/bin/python tests/manual_playback_intents.py` checks 26 spoken requests against the real chat model: playing, finding pieces, and keeping company.
+`.venv/bin/python tests/manual_playback_intents.py` checks 30 spoken requests against the real chat model: playing,
+finding pieces, and keeping company. `--model` names the model as `PIANASOUL_MODEL` does (again to compare several),
+`--rounds` asks each request more than once, and `--save` keeps, for each, what she said, the tools she called, the
+time to her first words and to the end, and the tokens; a summary for each model follows.
 
 <br>
 
