@@ -96,8 +96,10 @@ def main():
             chat, label = make_chat(instructions(), TOOLS)
             baikal, moon = (r['id'] for r in fixture.records)
             if expected in CHAT_CASES:
-                for asked, rec in (('弹一下李健的贝加尔湖畔', baikal), ('再来一首德彪西的月光', moon)):
+                for asked, said, rec in (('弹一下李健的贝加尔湖畔', '好啦，这就给你弹《贝加尔湖畔》。', baikal),
+                                         ('再来一首德彪西的月光', '来啦，《月光》送给你～', moon)):  # as a conversation keeps them
                     fixture.a.keep('user', asked)
+                    fixture.a.keep('assistant', said)
                     fixture.a.keep('piece', fixture.lib.get(rec)['title'], rec)
                 chat.load(fixture.a.conversations.history(fixture.a.conversation_id))
                 fixture.lib.new_playlist('睡前', [moon])
