@@ -759,28 +759,30 @@ def delete_conversation(cid: int):
 
 @app.patch('/api/settings')
 def settings(change: dict = Body()):
-    """language, appearance, search_source, or output (a unique ID from /api/outputs): heard at once, without a
-    restart."""
-    return core.set_settings(**{k: str(v) for k, v in change.items()})
+    """language, appearance, search_sources (a list of sites), or output (a unique ID from /api/outputs): heard at
+    once, without a restart."""
+    return core.set_settings(**change)
 
 
 @app.get('/api/online')
-def online_search(q: str, source: str = 'youtube'):
-    """Videos to add: piano versions found by searching online, on source (online.SOURCES), or the one video a link
-    points to. What fails answers 502 with why (error: unreachable, refused or failed, as online.OnlineError says)
-    and where (source: the site, or empty for another)."""
+def online_search(q: str, source: str = ''):
+    """Videos to add, each with its site: piano versions found by searching one site (source: online.SOURCES; the
+    page asks each site chosen at once, and merges their videos as she has them merged), or the one video a link
+    points to, on its own site. What fails answers 502 with why (error: unreachable, refused or failed, as
+    online.OnlineError says) and where (source: the site, or empty for another)."""
     from . import online
     from .download import video_details, video_info
     from .downloads import clean_url
     q = q.strip()
-    if source not in online.SOURCES:
+    link = q.startswith(('http://', 'https://'))
+    if not link and source not in online.SOURCES:
         raise HTTPException(400)
     try:
-        if q.startswith(('http://', 'https://')):
+        if link:
             source = online.site_of(q)
             url = clean_url(online.resolved(q))
             found = online.details([url]).get(url) if online.video_id(url) else None
-            results = [{'url': url, **(found or video_details(video_info(url)))}]
+            results = [{'url': url, **(found or video_details(video_info(url))), 'site': source}]
         else:
             results = online.piano_versions(q, source)
     except Exception as exc:  # the site out of reach or saying no, or a link yt-dlp cannot read

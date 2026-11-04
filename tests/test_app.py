@@ -1564,12 +1564,23 @@ class CoreTests(Base):
         core.type('你好')
         self.assertTrue(done.wait(2))
         self.assertEqual([e['message']['role'] for e in events if e['type'] == 'message'], ['user', 'assistant'])
-        self.assertEqual(core.settings(), {'language': '', 'appearance': 'dark', 'search_source': 'youtube',
-                                           'output': None},
-                         "The phone's language, dark and YouTube, until others are chosen")
-        self.assertEqual(core.set_settings(language='en', appearance='nonsense', search_source='vimeo'),
-                         {'language': 'en', 'appearance': 'dark', 'search_source': 'youtube', 'output': None})
+        self.assertEqual(core.settings(), {'language': '', 'appearance': 'dark',
+                                           'search_sources': ['youtube', 'bilibili'], 'output': None},
+                         "The phone's language, dark and both sites, until others are chosen")
+        self.assertEqual(core.set_settings(language='en', appearance='nonsense', search_sources=['vimeo']),
+                         {'language': 'en', 'appearance': 'dark', 'search_sources': ['youtube', 'bilibili'],
+                          'output': None})
         self.assertEqual(core.set_settings(language='system')['language'], 'en', 'Only Chinese or English')
+        self.assertEqual(core.set_settings(language=['en'])['language'], 'en', 'Only one of them')
+        events.clear()
+        self.assertEqual(core.set_settings(search_sources=['bilibili'])['search_sources'], ['bilibili'])
+        self.assertEqual([e['search_sources'] for e in events if e['type'] == 'settings'], [['bilibili']],
+                         'Every phone hears of it')
+        self.assertEqual(core.set_settings(search_sources=['bilibili', 'youtube', 'bilibili'])['search_sources'],
+                         ['youtube', 'bilibili'], 'In their own order, each once')
+        for nothing in ([], 'youtube', ['youtube', 'vimeo'], [None], None):
+            self.assertEqual(core.set_settings(search_sources=nothing)['search_sources'], ['youtube', 'bilibili'],
+                             f'Not a choice of sites, at least one: {nothing!r}')
 
     def test_typed_to_when_the_model_fails_she_says_so_on_the_phone(self):
         class Failing(Scripted):

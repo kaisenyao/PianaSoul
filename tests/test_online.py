@@ -1,10 +1,13 @@
-"""Online search on YouTube and on Bilibili: what each site is asked, what of its answer is offered, why a search
-fails, and one address for each video; no network (yt-dlp, which every request goes through, is replaced)."""
+"""Online search on YouTube and on Bilibili: what each site is asked, what of its answer is offered, both searched at
+once and merged, why a search fails, and one address for each video; no network (yt-dlp, which every request goes
+through, is replaced)."""
 import io
 import json
 from pathlib import Path
 import socket
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import parse_qsl, urlsplit
@@ -84,7 +87,7 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(site.requests, ['ytsearch8:晴天 钢琴'])
         self.assertEqual((site.options[0]['socket_timeout'], site.options[0]['extractor_retries']), (8, 0),
                          'Out of reach (mainland China), it says so within seconds')
-        self.assertEqual(found[0]['url'], 'https://www.youtube.com/watch?v=aaaaaaaaaaa')
+        self.assertEqual((found[0]['url'], found[0]['site']), ('https://www.youtube.com/watch?v=aaaaaaaaaaa', 'youtube'))
         site = Site(entries=[])
         with patch('yt_dlp.YoutubeDL', site):
             online.details(['https://www.youtube.com/watch?v=aaaaaaaaaaa'])
@@ -130,7 +133,7 @@ class SearchTests(unittest.TestCase):
             'url': 'https://www.bilibili.com/video/BV1Aa411A7aA', 'video_title': '晴天 钢琴 & 雨声', 'channel': '钢琴小站',
             'channel_avatar': 'https://i1.hdslb.com/bfs/face/one.jpg', 'views': 1089173, 'published': '2022-11-25',
             'thumbnail': 'https://i0.hdslb.com/bfs/archive/one.jpg', 'duration_s': 268, 'description': '演奏：钢琴小站',
-            'flags': []})
+            'flags': [], 'site': 'bilibili'})
         self.assertEqual((second['duration_s'], second['flags']), (2343, ['long', 'tutorial']),
                          'Filed under music teaching, it is a tutorial whatever its title says')
         with patch('yt_dlp.YoutubeDL', Site(PAGE)):
@@ -196,6 +199,98 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(downloads._video_page('https://www.bilibili.com/video/BV1Aa411A7aA'),
                          {'channel_avatar': 'https://i1.hdslb.com/bfs/face/one.jpg'})
         self.assertEqual(downloads._video_page('https://www.bilibili.com/video/BV1Zz411Z7zZ'), {}, 'Not found: none')
+
+
+CASES = json.loads(Path(__file__).with_name('online_merge_cases.json').read_text())  # the phone's merge has the same
+
+
+class Sites:
+    """Each site's search (online.search), made up: how long it takes (None: out of reach, until released) and how
+    many videos it finds, or how it fails; and what each was asked."""
+
+    def __init__(self, **answers):
+        self.answers, self.asked, self.released = answers, [], threading.Event()
+
+    def __call__(self, query, max_results, source):
+        self.asked.append((query, max_results, source))
+        seconds, answer = self.answers[source]
+        if seconds is None:
+            self.released.wait(5)
+        else:
+            time.sleep(seconds)
+        if isinstance(answer, Exception):
+            raise answer
+        return [{'url': f'https://{source}/{n}', 'site': source} for n in range(answer)]
+
+
+class SitesTests(unittest.TestCase):
+    def test_several_sites_videos_are_merged_in_turn_each_video_once(self):
+        for case in CASES:
+            self.assertEqual([v['url'] for v in online.merged(case['lists'])], case['merged'], case['case'])
+
+    def test_each_site_is_asked_for_piano_in_its_own_word(self):
+        for query, site, asked_as in (('周杰伦 晴天 piano', 'bilibili', '周杰伦 晴天 钢琴'),
+                                      ('周杰伦 晴天 piano', 'youtube', '周杰伦 晴天 piano'),
+                                      ('晴天 鋼琴', 'youtube', '晴天 piano'),
+                                      ('Chopin Nocturne Op. 9 No. 2 Piano', 'bilibili', 'Chopin Nocturne Op. 9 No. 2 钢琴')):
+            self.assertEqual(online.for_site(query, site), asked_as)
+        for query in ('Billy Joel Piano Man', '海上钢琴师', '晴天', ''):
+            self.assertEqual(online.for_site(query, 'bilibili'), query, 'Only the word for piano that ends the words')
+
+    def test_the_sites_are_searched_at_once_and_merged(self):
+        sites = Sites(youtube=(.3, 3), bilibili=(.3, 2))
+        started = time.monotonic()
+        with patch.object(online, 'search', sites):
+            found, failed = online.search_sites('晴天 piano', 8, ['youtube', 'bilibili'])
+        self.assertLess(time.monotonic() - started, .5, 'At once, not one after the other')
+        self.assertEqual(sorted(sites.asked), [('晴天 piano', 8, 'youtube'), ('晴天 钢琴', 8, 'bilibili')])
+        self.assertEqual([v['url'] for v in found], ['https://youtube/0', 'https://bilibili/0', 'https://youtube/1',
+                                                     'https://bilibili/1', 'https://youtube/2'])
+        self.assertEqual(failed, [])
+        with patch.object(online, 'search', Sites(youtube=(0, 8), bilibili=(0, 8))):
+            found, _ = online.search_sites('晴天', 8, ['youtube', 'bilibili'])
+        self.assertEqual([v['site'] for v in found], ['youtube', 'bilibili'] * 4, 'As many as asked for, from both')
+        sites = Sites(youtube=(0, 3), bilibili=(0, 3))
+        with patch.object(online, 'search', sites):
+            found, _ = online.search_sites('晴天 piano', 8, ['bilibili'])
+        self.assertEqual((sites.asked, [v['site'] for v in found]), ([('晴天 钢琴', 8, 'bilibili')], ['bilibili'] * 3),
+                         'Only the sites chosen')
+
+    def test_a_site_out_of_reach_does_not_hold_the_videos_of_another(self):
+        sites = Sites(youtube=(None, 3), bilibili=(.05, 2))
+        self.addCleanup(sites.released.set)
+        started = time.monotonic()
+        with patch.object(online, 'search', sites), patch.object(online, 'LATE_S', .2):
+            found, failed = online.search_sites('晴天', 8, ['youtube', 'bilibili'])
+        self.assertLess(time.monotonic() - started, .5, "Bilibili's, a moment after they came")
+        self.assertEqual([v['site'] for v in found], ['bilibili', 'bilibili'])
+        self.assertEqual([(e.source, e.reason) for e in failed], [('youtube', 'unreachable')])
+        self.assertTrue(2 <= online.LATE_S <= 3, 'Longer than a search takes where both sites answer (about 1 s)')
+
+    def test_a_site_that_found_nothing_does_not_cut_another_short(self):
+        with patch.object(online, 'search', Sites(youtube=(.4, 2), bilibili=(0, 0))), patch.object(online, 'LATE_S', .1):
+            found, failed = online.search_sites('晴天', 8, ['youtube', 'bilibili'])
+        self.assertEqual(([v['site'] for v in found], failed), (['youtube', 'youtube'], []))
+
+    def test_one_site_failing_leaves_the_others_videos_and_says_why(self):
+        refused = online.OnlineError('HTTP Error 412: Precondition Failed', 'refused', 'bilibili')
+        with patch.object(online, 'search', Sites(youtube=(.1, 2), bilibili=(0, refused))):
+            found, failed = online.search_sites('晴天', 8, ['youtube', 'bilibili'])
+        self.assertEqual([v['site'] for v in found], ['youtube', 'youtube'])
+        self.assertEqual([(e.source, e.reason, str(e)) for e in failed],
+                         [('bilibili', 'refused', 'HTTP Error 412: Precondition Failed')])
+        with patch.object(online, 'search', Sites(youtube=(0, KeyError('entries')), bilibili=(0, 2))):
+            found, failed = online.search_sites('晴天', 8, ['youtube', 'bilibili'])
+        self.assertEqual(([v['site'] for v in found], [(e.source, e.reason) for e in failed]),
+                         (['bilibili', 'bilibili'], [('youtube', 'failed')]), 'Anything else a site brings is its failure')
+
+    def test_every_site_failing_says_why_each_failed_in_their_order(self):
+        unreachable = online.OnlineError('timed out', 'unreachable', 'youtube')
+        refused = online.OnlineError('Bilibili: 风控校验失败 (-352)', 'refused', 'bilibili')
+        with patch.object(online, 'search', Sites(youtube=(.1, unreachable), bilibili=(0, refused))):
+            found, failed = online.search_sites('晴天', 8, ['youtube', 'bilibili'])
+        self.assertEqual((found, [(e.source, e.reason) for e in failed]),
+                         ([], [('youtube', 'unreachable'), ('bilibili', 'refused')]))
 
 
 class FailureTests(unittest.TestCase):

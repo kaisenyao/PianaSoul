@@ -176,7 +176,8 @@ class AppTests(unittest.TestCase):
     def test_settings_take_only_what_exists(self):
         signed_in(self.client)
         self.assertEqual(self.client.patch('/api/settings', json={'language': 'en', 'appearance': 'light'}).json(),
-                         {'language': 'en', 'appearance': 'light', 'search_source': 'youtube', 'output': None})
+                         {'language': 'en', 'appearance': 'light', 'search_sources': ['youtube', 'bilibili'],
+                          'output': None})
         self.assertEqual(self.client.patch('/api/settings', json={'language': 'fr'}).json()['language'], 'en')
 
     def test_the_midi_file_is_shared_by_its_title(self):
@@ -197,8 +198,9 @@ class AppTests(unittest.TestCase):
         def extract(url, **options):  # yt-dlp's list of what YouTube found, in its order
             asked.append(url)
             return {'entries': [{'id': v, 'title': t, 'channel': c, 'duration': 240} for v, t, c in videos]}
+        river = {'q': 'River Flows in You', 'source': 'youtube'}
         with patch.object(online, '_extract', side_effect=extract):
-            found = signed_in(self.client).get('/api/online', params={'q': 'River Flows in You'}).json()
+            found = signed_in(self.client).get('/api/online', params=river).json()
         self.assertEqual(asked[0], 'ytsearch15:River Flows in You piano')
         self.assertEqual([r['video_title'] for r in found],
                          ['River Flows in You 钢琴版', 'River Flows in You', 'Yiruma - River Flows in You'],
@@ -207,13 +209,13 @@ class AppTests(unittest.TestCase):
         videos[:] = [(f'{n:011d}', f'江南 Piano Cover {n}', 'Covers') for n in range(5)] + [
             ('bbbbbbbbbbb', '林俊杰 江南 官方 MV', 'Taihe Music'), ('ccccccccccc', '江南 簡易鋼琴教學', '簡單鋼琴')]
         with patch.object(online, '_extract', side_effect=extract):
-            found = signed_in(self.client).get('/api/online', params={'q': '江南'}).json()
+            found = signed_in(self.client).get('/api/online', params={'q': '江南', 'source': 'youtube'}).json()
         self.assertEqual(len(found), 5, 'Enough piano versions: the song\'s own, sung, is not offered, nor a lesson')
         videos[:] = [('eeeeeeeeeee', 'Adele - Easy On Me (Piano Cover)', 'Pianella Piano'),
                      ('fffffffffff', 'Easy On Me - Easy Piano Tutorial', 'Lessons')]
         with patch.object(online, '_extract', side_effect=extract):
-            found = signed_in(self.client).get('/api/online', params={'q': 'Easy On Me'}).json()
-        self.assertEqual([r['video_title'] for r in found], ['Adele - Easy On Me (Piano Cover)'],
+            found = signed_in(self.client).get('/api/online', params={'q': 'Easy On Me', 'source': 'youtube'}).json()
+        self.assertEqual([(r['video_title'], r['site']) for r in found], [('Adele - Easy On Me (Piano Cover)', 'youtube')],
                          'A warning word in the song\'s own name is not a warning')
 
     def test_a_search_that_fails_says_why(self):
@@ -258,9 +260,9 @@ class AppTests(unittest.TestCase):
                                                               {'url': 'https://i.ytimg.com/l.jpg', 'width': 1280}]}
         with patch.object(online, '_extract', side_effect=extract):
             found = signed_in(self.client).get('/api/online', params={'q': 'https://youtu.be/abcdefghijk?si=x'}).json()
-        self.assertEqual([(r['url'], r['duration_s'], r['channel_avatar'], r['thumbnail'], r['published']) for r in found],
-                         [('https://www.youtube.com/watch?v=abcdefghijk', 242, 'https://yt3/c.jpg',
-                           'https://i.ytimg.com/l.jpg', '2024-01-02')])
+        self.assertEqual([(r['url'], r['duration_s'], r['channel_avatar'], r['thumbnail'], r['published'], r['site'])
+                          for r in found], [('https://www.youtube.com/watch?v=abcdefghijk', 242, 'https://yt3/c.jpg',
+                                             'https://i.ytimg.com/l.jpg', '2024-01-02', 'youtube')])
 
     def test_a_search_on_bilibili_offers_its_piano_versions(self):
         from test_online import PAGE, Site, asked
@@ -281,8 +283,9 @@ class AppTests(unittest.TestCase):
             found = signed_in(self.client).get('/api/online', params={'q': 'https://b23.tv/AbCdEfG'}).json()
         followed.assert_called_once_with('https://b23.tv/AbCdEfG')
         read.assert_called_once_with('https://www.bilibili.com/video/BV1We4y1g7sj')
-        self.assertEqual([(r['url'], r['channel'], r['duration_s'], r['thumbnail']) for r in found],
-                         [('https://www.bilibili.com/video/BV1We4y1g7sj', '钢琴小站', 268.2, 'https://i0.hdslb.com/a.jpg')])
+        self.assertEqual([(r['url'], r['channel'], r['duration_s'], r['thumbnail'], r['site']) for r in found],
+                         [('https://www.bilibili.com/video/BV1We4y1g7sj', '钢琴小站', 268.2, 'https://i0.hdslb.com/a.jpg',
+                           'bilibili')], 'Read on its own site, whatever is chosen')
 
     def test_a_search_that_fails_says_why_and_where_not_that_nothing_was_found(self):
         from yt_dlp.networking.exceptions import TransportError
@@ -294,7 +297,9 @@ class AppTests(unittest.TestCase):
             with patch.object(online, 'search', side_effect=error):
                 found = self.client.get('/api/online', params={'q': '晴天', 'source': error.source})
             self.assertEqual((found.status_code, found.json()), (502, {'error': error.reason, 'source': error.source}))
-        self.assertEqual(self.client.get('/api/online', params={'q': '晴天', 'source': 'vimeo'}).status_code, 400)
+        for site in ({'source': 'vimeo'}, {}):
+            self.assertEqual(self.client.get('/api/online', params={'q': '晴天', **site}).status_code, 400,
+                             'By name, on one site online search knows')
         cut_off = DownloadError('ERROR: timed out', exc_info=(None, ExtractorError(
             'timed out', cause=TransportError(cause=TimeoutError('timed out'))), None))
         with patch('pianasoul.download.video_info', side_effect=cut_off):
@@ -304,15 +309,15 @@ class AppTests(unittest.TestCase):
             found = self.client.get('/api/online', params={'q': 'https://example.com/a', 'source': 'bilibili'})
         self.assertEqual(found.json(), {'error': 'failed', 'source': ''}, 'Another site')
 
-    def test_the_site_searched_is_one_setting_for_her_and_every_phone(self):
+    def test_the_sites_searched_are_one_setting_for_her_and_every_phone(self):
         signed_in(self.client)
         with self.client.websocket_connect('/events', headers=ORIGIN) as socket:
-            self.client.patch('/api/settings', json={'search_source': 'bilibili'})
+            self.client.patch('/api/settings', json={'search_sources': ['bilibili']})
             event = socket.receive_json()
-        self.assertEqual((event['type'], event['search_source']), ('settings', 'bilibili'))
-        self.assertEqual(self.client.get('/api/state').json()['settings']['search_source'], 'bilibili')
+        self.assertEqual((event['type'], event['search_sources']), ('settings', ['bilibili']))
+        self.assertEqual(self.client.get('/api/state').json()['settings']['search_sources'], ['bilibili'])
         with patch('pianasoul.online.search', return_value=[]) as searched:
-            self.core.assistant.run_tool('search_online', {'query': '晴天 钢琴'})
+            self.core.assistant.run_tool('search_online', {'query': '晴天 piano'})
         searched.assert_called_once_with('晴天 钢琴', 8, 'bilibili')
 
     def test_events_tell_the_page_what_changed(self):

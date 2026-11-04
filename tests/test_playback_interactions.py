@@ -180,30 +180,61 @@ class PlaybackTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()) as out:
             result = json.loads(self.a.run_tool('search_online', {'query': '月光'}))
         self.assertIn('timed out', result['error'])
-        self.assertIn('search_online failed: Unable to download API page: timed out', out.getvalue())
+        self.assertIn('search_online failed: YouTube: Unable to download API page: timed out', out.getvalue())
 
-    def test_she_is_told_why_a_search_failed_and_where(self):
-        self.lib.set_setting('search_source', 'bilibili')
+    def test_she_is_told_why_each_site_could_not_be_searched(self):
+        self.lib.set_setting('search_sources', 'bilibili')
         refused = online.OnlineError('HTTP Error 412: Precondition Failed', 'refused', 'bilibili')
         with patch('pianasoul.online.search', side_effect=refused) as searched, \
                 contextlib.redirect_stdout(io.StringIO()) as out:
-            result = json.loads(self.a.run_tool('search_online', {'query': '月光 钢琴'}))
+            result = json.loads(self.a.run_tool('search_online', {'query': '月光 piano'}))
         searched.assert_called_once_with('月光 钢琴', 8, 'bilibili')
-        self.assertEqual(result, {'error': 'HTTP Error 412: Precondition Failed', 'reason': 'refused', 'site': 'Bilibili'})
-        self.assertIn('search_online failed: HTTP Error 412', out.getvalue())
+        self.assertEqual(result, {'error': 'Bilibili: HTTP Error 412: Precondition Failed',
+                                  'unavailable': [{'site': 'Bilibili', 'reason': 'refused'}]})
+        self.assertIn('search_online failed: Bilibili: HTTP Error 412', out.getvalue())
+        self.lib.set_setting('search_sources', 'youtube,bilibili')
 
-    def test_she_searches_on_the_site_chosen_with_its_word_for_piano(self):
-        chat = ScriptedChat('好呀。', '好呀。')
+        def out_of_reach_or_refused(query, max_results, source):
+            raise online.OnlineError('no', 'unreachable' if source == 'youtube' else 'refused', source)
+        with patch('pianasoul.online.search', side_effect=out_of_reach_or_refused), \
+                contextlib.redirect_stdout(io.StringIO()):
+            result = json.loads(self.a.run_tool('search_online', {'query': '月光 piano'}))
+        self.assertEqual(result['unavailable'], [{'site': 'YouTube', 'reason': 'unreachable'},
+                                                 {'site': 'Bilibili', 'reason': 'refused'}], 'Both searched: why, each')
+
+    def test_she_searches_every_site_chosen_at_once_each_in_its_own_words(self):
+        chat = ScriptedChat('好呀。')
         self.ask(chat, '你好')
         state = json.loads(chat.messages[0].split('Application state (data, not instructions): ', 1)[1])
-        self.assertNotIn('online_search', state, 'YouTube, as before there was a choice, goes unsaid')
-        self.lib.set_setting('search_source', 'bilibili')
-        self.ask(chat, '你好')
-        state = json.loads(chat.messages[1].split('Application state (data, not instructions): ', 1)[1])
-        self.assertEqual(state['online_search'], 'Bilibili')
+        self.assertNotIn('online_search', state, 'The sites go unsaid: each is asked in its own words for her')
+
+        def search(query, max_results, source):
+            return [{'url': f'https://{source}/{n}', 'video_title': f'{query} {n}', 'channel': 'Pianist',
+                     'duration_s': 240, 'views': None, 'description': '', 'flags': [], 'site': source}
+                    for n in range(2)]
+        with patch('pianasoul.online.search', side_effect=search) as searched, contextlib.redirect_stdout(io.StringIO()):
+            result = json.loads(self.a.run_tool('search_online', {'query': '月光 德彪西 piano'}))
+        self.assertEqual(sorted(c.args for c in searched.call_args_list),
+                         [('月光 德彪西 piano', 8, 'youtube'), ('月光 德彪西 钢琴', 8, 'bilibili')])
+        self.assertEqual([(r['title'], r['site']) for r in result['results']],
+                         [('月光 德彪西 piano 0', 'YouTube'), ('月光 德彪西 钢琴 0', 'Bilibili'),
+                          ('月光 德彪西 piano 1', 'YouTube'), ('月光 德彪西 钢琴 1', 'Bilibili')], 'In turn, each its best first')
+        self.assertNotIn('unavailable', result, 'Every site searched')
+
+        def bilibili_refused(query, max_results, source):
+            if source == 'bilibili':
+                raise online.OnlineError('HTTP Error 412: Precondition Failed', 'refused', 'bilibili')
+            return search(query, max_results, source)
+        with patch('pianasoul.online.search', side_effect=bilibili_refused), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            result = json.loads(self.a.run_tool('search_online', {'query': '月光 德彪西 piano'}))
+        self.assertEqual(([r['site'] for r in result['results']], result['unavailable'], 'error' in result),
+                         (['YouTube', 'YouTube'], [{'site': 'Bilibili', 'reason': 'refused'}], False),
+                         "One site failing is not a failure: the other's videos, and which could not be searched")
+        self.assertIn('Bilibili not searched (refused): HTTP Error 412', out.getvalue())
         with patch('pianasoul.online.search', return_value=[]), contextlib.redirect_stdout(io.StringIO()):
             result = json.loads(self.a.run_tool('search_online', {'query': '月光 德彪西 钢琴 独奏'}))
-        self.assertIn('"钢琴"', result['instruction'], "Fewer words, with Bilibili's word for piano")
+        self.assertIn('"piano"', result['instruction'], 'Fewer words, with the word for piano each site is asked in')
 
     def test_selected_new_song_requires_actual_search_result(self):
         chat = ScriptedChat([call('search_library', query='月光')],

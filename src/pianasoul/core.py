@@ -235,24 +235,28 @@ class Core:
 
     def settings(self) -> dict:
         """language: zh or en, or empty until one is chosen (the app then uses the phone's). appearance: dark until
-        another is chosen (light, or the phone's: system). search_source: the site online search searches, for her
-        and every phone (online.SOURCES): youtube until another is chosen. output: the MIDI output's unique ID, or None
-        until one is chosen."""
+        another is chosen (light, or the phone's: system). search_sources: the sites online search searches, for her
+        and every phone (online.SOURCES): all of them until some are chosen. output: the MIDI output's unique ID, or
+        None until one is chosen."""
         return {"language": self.lib.setting("language", ""),
                 "appearance": self.lib.setting("appearance", "dark"),
-                "search_source": online.chosen_source(self.lib),
+                "search_sources": online.chosen_sources(self.lib),
                 "output": (self.playback.chosen() or {}).get("id")}
 
     def set_settings(self, **values) -> dict:
-        """Settings that exist, with values they can have; an output by its unique ID, one this Mac has."""
-        allowed = {"language": ("zh", "en"), "appearance": ("system", "dark", "light"), "search_source": online.SOURCES}
+        """Settings that exist, with values they can have: the sites to search, at least one of online.SOURCES; an
+        output by its unique ID, one this Mac has."""
+        allowed = {"language": ("zh", "en"), "appearance": ("system", "dark", "light")}
         for key, value in values.items():
             if key == "output":
                 out = next((o for o in self.outputs() if str(o.id) == str(value)), None)
                 if out:
                     self.playback.choose(out)
                     self.look_at_piano()
-            elif value in allowed.get(key, ()):
+            elif key == "search_sources":
+                if sources := online.sources_of(value):
+                    self.lib.set_setting(key, ",".join(sources))
+            elif isinstance(value, str) and value in allowed.get(key, ()):
                 self.lib.set_setting(key, value)
         self.emit({"type": "settings", **self.settings()})
         return self.settings()

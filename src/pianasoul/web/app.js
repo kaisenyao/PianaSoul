@@ -5,7 +5,7 @@
 import {LANGUAGES} from './strings.js';
 import {addOrb, animateOrb, homeColor, sameLook} from './orb.js';
 import {createCues} from './cues.js';
-import {onlineSearch} from './online.js';
+import {SOURCES, onlineSearch} from './online.js';
 import {uploader} from './upload.js';
 import {voice as makeVoice} from './voice.js';
 
@@ -106,7 +106,7 @@ dark.addEventListener('change', () => { if (data.settings.appearance === 'system
 
 // ---------- What the Mac keeps ----------
 const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
-  conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system', search_source: 'youtube'},
+  conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system', search_sources: [...SOURCES]},
   devices: [], piano: {name: '', kind: 'other', connected: true},
   version: {commit: '', repo: ''}, features: {transcribe: true, assistant: true}, playlists: [], pictures: {}, descriptions: {}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
@@ -170,7 +170,7 @@ function listen() {
       delete e.type;
       data.settings = e;
       applySettings();
-      if (openSheet === $('#sheet-add')) online.follow(e.search_source);  // the site chosen elsewhere
+      if (openSheet === $('#sheet-add')) online.follow(e.search_sources);  // the sites chosen elsewhere
     }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
     else if (e.type === 'playlists') { if (!changing) setPlaylists(e.playlists); }  // changing: as it is here, until answered
@@ -204,7 +204,7 @@ async function load() {
   try { localStorage.setItem('features', JSON.stringify(data.features)); } catch {}
   applyFeatures(transcribed);
   applySettings();
-  if (openSheet === $('#sheet-add')) online.follow(data.settings.search_source);  // the site chosen while the Mac was away
+  if (openSheet === $('#sheet-add')) online.follow(data.settings.search_sources);  // chosen while the Mac was away
   renderRecent();
   sent.length = 0;  // what waited for her while the Mac was away: kept by now, and read again below, or gone with it
   followCurrent();
@@ -1881,28 +1881,35 @@ dragToReorder($('#queue-list'), () => pb().ids, (id, at, ids) => {
 });
 
 // ---------- Adding pieces ----------
-// Search online for piano versions, on the site chosen (YouTube or Bilibili), or paste a link; watch one there,
-// download it (the same queue she uses by voice), then play it: download, the ring while it is made, play.
+// Search online for piano versions, on the sites chosen (YouTube, Bilibili: each a capsule below the field, one
+// always on), or paste a link; watch one there, download it (the same queue she uses by voice), then play it:
+// download, the ring while it is made, play. Each site's videos show as they come, merged as hers are.
 const online = onlineSearch(api, () => renderCands());
 const jobFor = c => data.jobs.find(j => j.source === c.url);
-// Why a search failed, as the site's: it cannot be reached, or will not search for now; or else that it failed.
+// Why a site could not be searched, as the site's: it cannot be reached, or will not search for now; or else that it
+// failed. In full when none could be, in short (cause) above the videos of those that could.
 const failure = ({reason, source}) => reason === 'unreachable' && T.sites[source] ? T.unreachable(T.sites[source])
   : reason === 'refused' && T.refused[source] || T.searchFailed;
+const cause = ({reason, source}) => (T.cause[reason] || T.cause.failed)(T.sites[source]);
+$('#sources').innerHTML = SOURCES.map(s => `<button data-source="${s}"></button>`).join('');
 function renderCands() {
-  for (const b of document.querySelectorAll('#source-seg button')) {
+  for (const b of document.querySelectorAll('#sources button')) {
     b.textContent = T.sites[b.dataset.source];
-    b.classList.toggle('on', b.dataset.source === data.settings.search_source);
+    b.setAttribute('aria-pressed', data.settings.search_sources.includes(b.dataset.source));
   }
-  const body = $('#add-body'), {query, searching, found, failed, offer} = online.state;
+  const body = $('#add-body'), {query, found, failed, answered, waiting, offer} = online.state;
   if (!query) { body.innerHTML = ''; return; }
-  if (searching) { body.innerHTML = `<div class="loading">${SPINNER}</div>`; return; }
-  if (failed) {
-    body.innerHTML = `<div class="empty">${esc(failure(failed))}${offer
-      ? `<button class="instead" data-source="${offer}">${esc(T.searchInstead(T.sites[offer]))}</button>` : ''}</div>`;
+  if (!found.length && waiting.length) { body.innerHTML = `<div class="loading">${SPINNER}</div>`; return; }
+  if (!answered.length) {  // no site could be searched: why (each reason once), and a site turned off, to search
+    const why = [...new Set(failed.map(failure))].map(w => `<p>${esc(w)}</p>`).join('');
+    const turnOn = offer.map(s => `<button class="offer" data-turn-on="${s}">${esc(T.searchSite(T.sites[s]))}</button>`);
+    body.innerHTML = `<div class="empty">${why}${turnOn.join('')}</div>`;
     return;
   }
-  if (!found.length) { body.innerHTML = `<div class="empty">${esc(T.nothing)}</div>`; return; }
-  body.innerHTML = found.map((c, i) => {
+  const note = waiting.length ? `<div class="note">${SPINNER}</div>`
+    : failed.length ? `<p class="note">${esc(T.partly(failed.map(cause), answered.map(s => T.sites[s])))}</p>` : '';
+  if (!found.length) { body.innerHTML = `${note}<div class="empty">${esc(T.nothing)}</div>`; return; }
+  body.innerHTML = note + found.map((c, i) => {
     const rec = data.recordings.find(r => r.source_url === c.url), job = jobFor(c);
     const btn = rec ? `<button class="addbtn" data-play="${rec.id}" aria-label="${esc(T.playNow)}">${ICON_PLAY_CIRCLE}</button>`
               : job ? ringButton(job)
@@ -1910,7 +1917,7 @@ function renderCands() {
     const seen = [c.channel, c.views != null ? T.views(c.views) : ''].filter(Boolean).join(' · ');
     return `<div class="cand">
         <a href="${esc(c.url)}" target="_blank" rel="noopener">
-          <span class="thumb" style="--h:${hueOfName(c.url)}">${c.thumbnail ? `<img src="${esc(c.thumbnail)}" alt="" referrerpolicy="no-referrer">` : ''}<span class="dur">${mmss(c.duration_s)}</span></span>
+          <span class="thumb" style="--h:${hueOfName(c.url)}">${c.thumbnail ? `<img src="${esc(c.thumbnail)}" alt="" referrerpolicy="no-referrer">` : ''}${T.sites[c.site] ? `<span class="site">${esc(T.sites[c.site])}</span>` : ''}<span class="dur">${mmss(c.duration_s)}</span></span>
           <span class="ctext"><span class="ct1">${esc(c.video_title)}</span><span class="ct2">${esc(seen)}</span></span>
         </a>
         ${btn}
@@ -1932,7 +1939,7 @@ $('#add-cancel').addEventListener('click', closeOverlays);
 function openAdd(how, q = '') {
   const search = how === 'search';
   $('#add-title').textContent = search ? T.searchOnline : T.upload;
-  $('#add-field').hidden = $('#source-seg').hidden = $('#add-body').hidden = !search;
+  $('#add-field').hidden = $('#sources').hidden = $('#add-body').hidden = !search;
   $('#sheet-add .uploads').hidden = search;
   $('#add-input').value = q;
   uploads.tidy();
@@ -1953,19 +1960,21 @@ $('#add-input').addEventListener('keydown', e => {
 // Searching online, by name or by a video's link (the sheet is there with transcription only).
 function searchOnline(q) {
   $('#add-scroll').scrollTop = 0;
-  online.find(q, data.settings.search_source);
+  online.find(q, data.settings.search_sources);
 }
-// The site to search, for her and every phone: kept on the Mac. The search shown is made again on it.
-function chooseSource(source) {
-  if (source === data.settings.search_source) return;
-  data.settings.search_source = source;
+// The sites to search, for her and every phone: kept on the Mac. The search shown asks a site turned on, and lets go
+// of one turned off.
+function chooseSources(sources) {
+  data.settings.search_sources = SOURCES.filter(s => sources.includes(s));
   applySettings();
-  api('/api/settings', 'PATCH', {search_source: source}).catch(() => {});
-  online.follow(source);
+  api('/api/settings', 'PATCH', {search_sources: data.settings.search_sources}).catch(() => {});
+  online.follow(data.settings.search_sources);
 }
-$('#source-seg').addEventListener('click', e => {
-  const b = e.target.closest('[data-source]');
-  if (b) chooseSource(b.dataset.source);
+$('#sources').addEventListener('click', e => {
+  const site = e.target.closest('[data-source]')?.dataset.source, on = data.settings.search_sources;
+  if (!site) return;
+  if (!on.includes(site)) chooseSources([...on, site]);
+  else if (on.length > 1) chooseSources(on.filter(s => s !== site));  // the last one on stays on
 });
 $('#lib-add').innerHTML = ICON_ADD;
 $('#lib-add').addEventListener('click', addPieces);
@@ -2000,8 +2009,8 @@ $('#add-body').addEventListener('click', e => {
     api('/api/downloads', 'POST', {url: c.url, query: /^https?:/i.test(query) ? '' : query, video: c}).catch(() => renderCands());
     return;
   }
-  const instead = e.target.closest('[data-source]');  // the other site, this one out of reach
-  if (instead) { chooseSource(instead.dataset.source); return; }
+  const turnOn = e.target.closest('[data-turn-on]');  // a site turned off, those on out of reach
+  if (turnOn) { chooseSources([...data.settings.search_sources, turnOn.dataset.turnOn]); return; }
   const stop = e.target.closest('[data-stop]');
   if (stop) { stopJob(+stop.dataset.stop); return; }
   // A piece made: it plays from the library, in the player; closing the player is back on the library.
