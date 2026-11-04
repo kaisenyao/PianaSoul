@@ -667,6 +667,13 @@ class AssistantTests(Base):
         self.assertEqual(self.a.play_recording(self.ids[0])['status'], 'playing')
         self.assertEqual(waited, [False])
 
+    def test_her_ears_are_given_the_people_s_names_first_then_the_pieces(self):
+        from pianasoul import voice
+        words = voice.hints(self.lib)
+        self.assertEqual(set(words[:4]), {'周杰伦', 'MappleZS', 'Chopin', 'Lang Lang'})
+        self.assertEqual(set(words[4:]), {'晴天', '搁浅', 'Nocturne'})
+        self.assertEqual(voice.hints(self.lib, limit=2), words[:2])
+
     def test_she_names_a_new_piece_as_the_app_does(self):
         made = Job(1, 'https://www.youtube.com/watch?v=abcdefghijk', status='done', result=self.lib.get(self.ids[0]))
         made.finished.set()

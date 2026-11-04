@@ -129,15 +129,13 @@ def speakable(text: str) -> str:
 
 
 def hints(lib, limit: int = 50) -> list[str]:
-    """The names of the pieces in the library (piece, artist, performer), to help recognize them."""
+    """The names in the library, to help recognize them: the artists' and the performers' first (fewer, and the
+    most often misheard), then the pieces', the newest first."""
     from .library import title_parts
 
-    words: list[str] = []
-    for r in reversed(lib.playable()):
-        for w in title_parts(r["title"], r["composer"], r["performer"]).values():
-            if w and w not in words:
-                words.append(w)
-    return words[:limit]
+    names = [title_parts(r["title"], r["composer"], r["performer"]) for r in reversed(lib.playable())]
+    people = [n[k] for n in names for k in ("artist", "performer")]
+    return [w for w in dict.fromkeys([*people, *(n["piece"] for n in names)]) if w][:limit]
 
 
 def clean_transcript(text: str, prompt: str | None) -> str:
