@@ -379,7 +379,7 @@ class ConversationTests(Base):
         c.add(cid, 'user', '小茗同学，弹一下晴天')
         c.add(cid, 'assistant', '好呀，晴天。')
         c.add(cid, 'piece', '周杰伦 - 晴天 (MappleZS)', self.ids[0])
-        self.assertEqual(c.pieces(cid), [self.ids[0]])
+        self.assertEqual([m['recording_id'] for m in c.messages(cid) if m['role'] == 'piece'], [self.ids[0]])
         self.assertEqual(c.history(cid), [('user', '小茗同学，弹一下晴天'), ('assistant', '好呀，晴天。'),
                                           ('assistant', '[played: 周杰伦 - 晴天 (MappleZS)]')])
         found = c.all()[0]
@@ -549,8 +549,14 @@ class AssistantTests(Base):
         said.clear()
         answer = self.a.ask(Ahead('我找找晴天～', [self.call('search_library', query='晴天')],
                                   [self.call('play_recording', id=self.ids[0])], '找到啦。'), '弹一下晴天', speak=speak)
-        self.assertEqual((said, answer), ([('我找找晴天～', True)], ''), 'It named the piece: no opening line after it')
+        self.assertEqual((said, answer), ([('我找找晴天～', True), ('', False)], ''),
+                         'It named the piece: no opening line after it, only her words heard to the end first')
         self.assertEqual(self.p.current_id, self.ids[0])
+        said.clear()
+        self.a.ask(Ahead('我找找肖邦的曲子～', [self.call('search_library', query='Chopin')],
+                         [self.call('play_recording', id=self.ids[2])], '好。'), '弹一首肖邦', speak=speak)
+        self.assertEqual(said[0], ('我找找肖邦的曲子～', True))
+        self.assertIn('Nocturne', said[1][0], 'Her words did not name the piece she chose: her line does')
         said.clear()
         with patch.object(chat_module, 'MAX_TOOL_ROUNDS', 1):  # she gives up, still looking
             answer = self.a.ask(Ahead('我再找找～', [self.call('library_info', about='overview')],
@@ -560,6 +566,50 @@ class AssistantTests(Base):
         self.a.ask(Ahead('好，这就弹～', [self.call('play_recording', id=self.ids[0])], '好。'), '弹晴天', speak=speak)
         self.assertNotIn(('好，这就弹～', True), said, 'Words that come with an action: her line follows it')
         self.assertTrue(said and '晴天' in said[0][0])
+
+    def test_the_piece_she_found_starts_once_her_words_as_she_looked_have_been_heard(self):
+        events, saying = [], []
+
+        def speak(text, meanwhile=False):  # as the voice conversation says lines: one at a time, meanwhile or not
+            while saying:
+                saying.pop().join()
+            if text:
+                line = threading.Thread(target=lambda: (time.sleep(0.2), events.append(('heard', text))))
+                line.start()
+                (saying.append if meanwhile else lambda t: t.join())(line)
+
+        class Ahead(Scripted):
+            def send_user(self, text):
+                reply = super().send_user(text)
+                if reply.tool_calls and reply.tool_calls[0].name == 'search_library':
+                    self.before_tool('我找找晴天～', 'search_library')
+                    return SimpleNamespace(text='我找找晴天～', tool_calls=reply.tool_calls)
+                return reply
+        select = self.p.select
+        with patch.object(self.p, 'select', side_effect=lambda *a, **k: (events.append(('plays',)), select(*a, **k))):
+            self.a.ask(Ahead([self.call('search_library', query='晴天')], [self.call('play_recording', id=self.ids[0])],
+                             '好。'), '弹一下晴天', speak=speak)
+        self.assertEqual(events, [('heard', '我找找晴天～'), ('plays',)], 'Not under her words')
+
+    def test_her_next_in_shuffle_follows_the_shuffled_order_and_in_repeat_one_as_the_button(self):
+        self.lib.new_playlist('睡前', self.ids)
+        self.a.ask(Scripted([SimpleNamespace(name='play_playlist', arguments={'name': '睡前', 'shuffle': True})],
+                            '好。'), '随机放我的睡前歌单')
+        order = list(self.p.ids)
+        self.assertEqual(self.p.current_id, order[0])
+        for following in order[1:]:
+            self.a.ask(Scripted(), '下一首')
+            self.assertEqual(self.p.current_id, following)
+        self.assertIn(self.a.ask(Scripted(), '下一首'), LINES['from_first']['zh'])
+        self.assertEqual(self.p.current_id, order[0], 'The shuffled order, from its first again')
+        self.p.set_mode('one')  # (back to the playlist's order)
+        ids = list(self.p.ids)
+        self.p.go_to(ids[0])
+        self.a.ask(Scripted(), '下一首')
+        self.assertEqual(self.p.current_id, ids[1], 'Repeat one: on to the next, as the button (Apple Music)')
+        self.p.go_to(ids[-1])
+        self.assertIn(self.a.ask(Scripted(), '下一首'), LINES['restart']['zh'], 'At the last: this one again')
+        self.assertEqual(self.p.current_id, ids[-1])
 
     def test_her_next_is_said_before_the_piece_changes_and_typed_it_changes_after_her_reply(self):
         self.lib.new_playlist('睡前', self.ids)
@@ -994,8 +1044,11 @@ class DownloadTests(Base):
              patch('pianasoul.pipeline.convert_file', side_effect=convert), \
              patch('pianasoul.downloads._video_page', return_value={'channel_avatar': 'https://yt3/a.jpg'}):
             d = self.downloads(name_piece=name_piece)
+            seen = []
+            d.listeners.append(lambda: seen.extend((j['status'], j['title']) for j in d.snapshot()))
             rec = piece_made(d, 'https://youtu.be/abcdefghijk', query='稻香')
         self.assertEqual((rec['title'], rec['channel_avatar']), ('周杰伦 - 稻香 (MappleZS)', 'https://yt3/a.jpg'))
+        self.assertIn(('converting', '周杰伦 - 稻香 (MappleZS)'), seen, 'The phone is told its name as it is named')
 
     def test_a_piece_stopped_while_it_is_named_is_not_filed(self):
         audio = self.root / 'a.m4a'
@@ -1174,7 +1227,6 @@ class CoreTests(Base):
         cid = core.conversations.create()
         core.conversations.add(cid, 'piece', '周杰伦 - 晴天 (MappleZS)', self.ids[0])
         core.delete_recordings([self.ids[0]])  # its number may be given to a new piece
-        self.assertEqual(core.conversations.pieces(cid), [])
         self.assertIsNone(core.conversations.messages(cid)[0]['recording_id'])
 
     def test_the_running_version_comes_from_git(self):

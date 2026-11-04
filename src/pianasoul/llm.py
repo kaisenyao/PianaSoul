@@ -68,7 +68,7 @@ class OpenAIChat:
         self.previous = self.turn_start = None
         self.earlier: list[dict] = []  # a conversation picked up again, sent before the first request
         # Called with (the words written, the tool's name) as the model, having written words, starts on its first
-        # tool call: what it says it will do may be said while it does it.
+        # tool call: what it says it will do may be said while it does it. True: they were said.
         self.before_tool = None
 
     def _call(self, items: list) -> Reply:
@@ -81,9 +81,11 @@ class OpenAIChat:
         if THINKS.match(self.model):
             kwargs["reasoning"] = REASONING
         for attempt in range(self.client.max_retries + 1):
-            handed = []
+            handed = []  # connecting, the SDK's own retries do; a stream that breaks off while read, these
+            events = self.client.responses.create(model=self.model, instructions=self.instructions, input=items,
+                                                  tools=self.tools, stream=True, **kwargs)
             try:
-                resp = self._stream(items, kwargs, handed)
+                resp = self._read(events, handed)
                 break
             except (APIConnectionError, BrokenOff):
                 if handed or attempt == self.client.max_retries:
@@ -93,18 +95,16 @@ class OpenAIChat:
                  for o in resp.output if getattr(o, "type", "") == "function_call"]
         return Reply(resp.output_text or "", calls)
 
-    def _stream(self, items: list, kwargs: dict, handed: list):
-        """One streamed response, whole once it is over; handed gets the words given to before_tool."""
+    def _read(self, events, handed: list):
+        """One streamed response, whole once it is over; handed gets the words before_tool said."""
         resp, words, told = None, "", False
-        for event in self.client.responses.create(model=self.model, instructions=self.instructions, input=items,
-                                                  tools=self.tools, stream=True, **kwargs):
+        for event in events:
             if event.type == "response.output_text.delta":
                 words += event.delta
             elif event.type == "response.output_item.added" and event.item.type == "function_call" and not told:
                 told = True
-                if words.strip() and self.before_tool:
+                if words.strip() and self.before_tool and self.before_tool(words.strip(), event.item.name):
                     handed.append(words.strip())
-                    self.before_tool(words.strip(), event.item.name)
             elif event.type in {"response.completed", "response.incomplete"}:
                 resp = event.response
             elif event.type in {"response.failed", "error"}:

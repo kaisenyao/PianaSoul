@@ -66,13 +66,26 @@ class OpenAIChatTests(unittest.TestCase):
         chat.client.responses.create.side_effect = [iter(events("好")[:-1]), iter(events("好呀。"))]
         self.assertEqual(chat.send_user("你好").text, "好呀。")
         chat = self.chat()
-        chat.before_tool = Mock()
+        chat.before_tool = Mock(return_value=True)  # said
         broken = events("我找找～", call=("search_library", '{"query": "夜曲"}'))[:-1]
         chat.client.responses.create.side_effect = [iter(broken), iter(events("我找找～"))]
         with self.assertRaises(llm.BrokenOff):
             chat.send_user("弹一首夜曲")
         chat.before_tool.assert_called_once()
         self.assertEqual(chat.client.responses.create.call_count, 1, 'Said already: not asked again')
+        chat = self.chat()
+        chat.before_tool = Mock(return_value=False)  # words with an action: not said, so it may be asked again
+        broken = events("这就弹～", call=("play_recording", '{"id": 3}'))[:-1]
+        chat.client.responses.create.side_effect = [iter(broken), iter(events("这就弹～", call=("play_recording", '{"id": 3}')))]
+        self.assertEqual([c.name for c in chat.send_user("弹晴天").tool_calls], ["play_recording"])
+
+    def test_connecting_is_left_to_the_sdk_s_own_retries(self):
+        from openai import APIConnectionError
+        chat = self.chat()
+        chat.client.responses.create.side_effect = APIConnectionError(request=Mock())
+        with self.assertRaises(APIConnectionError):
+            chat.send_user("你好")
+        self.assertEqual(chat.client.responses.create.call_count, 1, 'Not again on top of them')
 
 
 if __name__ == "__main__":

@@ -138,9 +138,9 @@ def hints(lib, limit: int = 50) -> list[str]:
     return [w for w in dict.fromkeys([*people, *(n["piece"] for n in names)]) if w][:limit]
 
 
-def clean_transcript(text: str, prompt: str | None) -> str:
+def clean_transcript(text: str) -> str:
     text = text.strip()
-    if prompt and text and (text[:6] == prompt[:6] or text in PROMPT_ECHOES):
+    if text and (text[:6] == STT_PROMPT[:6] or text in PROMPT_ECHOES):
         return ""  # the recognizer repeating its prompt on noise, not something the user said
     return text
 
@@ -363,7 +363,7 @@ class Transcriber:
             text = self.client.audio.transcriptions.create(**request, **self.hints(lib))
         except Exception:
             text = self.client.audio.transcriptions.create(**request)  # without the optional hints
-        return spell_names(clean_transcript(str(text), STT_PROMPT))
+        return spell_names(clean_transcript(str(text)))
 
 
 class Live:
@@ -428,7 +428,7 @@ class Live:
                 self.talking = False
                 self.order.append(event.item_id)
             elif kind.endswith("input_audio_transcription.completed"):
-                self.texts[event.item_id] = spell_names(clean_transcript(event.transcript, STT_PROMPT))
+                self.texts[event.item_id] = spell_names(clean_transcript(event.transcript))
         if not self.talking and len(self.order) > self.told and all(i in self.texts for i in self.order):
             self.told = len(self.order)
             news.append(("text", " ".join(t for i in self.order if (t := self.texts[i]))))
@@ -688,7 +688,8 @@ class Conversation:
             traceback.print_exc()
 
     def say(self, text: str, meanwhile: bool = False) -> None:
-        """meanwhile: return as she begins, so that what she says she will do goes on while she says it."""
+        """meanwhile: return as she begins, so that what she says she will do goes on while she says it. Nothing to
+        say: return once what she is still saying meanwhile has been heard."""
         if text and self.hushed.is_set():
             log.debug("not said aloud, no one is with her: %s", text[:60])
         elif text and meanwhile:
@@ -697,6 +698,8 @@ class Conversation:
             self.saying.start()
         elif text:
             self.speak(self.speaker.stream(text))
+        else:  # nothing to say: what she is saying meanwhile is heard to the end first
+            self.said()
 
     def said(self) -> None:
         """Wait for a line said meanwhile to have been heard (or for hushed)."""

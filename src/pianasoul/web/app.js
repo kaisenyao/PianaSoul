@@ -678,7 +678,8 @@ const trashAudio = id => {
 const audioInfo = () => info(T.recording, T.needsAdvanced);
 // A job's progress moves its ring only; the list is redrawn when the jobs themselves change.
 function onJobs(jobs) {
-  const same = jobs.length === data.jobs.length && jobs.every((j, i) => j.id === data.jobs[i].id && j.status === data.jobs[i].status);
+  const same = jobs.length === data.jobs.length && jobs.every((j, i) => j.id === data.jobs[i].id && j.status === data.jobs[i].status
+    && j.title === data.jobs[i].title);  // named while it is transcribed: its row shows the name
   data.jobs = jobs;
   if (!same) return refresh();
   for (const j of jobs) document.querySelectorAll(`[data-ring="${j.id}"] .arc`).forEach(a => a.setAttribute('stroke-dashoffset', RING * (1 - j.progress)));

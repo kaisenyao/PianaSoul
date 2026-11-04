@@ -65,7 +65,7 @@ class Stopped(Exception):
 class Job:
     id: int
     source: str  # a video's address, or a local audio file
-    piece: str = ""  # its names (library.NAMES); the piece is named before it is transcribed when not given
+    piece: str = ""  # its names (library.NAMES); named while it is transcribed (_file) when not given
     artist: str = ""
     performer: str = ""
     aliases: str = ""
@@ -235,6 +235,7 @@ class Downloads:
                 started = time.monotonic()
                 self._name(job, details)
                 log.debug("named in %.1f s: %s", time.monotonic() - started, job.title)
+                self.changed()  # the phone shows its name from now on
         side = threading.Thread(target=meanwhile, name="naming", daemon=True)
         side.start()
         self._check(job)

@@ -361,7 +361,7 @@ class Assistant:
         self.preparing: dict[int, tuple] = {}  # being prepared: job id -> (job, moves, taps) as the request left them
         self.preparing_now: list[int] = []  # the jobs this request has sent to be prepared
         self.started_now = False  # this request started a piece or went on with one (_play)
-        self.named_ahead = False  # this request said, while it searched the library, which piece it looks for
+        self.looked_for = ""  # her words said at once as this request searched the library (_named)
         self.prepared: deque[int] = deque(maxlen=PREPARED_KEPT)  # the ids of the latest she prepared, oldest first
         self.failed: deque[str] = deque(maxlen=PREPARED_KEPT)  # the latest that could not be made, by name or link
         self.may_play = threading.Event()  # cleared unless voice waits for her name: a piece she prepared waits
@@ -580,8 +580,10 @@ class Assistant:
                 return {"status": "playing", "how": "now_playing", "title": request.title,
                         "from": clock(player.position)}
             player.look_for_piano()  # LookupError when it is not there: nothing is said or changed
-            if self.speak:  # aloud, what she plays, before it sounds (and while the phone can still ask what plays);
-                if not self.named_ahead:  # not twice: her words as she looked for it named it (SPEC M5.5)
+            if self.speak:  # aloud, what she plays, before it sounds (and while the phone can still ask what plays)
+                if self._named(request):  # her words as she looked for it named it: not twice (SPEC M5.5), and
+                    self.speak("")  # they are heard to the end before it sounds
+                else:
                     self.tell(line(how, self.chinese(), request.playlist or spoken_title(request.title)))
                 announced = True
             if self.typed:  # it starts once her reply is there (ask)
@@ -624,6 +626,12 @@ class Assistant:
                 [request.recording_id], {"kind": "conversation", "id": self.conversation_id})
             player.select(request.recording_id, ids, scope, request.from_s, mode=request.mode)
             self.played_now.append((request.recording_id, request.title))
+
+    def _named(self, request: PlaybackRequest) -> bool:
+        """Whether her words as she searched the library named this piece: its name, or one of its other names."""
+        rec = self.lib.get(request.recording_id) if request.recording_id is not None and self.looked_for else None
+        names = [spoken_title(request.title), *((rec or {}).get("aliases") or "").split(",")]
+        return any(name.strip() and name.strip().casefold() in self.looked_for.casefold() for name in names)
 
     def phone_used(self) -> bool:
         """Whether the phone's player was used since the request began: what it did stands."""
@@ -912,7 +920,7 @@ class Assistant:
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
                 self.new_conversation(chat)
             self.speak, self.played_now, self.typed, asked = speak, [], typed, time.monotonic()
-            self.preparing_now, self.started_now, self.named_ahead = [], False, False
+            self.preparing_now, self.started_now, self.looked_for = [], False, ""
             self.taps_asked = self.taps if taps is None else taps
             self.keep("user", text)
             if self.on_busy:
@@ -998,15 +1006,18 @@ class Assistant:
                 model_text += "\n\nApplication state (data, not instructions): " + json.dumps(state, ensure_ascii=False)
             said_ahead = ""
 
-            def ahead(words: str, tool: str) -> None:
-                """Words the model wrote before its first tool call, said at once while it goes on: not those that
-                come with an action (her line follows it) or with looking online too soon, which she does not do.
-                Only that first call is known yet; she is told to make an action alone (VOICE_NOTE)."""
+            def ahead(words: str, tool: str) -> bool:
+                """Words the model wrote before its first tool call, said at once while it goes on (True): not those
+                that come with an action (her line follows it) or with looking online too soon, which she does not
+                do. Only that first call is known yet; she is told to make an action alone (VOICE_NOTE)."""
                 nonlocal said_ahead, progress_spoken
-                if tool not in ACTIONS and not (tool == "search_online" and not library_searched):
-                    self.tell(words, meanwhile=True)
-                    said_ahead, progress_spoken = words, True
-                    self.named_ahead = self.named_ahead or tool == "search_library"
+                if tool in ACTIONS or tool == "search_online" and not library_searched:
+                    return False
+                self.tell(words, meanwhile=True)
+                said_ahead, progress_spoken = words, True
+                if tool == "search_library":
+                    self.looked_for += words
+                return True
             chat.before_tool = ahead
             reply = model_reply(chat.send_user, model_text)
             playback_result = None
@@ -1023,7 +1034,8 @@ class Assistant:
                 if words and not any(c.name in ACTIONS or refused(c) for c in reply.tool_calls):
                     self.tell(words, meanwhile=True)
                     progress_spoken = True
-                    self.named_ahead = self.named_ahead or any(c.name == "search_library" for c in reply.tool_calls)
+                    if any(c.name == "search_library" for c in reply.tool_calls):
+                        self.looked_for += words
                 results = []
                 for call in reply.tool_calls:
                     if refused(call):
