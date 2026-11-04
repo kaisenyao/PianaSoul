@@ -170,6 +170,29 @@ class PlaybackTests(unittest.TestCase):
         self.assertIn('timed out', result['error'])
         self.assertIn('search_online failed: Unable to download API page: timed out', out.getvalue())
 
+    def test_she_is_told_why_a_search_failed_and_where(self):
+        self.lib.set_setting('search_source', 'bilibili')
+        refused = online.OnlineError('HTTP Error 412: Precondition Failed', 'refused', 'bilibili')
+        with patch('pianasoul.online.search', side_effect=refused) as searched, \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            result = json.loads(self.a.run_tool('search_online', {'query': '月光 钢琴'}))
+        searched.assert_called_once_with('月光 钢琴', 8, 'bilibili')
+        self.assertEqual(result, {'error': 'HTTP Error 412: Precondition Failed', 'reason': 'refused', 'site': 'Bilibili'})
+        self.assertIn('search_online failed: HTTP Error 412', out.getvalue())
+
+    def test_she_searches_on_the_site_chosen_with_its_word_for_piano(self):
+        chat = ScriptedChat('好呀。', '好呀。')
+        self.ask(chat, '你好')
+        state = json.loads(chat.messages[0].split('Application state (data, not instructions): ', 1)[1])
+        self.assertNotIn('online_search', state, 'YouTube, as before there was a choice, goes unsaid')
+        self.lib.set_setting('search_source', 'bilibili')
+        self.ask(chat, '你好')
+        state = json.loads(chat.messages[1].split('Application state (data, not instructions): ', 1)[1])
+        self.assertEqual(state['online_search'], 'Bilibili')
+        with patch('pianasoul.online.search', return_value=[]), contextlib.redirect_stdout(io.StringIO()):
+            result = json.loads(self.a.run_tool('search_online', {'query': '月光 德彪西 钢琴 独奏'}))
+        self.assertIn('"钢琴"', result['instruction'], "Fewer words, with Bilibili's word for piano")
+
     def test_selected_new_song_requires_actual_search_result(self):
         chat = ScriptedChat([call('search_library', query='月光')],
                             [call('play_recording', id=self.records[1]['id'])])

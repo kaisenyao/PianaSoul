@@ -207,8 +207,8 @@
     <div class="agroup"><button class="cancel2" id="add-cancel" data-t="cancel"></button></div>
   </div>
 
-  <!-- Adding pieces, one way at a time: upload files; or, with transcription, search online or paste a link, watch the
-       video, download -->
+  <!-- Adding pieces, one way at a time: upload files; or, with transcription, search online (on YouTube or Bilibili) or
+       paste a link, watch the video, download -->
   <section class="sheet" id="sheet-add">
     <div class="grabber"></div>
     <div class="sheet-head"><span></span><h3 id="add-title"></h3><button class="r" id="add-done" data-t="done"></button></div>
@@ -216,6 +216,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg>
       <input id="add-input" type="search" data-t-placeholder="addHint" autocomplete="off" enterkeyhint="search">
     </label>
+    <div class="seg" id="source-seg" role="tablist"><button data-source="youtube"></button><button data-source="bilibili"></button></div>
     <div class="sheet-body" id="add-scroll">
       <div class="uploads">
         <button class="upload" id="upload-pick"><span data-t="upload"></span></button>

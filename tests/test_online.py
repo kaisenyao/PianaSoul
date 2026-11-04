@@ -1,0 +1,267 @@
+"""Online search on YouTube and on Bilibili: what each site is asked, what of its answer is offered, why a search
+fails, and one address for each video; no network (yt-dlp, which every request goes through, is replaced)."""
+import io
+import json
+from pathlib import Path
+import socket
+import tempfile
+import unittest
+from unittest.mock import MagicMock, call, patch
+from urllib.parse import parse_qsl, urlsplit
+
+import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
+from yt_dlp.networking import Response
+from yt_dlp.networking.exceptions import HTTPError, TransportError
+from yt_dlp.utils import DownloadError, ExtractorError
+
+from pianasoul import download, downloads, online
+from pianasoul.downloads import clean_url
+
+# Bilibili's answer to a search, cut down to what is read, with made-up videos and names.
+PAGE = {'code': 0, 'message': '0', 'data': {'pagesize': 20, 'result': [
+    {'type': 'video', 'bvid': 'BV1Aa411A7aA', 'title': '<em class="keyword">晴天</em> 钢琴 &amp; 雨声',
+     'author': '钢琴小站', 'upic': 'http://i1.hdslb.com/bfs/face/one.jpg', 'duration': '4:28', 'play': 1089173,
+     'pubdate': 1669352519, 'pic': '//i0.hdslb.com/bfs/archive/one.jpg', 'description': '演奏：钢琴小站',
+     'typename': '演奏', 'is_pay': 0, 'is_charge_video': 0},
+    {'type': 'ketang', 'bvid': '', 'title': '<em class="keyword">晴天</em>钢琴课', 'author': '某课堂', 'duration': '',
+     'is_pay': 0, 'is_charge_video': 0},
+    {'type': 'video', 'bvid': 'BV1Bb411B7bB', 'title': '晴天 钢琴（付费）', 'author': 'Pianist B', 'duration': '4:30',
+     'is_pay': 1, 'is_charge_video': 0},
+    {'type': 'video', 'bvid': 'BV1Cc411C7cC', 'title': '晴天 钢琴（充电专属）', 'author': 'Pianist C', 'duration': '4:31',
+     'is_pay': 0, 'is_charge_video': 1},
+    {'type': 'video', 'bvid': 'BV1Dd411D7dD', 'title': '周杰伦 钢琴 两小时', 'author': 'Pianist D', 'duration': '120:5',
+     'is_pay': 0, 'is_charge_video': 0},
+    {'type': 'video', 'bvid': 'BV1Ee411E7eE', 'title': '晴天 前奏', 'author': 'Pianist E', 'duration': '39:3',
+     'play': 3500, 'pubdate': 1700000000, 'pic': 'https://i2.hdslb.com/bfs/archive/five.jpg', 'typename': '音乐教学',
+     'is_pay': 0, 'is_charge_video': 0},
+]}}
+VOUCHER = {'code': 0, 'message': '0', 'data': {'v_voucher': 'voucher_x'}}  # "nothing", until a human is shown asking
+
+
+def answered(status: int, url: str = online.BILIBILI_SEARCH) -> Response:
+    return Response(io.BytesIO(b''), url, {}, status=status)
+
+
+class Site:
+    """yt-dlp as online search uses it: the options each request is made with, and each request, answered in turn
+    (an error is raised) from what is given; extract_info answers YouTube's search."""
+
+    def __init__(self, *answers, entries=()):
+        self.answers, self.entries, self.options, self.requests = list(answers), list(entries), [], []
+
+    def __call__(self, options):  # YoutubeDL(options)
+        self.options.append(options)
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def urlopen(self, request):
+        self.requests.append(request)
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer if isinstance(answer, Response) else io.BytesIO(json.dumps(answer).encode())
+
+    def extract_info(self, url, download, process):
+        self.requests.append(url)
+        return {'entries': iter(self.entries)}
+
+
+def asked(request) -> dict:
+    """A request's query, by name."""
+    return dict(parse_qsl(urlsplit(request.url).query))
+
+
+class SearchTests(unittest.TestCase):
+    def test_youtube_is_searched_with_a_short_timeout_and_no_retry(self):
+        site = Site(entries=[{'id': 'aaaaaaaaaaa', 'title': '晴天 钢琴', 'channel': 'Pianist', 'duration': 240}])
+        with patch('yt_dlp.YoutubeDL', site):
+            found = online.search('晴天 钢琴')
+        self.assertEqual(site.requests, ['ytsearch8:晴天 钢琴'])
+        self.assertEqual((site.options[0]['socket_timeout'], site.options[0]['extractor_retries']), (8, 0),
+                         'Out of reach (mainland China), it says so within seconds')
+        self.assertEqual(found[0]['url'], 'https://www.youtube.com/watch?v=aaaaaaaaaaa')
+        site = Site(entries=[])
+        with patch('yt_dlp.YoutubeDL', site):
+            online.details(['https://www.youtube.com/watch?v=aaaaaaaaaaa'])
+        self.assertEqual((site.options[0]['socket_timeout'], site.options[0]['extractor_retries']), (20, 1),
+                         "A video's page keeps its time")
+
+    def test_bilibili_is_asked_once_as_its_web_page_asks(self):
+        site = Site(PAGE)
+        with patch('yt_dlp.YoutubeDL', site):
+            online.search('晴天 钢琴', 8, 'bilibili')
+        [request] = site.requests
+        self.assertTrue(request.url.startswith('https://api.bilibili.com/x/web-interface/search/type?'))
+        self.assertEqual(asked(request), {'search_type': 'video', 'keyword': '晴天 钢琴', 'page': '1'})
+        self.assertEqual(request.headers['Referer'], 'https://www.bilibili.com/')
+        self.assertRegex(request.headers['Cookie'], r'^buvid3=[0-9a-f-]{36}infoc$', "A visitor's cookie, as yt-dlp's")
+        self.assertEqual(site.options[0]['socket_timeout'], 8)
+
+    def test_a_refusal_is_asked_again_once_a_moment_later(self):
+        for refusal in (HTTPError(answered(412)), VOUCHER, {'code': -352, 'message': '风控校验失败'}):
+            site = Site(refusal, PAGE)
+            with patch('yt_dlp.YoutubeDL', site), patch.object(online.time, 'sleep') as slept:
+                found = online.search('晴天', 8, 'bilibili')
+            self.assertEqual(len(site.requests), 2)
+            self.assertEqual(slept.call_args_list, [call(online.RETRY_S)])
+            self.assertTrue(2 <= online.RETRY_S <= 3)
+            self.assertEqual(len(found), 2)
+        site = Site(VOUCHER, VOUCHER, PAGE)
+        with patch('yt_dlp.YoutubeDL', site), patch.object(online.time, 'sleep'), \
+                self.assertRaises(online.OnlineError) as failed:
+            online.search('晴天', 8, 'bilibili')
+        self.assertEqual((failed.exception.reason, failed.exception.source), ('refused', 'bilibili'),
+                         'A refusal that looks like nothing found is a refusal')
+        self.assertEqual(len(site.requests), 2, 'Asked again once, and no more')
+        site = Site({'code': 0, 'message': '0', 'data': {'result': []}})
+        with patch('yt_dlp.YoutubeDL', site):
+            self.assertEqual(online.search('不存在的曲子', 8, 'bilibili'), [])
+        self.assertEqual(len(site.requests), 1, 'Nothing found is an answer')
+
+    def test_bilibili_offers_only_whole_videos_short_enough_titled_as_it_shows_them(self):
+        with patch('yt_dlp.YoutubeDL', Site(PAGE)):
+            first, second = online.search('晴天', 15, 'bilibili')
+        self.assertEqual(first, {
+            'url': 'https://www.bilibili.com/video/BV1Aa411A7aA', 'video_title': '晴天 钢琴 & 雨声', 'channel': '钢琴小站',
+            'channel_avatar': 'https://i1.hdslb.com/bfs/face/one.jpg', 'views': 1089173, 'published': '2022-11-25',
+            'thumbnail': 'https://i0.hdslb.com/bfs/archive/one.jpg', 'duration_s': 268, 'description': '演奏：钢琴小站',
+            'flags': []})
+        self.assertEqual((second['duration_s'], second['flags']), (2343, ['long', 'tutorial']),
+                         'Filed under music teaching, it is a tutorial whatever its title says')
+        with patch('yt_dlp.YoutubeDL', Site(PAGE)):
+            self.assertEqual(len(online.search('晴天', 1, 'bilibili')), 1)
+
+    def test_bilibili_titles_have_their_own_warning_words(self):
+        self.assertEqual(online.flags_for('晴天 钢琴教程 简谱', 'UP', '', 240), ['score', 'tutorial'])
+        self.assertEqual(online.flags_for('晴天 钢琴弹唱', 'UP', '', 240), ['sung'])
+        self.assertEqual(online.flags_for('晴天 弹唱', 'UP', '', 240, '晴天 弹唱'), [], 'Unless that is what was asked for')
+
+    def test_a_bilibili_search_asks_for_piano_as_bilibili_says_it(self):
+        site = Site(PAGE)
+        with patch('yt_dlp.YoutubeDL', site):
+            found = online.piano_versions('晴天', 'bilibili')
+        self.assertEqual(asked(site.requests[0])['keyword'], '晴天 钢琴')
+        self.assertEqual([r['url'] for r in found], ['https://www.bilibili.com/video/BV1Aa411A7aA'])
+
+    def test_a_piece_from_a_video_found_on_bilibili_has_its_up_s_picture(self):
+        with patch('yt_dlp.YoutubeDL', Site(PAGE)):
+            online.search('晴天', 8, 'bilibili')
+        self.assertEqual(downloads._video_page('https://www.bilibili.com/video/BV1Aa411A7aA'),
+                         {'channel_avatar': 'https://i1.hdslb.com/bfs/face/one.jpg'})
+        self.assertEqual(downloads._video_page('https://www.bilibili.com/video/BV1Zz411Z7zZ'), {}, 'Not found: none')
+
+
+class FailureTests(unittest.TestCase):
+    def test_a_failure_says_why(self):
+        timed_out = TransportError(cause=TimeoutError('timed out'))
+        for error, reason in (
+                (ExtractorError('Unable to download API page: timed out', cause=timed_out), 'unreachable'),
+                (ExtractorError('Unable to download API page', cause=TransportError(cause=socket.gaierror(8))),
+                 'unreachable'),
+                (DownloadError('ERROR: timed out', exc_info=(None, ExtractorError('x', cause=timed_out), None)),
+                 'unreachable'),
+                (ExtractorError('HTTP Error 429', cause=HTTPError(answered(429))), 'refused'),
+                (HTTPError(answered(412)), 'refused'),
+                (ExtractorError('Sign in to confirm you’re not a bot. Use --cookies'), 'refused'),
+                (HTTPError(answered(404)), 'failed'),
+                (ExtractorError('Video unavailable'), 'failed'),
+                (ValueError('provide a single video URL, not a playlist or channel'), 'failed')):
+            self.assertEqual(online.reason_of(error), reason, error)
+
+    def test_youtube_out_of_reach_says_so(self):
+        def pages():
+            raise ExtractorError('Unable to download API page: timed out',
+                                 cause=TransportError(cause=TimeoutError('timed out')))
+            yield
+        site = Site()
+        site.extract_info = lambda url, download, process: {'entries': pages()}
+        with patch('yt_dlp.YoutubeDL', site), self.assertRaises(online.OnlineError) as failed:
+            online.search('晴天')
+        self.assertEqual((failed.exception.reason, failed.exception.source), ('unreachable', 'youtube'))
+        self.assertIn('timed out', str(failed.exception), 'As yt-dlp said it, for the terminal')
+
+    def test_bilibili_out_of_reach_is_not_asked_again(self):
+        site = Site(TransportError(cause=TimeoutError('timed out')), PAGE)
+        with patch('yt_dlp.YoutubeDL', site), self.assertRaises(online.OnlineError) as failed:
+            online.search('晴天', 8, 'bilibili')
+        self.assertEqual((failed.exception.reason, failed.exception.source, len(site.requests)),
+                         ('unreachable', 'bilibili', 1))
+
+
+class LinkTests(unittest.TestCase):
+    def test_a_bilibili_video_has_one_address(self):
+        canonical = 'https://www.bilibili.com/video/BV1We4y1g7sj'
+        for link in ('https://www.bilibili.com/video/BV1We4y1g7sj', 'https://www.bilibili.com/video/BV1We4y1g7sj/',
+                     'http://bilibili.com/video/BV1We4y1g7sj', 'https://m.bilibili.com/video/BV1We4y1g7sj?p=1',
+                     'https://www.bilibili.com/video/bv1We4y1g7sj/?spm_id_from=333.1007&vd_source=abc&t=30',
+                     'https://www.bilibili.com/video/av648111975', 'https://m.bilibili.com/video/AV648111975/'):
+            self.assertEqual(clean_url(link), canonical, link)
+        self.assertEqual(clean_url('https://www.bilibili.com/video/BV1We4y1g7sj/?p=2&share_source=copy_web'),
+                         canonical + '?p=2', 'A part after the first is its own')
+        self.assertEqual(clean_url(canonical + '?p=2'), canonical + '?p=2')
+        self.assertEqual(clean_url('https://www.bilibili.com/video/av170001'), 'https://www.bilibili.com/video/BV17x411w7KC')
+        self.assertEqual(clean_url('https://www.bilibili.com/bangumi/play/ep21495?spm_id_from=x'),
+                         'https://www.bilibili.com/bangumi/play/ep21495', 'Another page: only what tracks is dropped')
+        self.assertEqual(clean_url('https://youtu.be/abcdefghijk?si=x'), 'https://www.youtube.com/watch?v=abcdefghijk')
+
+    def test_a_short_link_is_followed_to_the_video(self):
+        site = Site(answered(200, 'https://m.bilibili.com/video/BV1We4y1g7sj?share_source=copy_web'))
+        with patch('yt_dlp.YoutubeDL', site):
+            found = online.resolved('https://b23.tv/AbCdEfG')
+        self.assertEqual(site.requests[0].method, 'HEAD')
+        self.assertEqual(clean_url(found), 'https://www.bilibili.com/video/BV1We4y1g7sj')
+        page = 'https://www.bilibili.com/video/BV1We4y1g7sj/'
+        with patch('yt_dlp.YoutubeDL', Site(HTTPError(answered(412, page)))):
+            self.assertEqual(online.resolved('https://b23.tv/AbCdEfG'), page, 'Followed there, the page saying no')
+        with patch('yt_dlp.YoutubeDL', Site(TransportError(cause=TimeoutError('timed out')))), \
+                self.assertRaises(online.OnlineError) as failed:
+            online.resolved('https://b23.tv/AbCdEfG')
+        self.assertEqual((failed.exception.reason, failed.exception.source), ('unreachable', 'bilibili'))
+        with patch('yt_dlp.YoutubeDL', Site()):
+            self.assertEqual(online.resolved(' https://youtu.be/abcdefghijk '), 'https://youtu.be/abcdefghijk')
+
+
+class DownloadTests(unittest.TestCase):
+    def download(self, url, formats):
+        ydl = MagicMock()
+        ydl.__enter__.return_value = ydl
+        ydl.extract_info.return_value = {'_type': 'video', 'duration': 240, 'formats': formats}
+        ydl.prepare_filename.return_value = '/nowhere/audio.m4a'
+        with tempfile.TemporaryDirectory() as tmp, patch('yt_dlp.YoutubeDL', return_value=ydl) as made, \
+                patch.object(download, 'valid_audio', return_value=False):
+            try:
+                download.download_audio(url, Path(tmp))
+            except RuntimeError:  # its audio, made up here, is not real: the download got that far
+                pass
+        ydl.options = made.call_args.args[0]  # what yt-dlp was made with
+        return ydl
+
+    def test_a_bilibili_preview_is_not_taken_for_the_piece(self):
+        preview = [{'format_id': '32', 'vcodec': None, 'acodec': None}]
+        with self.assertRaisesRegex(ValueError, 'only a preview'):
+            self.download('https://www.bilibili.com/video/BV1Cc411C7cC', preview)
+        whole = [{'format_id': '30280', 'vcodec': 'none', 'acodec': 'mp4a.40.2'}, {'format_id': '100026', 'vcodec': 'hev1'}]
+        self.download('https://www.bilibili.com/video/BV1Aa411A7aA', whole).process_ie_result.assert_called_once()
+        self.download('https://www.youtube.com/watch?v=abcdefghijk', preview).process_ie_result.assert_called_once()
+
+    def test_bilibili_s_audio_is_asked_for_a_part_at_a_time(self):
+        whole = [{'format_id': '30280', 'vcodec': 'none', 'acodec': 'mp4a.40.2'}]
+        self.assertEqual(self.download('https://www.bilibili.com/video/BV1Aa411A7aA', whole).options['http_chunk_size'],
+                         10 << 20)
+        self.assertNotIn('http_chunk_size', self.download('https://www.youtube.com/watch?v=abcdefghijk', whole).options,
+                         "YouTube's formats set their own")
+
+    def test_a_video_s_picture_is_kept_over_https(self):
+        self.assertEqual(download.video_details({'thumbnail': 'http://i0.hdslb.com/bfs/archive/one.jpg'})['thumbnail'],
+                         'https://i0.hdslb.com/bfs/archive/one.jpg')
+        self.assertEqual(download.video_details({'thumbnail': 'https://i.ytimg.com/x.jpg'})['thumbnail'],
+                         'https://i.ytimg.com/x.jpg')
+
+
+if __name__ == '__main__':
+    unittest.main()

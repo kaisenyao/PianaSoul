@@ -748,28 +748,33 @@ def delete_conversation(cid: int):
 
 @app.patch('/api/settings')
 def settings(change: dict = Body()):
-    """language, appearance, or output (a unique ID from /api/outputs): heard at once, without a restart."""
+    """language, appearance, search_source, or output (a unique ID from /api/outputs): heard at once, without a
+    restart."""
     return core.set_settings(**{k: str(v) for k, v in change.items()})
 
 
 @app.get('/api/online')
-def online_search(q: str):
-    """Videos to add: piano versions found by searching online, or the one video a link points to."""
+def online_search(q: str, source: str = 'youtube'):
+    """Videos to add: piano versions found by searching online, on source (online.SOURCES), or the one video a link
+    points to. What fails answers 502 with why (error: unreachable, refused or failed, as online.OnlineError says)
+    and where (source: the site, or empty for another)."""
     from . import online
     from .download import video_details, video_info
     from .downloads import clean_url
     q = q.strip()
+    if source not in online.SOURCES:
+        raise HTTPException(400)
     try:
         if q.startswith(('http://', 'https://')):
-            url = clean_url(q)
+            source = online.site_of(q)
+            url = clean_url(online.resolved(q))
             found = online.details([url]).get(url) if online.video_id(url) else None
             results = [{'url': url, **(found or video_details(video_info(url)))}]
         else:
-            results = online.piano_versions(q)
-    except online.OnlineError as exc:
-        return JSONResponse({'error': str(exc)}, status_code=502)
-    except Exception as exc:  # a link yt-dlp cannot read
-        return JSONResponse({'error': f'{type(exc).__name__}: {exc}'}, status_code=502)
+            results = online.piano_versions(q, source)
+    except Exception as exc:  # the site out of reach or saying no, or a link yt-dlp cannot read
+        print(f'  (online search failed: {exc})', flush=True)
+        return JSONResponse({'error': online.reason_of(exc), 'source': source}, status_code=502)
     for r in results:
         r.pop('description', None)
         r.pop('flags', None)

@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .audio import MAX_AUDIO_S, ffmpeg_exe
+from .online import https_url, site_of
 
 
 def task_id(url: str) -> str:
@@ -33,14 +34,14 @@ def valid_audio(path: Path) -> bool:
 
 
 def video_details(info: dict) -> dict:
-    """What a video's page says about it, as the library keeps it."""
+    """What a video's page says about it, as the library keeps it (its picture over https)."""
     date = str(info.get("upload_date") or "")
     views = info.get("view_count")
     return {"video_title": str(info.get("title") or ""),
             "channel": str(info.get("channel") or info.get("uploader") or ""),
             "views": views if isinstance(views, int) else None,
             "published": f"{date[:4]}-{date[4:6]}-{date[6:8]}" if len(date) == 8 and date.isdigit() else "",
-            "thumbnail": str(info.get("thumbnail") or ""),
+            "thumbnail": https_url(info.get("thumbnail")),
             "duration_s": info.get("duration")}
 
 
@@ -86,6 +87,11 @@ def download_audio(url: str, cache_dir: Path, progress=None) -> tuple[Path, dict
             "ffmpeg_location": ffmpeg_exe(),
             "js_runtimes": {"deno": {}, "node": {}},
         }
+        if site_of(url) == "bilibili":
+            # One of Bilibili's servers abroad (upos-sz-mirrorcosov) answers 567 when asked for a whole file, and gives
+            # it a part at a time: it is asked for in parts, as YouTube's formats are (they set their own size, which
+            # this would override).
+            options["http_chunk_size"] = 10 << 20
         if progress:
             def hook(d):
                 total = d.get("total_bytes") or d.get("total_bytes_estimate")
@@ -100,6 +106,11 @@ def download_audio(url: str, cache_dir: Path, progress=None) -> tuple[Path, dict
                 raise ValueError("live/upcoming streams are not supported")
             if (info.get("duration") or 0) > MAX_AUDIO_S:
                 raise ValueError(f"the video is longer than {MAX_AUDIO_S // 60} minutes")
+            # A Bilibili video without its audio on its own is a preview, as of one for its UP主's supporters only:
+            # not the piece, which bestaudio/best would quietly take it for.
+            if site_of(url) == "bilibili" and not any(f.get("vcodec") == "none" for f in info.get("formats") or []):
+                raise ValueError("Bilibili has no audio of this video on its own: only a preview, as of a video for "
+                                 "its uploader's supporters")
             info = ydl.process_ie_result(info, download=True)
             downloaded = Path(ydl.prepare_filename(info))
         if not valid_audio(downloaded):

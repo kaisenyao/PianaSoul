@@ -64,6 +64,9 @@ const zh = {
   appearances: {system: '跟随系统', dark: '深色', light: '浅色'},
   connected: '已连接', disconnected: '未连接',
   results: '曲目', nothing: '无结果',
+  sites: {youtube: 'YouTube', bilibili: '哔哩哔哩'},  // where online search searches (search_source)
+  unreachable: site => `无法连接到${site}。`, searchInstead: site => `改用${site}搜索`, searchFailed: '无法搜索。请重试。',
+  refused: {youtube: 'YouTube暂时拒绝了搜索，请稍后再试。', bilibili: '哔哩哔哩暂时拒绝了搜索，请关闭代理后再试。'},
   orb: {idle: '打开语音', starting: '正在连接', active: '语音已打开，轻点以关闭'},
   helpTopics: [
     {id: 'start', icon: 'sparkle', title: '开始使用', items: [
@@ -96,7 +99,8 @@ const zh = {
       ['上传', '轻点曲库右上角的＋，然后轻点“上传文件”，可一次选择多个MIDI和录音文件，它们会放入曲库的“Uploaded”文件夹。也可以在Mac上直接将文件拖到“音乐 › PianaSoul”文件夹。'],
       ['来源', '每首曲目的来源显示在详细信息的“来源”中：由视频或录音转谱、从手机上传，或你添加到曲库的文件。'],
       ['钢琴版优先', '钢琴版排在前面，不列出教程、瀑布流、简单版和合集；钢琴版较少时，其他视频排在后面。'],
-      ['观看视频', '轻点封面或标题，在YouTube中观看。'],
+      ['YouTube或哔哩哔哩', '在线搜索时，在搜索栏下方选择在哪个网站上搜索，她也在这个网站上搜索。在中国大陆请选择哔哩哔哩。'],
+      ['观看视频', '轻点封面或标题，观看原视频。'],
       ['下载', '轻点下载按钮，圆圈走满一圈即转换完成，轻点中间的方块可停止；完成后轻点▶即开始弹奏。'],
       ['编辑信息', '按住曲目，可更改曲名、原作者和演奏者。'],
       ['艺术家', '可以按原作者或演奏者浏览。'],
@@ -231,6 +235,11 @@ const en = {
   appearances: {system: 'System', dark: 'Dark', light: 'Light'},
   connected: 'Connected', disconnected: 'Not Connected',
   results: 'Pieces', nothing: 'No Results',
+  sites: {youtube: 'YouTube', bilibili: 'Bilibili'},
+  unreachable: site => `Can’t connect to ${site}.`, searchInstead: site => `Search ${site} Instead`,
+  searchFailed: 'Couldn’t search. Try again.',
+  refused: {youtube: 'YouTube isn’t allowing searches right now. Try again later.',
+    bilibili: 'Bilibili isn’t allowing searches right now. Turn off any proxy and try again.'},
   orb: {idle: 'Turn on voice', starting: 'Connecting', active: 'Voice on, tap to turn off'},
   helpTopics: [
     {id: 'start', icon: 'sparkle', title: 'Getting Started', items: [
@@ -264,7 +273,8 @@ const en = {
       ['Upload', 'Tap + at the top right of the library, then Upload Files: MIDI files and recordings, several at once, into the library’s Uploaded folder. Dragging them into Music › PianaSoul on the Mac does the same.'],
       ['Source', 'Where each piece came from is shown under Source in its details: transcribed from a video or a recording, uploaded from a phone, or a file you added to the library.'],
       ['Piano Versions First', 'Piano versions come first, with no tutorials, falling notes, easy versions, or compilations; when there are few, other videos follow.'],
-      ['Watch', 'Tap a cover or a title to watch the video on YouTube.'],
+      ['YouTube or Bilibili', 'When you search online, choose the site to search under the search field; she searches the same one. In mainland China, choose Bilibili.'],
+      ['Watch', 'Tap a cover or a title to watch the original video.'],
       ['Download', 'Tap the Download button; when the circle closes, it’s ready, and ▶ plays it. The square in the middle stops it.'],
       ['Edit', 'Touch and hold a piece to change its name, artist and pianist.'],
       ['Artists', 'Browse by artist or by pianist.'],

@@ -5,6 +5,7 @@
 import {LANGUAGES} from './strings.js';
 import {addOrb, animateOrb, homeColor, sameLook} from './orb.js';
 import {createCues} from './cues.js';
+import {onlineSearch} from './online.js';
 import {uploader} from './upload.js';
 import {voice as makeVoice} from './voice.js';
 
@@ -105,8 +106,8 @@ dark.addEventListener('change', () => { if (data.settings.appearance === 'system
 
 // ---------- What the Mac keeps ----------
 const data = {recordings: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
-  conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system'}, devices: [],
-  piano: {name: '', kind: 'other', connected: true},
+  conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system', search_source: 'youtube'},
+  devices: [], piano: {name: '', kind: 'other', connected: true},
   version: {commit: '', repo: ''}, features: {transcribe: true, assistant: true}, playlists: [], pictures: {}, descriptions: {}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
 // What the Mac can do and the look chosen: kept on this phone too, so that the page opens on the right home (her orb,
@@ -165,7 +166,12 @@ function listen() {
     else if (e.type === 'conversations') conversations();
     else if (e.type === 'message') onMessage(e.message);
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
-    else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
+    else if (e.type === 'settings') {
+      delete e.type;
+      data.settings = e;
+      applySettings();
+      if (openSheet === $('#sheet-add')) online.follow(e.search_source);  // the site chosen elsewhere
+    }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
     else if (e.type === 'playlists') { if (!changing) setPlaylists(e.playlists); }  // changing: as it is here, until answered
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
@@ -259,10 +265,11 @@ const subtitle = p => [p.artist, p.performer].filter(Boolean).join(' · ');
 // In the player, each of them a way to their page, as in Apple Music: whose it is (原作者), who plays it (演奏者).
 const whoLinks = p => [['artist', p.artist], ['performer', p.performer]].filter(([, name]) => name)
   .map(([kind, name]) => `<button class="who" data-kind="${kind}">${esc(name)}</button>`).join('<span class="sep">·</span>');
-// The site a piece came from, as people call it: YouTube, or its address.
+// The site a piece came from, as people call it: YouTube, Bilibili (哔哩哔哩), or its address.
 const siteOf = url => {
   const host = new URL(url).hostname.replace(/^(www|m)\./, '');
-  return /^(youtube\.com|music\.youtube\.com|youtu\.be)$/.test(host) ? 'YouTube' : host;
+  return /^(youtube\.com|music\.youtube\.com|youtu\.be)$/.test(host) ? T.sites.youtube
+    : /^(bilibili\.com|b23\.tv)$/.test(host) ? T.sites.bilibili : host;
 };
 const hueOf = id => 200 + (id * 37) % 140;
 const NAME_HUES = [212, 250, 285, 330, 12, 168];  // a few clear hues, so no avatar turns muddy
@@ -1651,7 +1658,7 @@ function showScreen(n) {
   }, {passive: false});
 })();
 
-// 详细信息: the video as YouTube shows it (when the piece came from one), then the library's facts about the piece,
+// 详细信息: the video as its site shows it (when the piece came from one), then the library's facts about the piece,
 // always the same four in the same places, then the technical details, folded at first. 编辑信息 has the same groups
 // in the same order.
 let infoId = null, technicalOpen = false;
@@ -1692,7 +1699,7 @@ function renderInfo(p) {
     <div class="facts-h${video ? '' : ' first'}">${esc(T.pieceInfo)}</div>${facts(aboutOf(p))}
     <button class="facts-h fold" aria-expanded="${technicalOpen}">${esc(T.technical)}${CHEV}</button>${facts(technicalOf(p), !technicalOpen)}`;
 }
-// Watching the original on YouTube: one sound at a time, so the piano pauses.
+// Watching the original on its site: one sound at a time, so the piano pauses.
 $('#p-info').addEventListener('click', e => {
   if (e.target.closest('#p-video')) pausePiano();
   if (e.target.closest('.fold')) showTechnical(!technicalOpen);
@@ -1873,34 +1880,28 @@ dragToReorder($('#queue-list'), () => pb().ids, (id, at, ids) => {
 });
 
 // ---------- Adding pieces ----------
-// Search YouTube for piano versions (or paste a link), watch one on YouTube, download it (the same queue she uses by
-// voice), then play it: download, the ring while it is made, play.
-let cands = [], query = '', searching = false, searchRun = 0;  // searchRun: the latest search, whose results show
-// No search shown: one still on its way is let go of, and shows nothing when it comes back.
-function forgetSearch() {
-  searchRun++;
-  searching = false;
-  query = '';
-}
-async function findCands(q) {
-  query = q;
-  cands = [];
-  const run = ++searchRun;
-  searching = true;  // first: it shows the spinner, not "nothing found"
-  renderCands();
-  try {
-    const found = await api('/api/online?q=' + encodeURIComponent(q));
-    if (run === searchRun) cands = found;
-  } catch {}
-  if (run === searchRun) { searching = false; renderCands(); }
-}
+// Search online for piano versions, on the site chosen (YouTube or Bilibili), or paste a link; watch one there,
+// download it (the same queue she uses by voice), then play it: download, the ring while it is made, play.
+const online = onlineSearch(api, () => renderCands());
 const jobFor = c => data.jobs.find(j => j.source === c.url);
+// Why a search failed, as the site's: it cannot be reached, or will not search for now; or else that it failed.
+const failure = ({reason, source}) => reason === 'unreachable' && T.sites[source] ? T.unreachable(T.sites[source])
+  : reason === 'refused' && T.refused[source] || T.searchFailed;
 function renderCands() {
-  const body = $('#add-body');
+  for (const b of document.querySelectorAll('#source-seg button')) {
+    b.textContent = T.sites[b.dataset.source];
+    b.classList.toggle('on', b.dataset.source === data.settings.search_source);
+  }
+  const body = $('#add-body'), {query, searching, found, failed, offer} = online.state;
   if (!query) { body.innerHTML = ''; return; }
   if (searching) { body.innerHTML = `<div class="loading">${SPINNER}</div>`; return; }
-  if (!cands.length) { body.innerHTML = `<div class="empty">${esc(T.nothing)}</div>`; return; }
-  body.innerHTML = cands.map((c, i) => {
+  if (failed) {
+    body.innerHTML = `<div class="empty">${esc(failure(failed))}${offer
+      ? `<button class="instead" data-source="${offer}">${esc(T.searchInstead(T.sites[offer]))}</button>` : ''}</div>`;
+    return;
+  }
+  if (!found.length) { body.innerHTML = `<div class="empty">${esc(T.nothing)}</div>`; return; }
+  body.innerHTML = found.map((c, i) => {
     const rec = data.recordings.find(r => r.source_url === c.url), job = jobFor(c);
     const btn = rec ? `<button class="addbtn" data-play="${rec.id}" aria-label="${esc(T.playNow)}">${ICON_PLAY_CIRCLE}</button>`
               : job ? ringButton(job)
@@ -1930,12 +1931,12 @@ $('#add-cancel').addEventListener('click', closeOverlays);
 function openAdd(how, q = '') {
   const search = how === 'search';
   $('#add-title').textContent = search ? T.searchOnline : T.upload;
-  $('#add-field').hidden = $('#add-body').hidden = !search;
+  $('#add-field').hidden = $('#source-seg').hidden = $('#add-body').hidden = !search;
   $('#sheet-add .uploads').hidden = search;
   $('#add-input').value = q;
   uploads.tidy();
   if (search && q) searchOnline(q);
-  else { forgetSearch(); renderCands(); }
+  else { online.forget(); renderCands(); }
   showSheet($('#sheet-add'));
   $('#add-scroll').scrollTop = 0;
   if (!search) $('#upload-files').click();
@@ -1951,8 +1952,20 @@ $('#add-input').addEventListener('keydown', e => {
 // Searching online, by name or by a video's link (the sheet is there with transcription only).
 function searchOnline(q) {
   $('#add-scroll').scrollTop = 0;
-  findCands(q);
+  online.find(q, data.settings.search_source);
 }
+// The site to search, for her and every phone: kept on the Mac. The search shown is made again on it.
+function chooseSource(source) {
+  if (source === data.settings.search_source) return;
+  data.settings.search_source = source;
+  applySettings();
+  api('/api/settings', 'PATCH', {search_source: source}).catch(() => {});
+  online.follow(source);
+}
+$('#source-seg').addEventListener('click', e => {
+  const b = e.target.closest('[data-source]');
+  if (b) chooseSource(b.dataset.source);
+});
 $('#lib-add').innerHTML = ICON_ADD;
 $('#lib-add').addEventListener('click', addPieces);
 
@@ -1981,11 +1994,13 @@ function renderUploads(items) {
 $('#add-body').addEventListener('click', e => {
   const add = e.target.closest('[data-add]');
   if (add) {
-    const c = cands[+add.dataset.add];
+    const c = online.state.found[+add.dataset.add], {query} = online.state;
     add.outerHTML = SPINNER;
     api('/api/downloads', 'POST', {url: c.url, query: /^https?:/i.test(query) ? '' : query, video: c}).catch(() => renderCands());
     return;
   }
+  const instead = e.target.closest('[data-source]');  // the other site, this one out of reach
+  if (instead) { chooseSource(instead.dataset.source); return; }
   const stop = e.target.closest('[data-stop]');
   if (stop) { stopJob(+stop.dataset.stop); return; }
   // A piece made: it plays from the library, in the player; closing the player is back on the library.
@@ -1995,7 +2010,7 @@ $('#add-body').addEventListener('click', e => {
     play(+made.dataset.play, listIds($('#library-list')), {kind: 'library'}, made);
     return;
   }
-  if (e.target.closest('.cand > a')) pausePiano();  // the video plays on YouTube, the piano waits
+  if (e.target.closest('.cand > a')) pausePiano();  // the video plays on its site, the piano waits
 });
 
 // ---------- Talking in a conversation ----------

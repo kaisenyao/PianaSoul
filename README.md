@@ -36,10 +36,11 @@
 - **She plays your piano.** Notes and pedal go over MIDI, like someone playing a MIDI keyboard: to Pianoteq on an
   iPad that drives a digital piano, to the piano itself over Bluetooth or USB, or to Pianoteq on the Mac.
 
-- **She finds what you don't have.** She looks on YouTube for a real piano performance (no tutorials or falling
-  notes) and turns it into MIDI with [Transkun](https://github.com/Yujia-Yan/Transkun): notes, timing, dynamics and
-  pedal. Your own recordings work too. This happens in the background, so you can keep talking with her; the piece
-  plays once it is ready, unless you have chosen something else meanwhile, and then she tells you it is ready.
+- **She finds what you don't have.** She looks on YouTube, or on Bilibili if you choose it in the app, for a real
+  piano performance (no tutorials or falling notes) and turns it into MIDI with
+  [Transkun](https://github.com/Yujia-Yan/Transkun): notes, timing, dynamics and pedal. Your own recordings work
+  too. This happens in the background, so you can keep talking with her; the piece plays once it is ready, unless
+  you have chosen something else meanwhile, and then she tells you it is ready.
 
 - **Your library is a folder on your Mac.** Put MIDI files in `~/Music/PianaSoul`, in Finder or from the phone, and
   they are in the app at once, with favorites, recently played and search. The basics need no key at all.
@@ -72,7 +73,7 @@ A Mac app for PianaSoul is in development and in private beta. Until it is relea
 PianaSoul from source.
 
 You need a Mac and a piano that takes MIDI (or Pianoteq). For her you also need an OpenAI API key; new pieces from
-YouTube need none (without one, they are named from the video's title). Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app and her voice on the Mac.
+YouTube or Bilibili need none (without one, they are named from the video's title). Steps 1 to 4 get the piano playing; 5 and 6 add the iPhone app and her voice on the Mac.
 
 ### 1. Install
 
@@ -299,6 +300,8 @@ for an unsteady network, `0.5` for quicker responses.
 - **Nothing sounds:** check the connection. The iPad drops out of Participants in MIDI Network Setup when Pianoteq
   closes, the iPad goes offline or the Mac sleeps. Connect it again and ask her to continue; nothing needs a
   restart.
+- **A search can't connect to YouTube:** in mainland China, choose Bilibili under the search field in Search
+  Online; she searches the site chosen there too. If Bilibili refuses searches, turn off any proxy or VPN.
 - **She does not hear her name:** run `./run.sh voice --debug` to see when she hears it, and lower
   `PIANASOUL_WAKE_THRESHOLD` (to `0.15`, say). If she wakes by herself, raise it.
 - **Anything else:** chat, voice, the app, play and transcription all take `--debug`, which shows each step with its
@@ -309,7 +312,8 @@ for an unsteady network, `0.5` for quicker responses.
 Transcription works best on solo piano: there is no separation of voice or accompaniment, so she looks for
 piano-led recordings, and some notes may be missed or added. The sustain pedal is either down or up. Recordings are
 limited to 60 minutes. Download only videos you are permitted to download; playlists and live streams are not
-supported. If a site stops working, update yt-dlp:
+supported, nor Bilibili videos that are paid for or only for an uploader's supporters. If a site stops working,
+update yt-dlp:
 
 ```bash
 uv pip install --python .venv/bin/python --upgrade 'yt-dlp[default]'

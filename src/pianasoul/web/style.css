@@ -21,7 +21,7 @@
   --mini: rgba(40, 40, 44, .92); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .55); --selbar: rgba(22, 22, 24, .9);
   --grabber: #48484a; --ring-track: rgba(255, 255, 255, .16); --input-line: #3a3a3c; --check-line: #636366;
   --card-bar: rgba(255, 255, 255, .18); --card-fill: rgba(255, 255, 255, .85); --disabled: #48484a;
-  --sheet: #1c1c1e; --sheet-field: #2c2c2e;
+  --sheet: #1c1c1e; --sheet-field: #2c2c2e; --sheet-chip: #48484a;
 }
 :root[data-theme=light] {
   color-scheme: light;
@@ -34,7 +34,7 @@
   --mini: rgba(247, 247, 249, .94); --mini-shadow: 0 8px 30px rgba(0, 0, 0, .14); --selbar: rgba(249, 249, 249, .92);
   --grabber: #c7c7cc; --ring-track: rgba(0, 0, 0, .12); --input-line: #c7c7cc; --check-line: #c7c7cc;
   --card-bar: rgba(0, 0, 0, .12); --card-fill: rgba(0, 0, 0, .55); --disabled: #c7c7cc;
-  --sheet: #fff; --sheet-field: #f2f2f7;
+  --sheet: #fff; --sheet-field: #f2f2f7; --sheet-chip: #fff;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -415,7 +415,8 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; d
 .swipe.lifted .del { display: none; }
 .swipe.lifted .content { background: var(--card2); box-shadow: 0 10px 28px rgba(0, 0, 0, .35); border-radius: 10px; }
 
-/* Videos from the online search; a cover opens the video on YouTube */
+/* Videos from the online search; a cover opens the video on its site. A search that failed says why, and may offer
+   the other site (instead). */
 .cand { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 16px; }
 .cand > a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
 .cand > a:active { opacity: .7; }
@@ -430,6 +431,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; d
 .ct2 { display: block; font-size: 12.5px; color: var(--text2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .addbtn { width: 34px; height: 34px; flex: none; display: grid; place-items: center; color: var(--accent); }
 .addbtn svg { width: 28px; height: 28px; }
+.instead { display: block; min-height: 44px; margin: 4px auto 0; padding: 0 16px; color: var(--accent); font-size: 15px; text-align: center; }
 
 /* Edit form */
 .form { margin: 8px 16px; border-radius: 12px; background: var(--card2); overflow: hidden; }
@@ -581,10 +583,12 @@ button.grow:active { background: var(--press); }
 .arow .mono { width: 44px; height: 44px; font-size: 18px; }
 .chev { color: var(--text3); flex: none; }
 .chev svg { width: 8px; height: 14px; }
-/* iOS segmented control: 原作者 | 演奏者 */
+/* iOS segmented control: 原作者 | 演奏者; YouTube | 哔哩哔哩, on a sheet in its field's color */
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin: 2px 16px 8px; padding: 2px; border-radius: 9px; background: var(--card); }
 .seg button { height: 30px; border-radius: 7px; text-align: center; font-size: 14px; color: var(--text2); }
 .seg button.on { background: var(--chip); color: var(--text); font-weight: 600; }
+.sheet .seg { flex: none; background: var(--sheet-field); }
+.sheet .seg button.on { background: var(--sheet-chip); }
 :root[data-theme=light] .seg button.on { background: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
 .hero { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 16px 18px; }
 .hero .mono { width: 120px; height: 120px; font-size: 48px; margin-bottom: 10px; }
@@ -727,7 +731,7 @@ button.grow:active { background: var(--press); }
 .peek svg { width: 14px; height: 14px; }
 /* 详细信息 in the same band below the status bar as the other pages' titles */
 .pinfo h3 { display: flex; align-items: center; height: 54px; margin: 0 0 8px; font-size: 22px; font-weight: 700; }
-/* The original video, as YouTube shows it; a tap opens it there */
+/* The original video, as its site shows it; a tap opens it there */
 .video { display: block; color: inherit; text-decoration: none; }
 .video .thumb { display: block; width: 100%; border-radius: 14px; box-shadow: var(--p-thumb-shadow); }
 .video:active .thumb { filter: brightness(.85); }
