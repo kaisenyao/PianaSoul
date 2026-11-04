@@ -758,17 +758,17 @@ class StartTests(unittest.TestCase):
         self.assertNotIn('Tap the orb', printed)
 
     def test_without_her_the_key_her_model_line_needs_is_named(self):
-        for values, why in (({'PIANASOUL_MODEL': 'qwen', 'DASHSCOPE_API_KEY': ''}, 'DASHSCOPE_API_KEY is not set'),
+        for values, why in (({'PIANASOUL_MODEL': 'bailian', 'DASHSCOPE_API_KEY': ''}, 'DASHSCOPE_API_KEY is not set'),
                             ({'PIANASOUL_MODEL': 'anthropic', 'ANTHROPIC_API_KEY': 'test'},
                              'OPENAI_API_KEY is not set'),  # her ears are OpenAI's
-                            ({'PIANASOUL_MODEL': 'gemini'}, 'PIANASOUL_MODEL must be openai, qwen or anthropic')):
+                            ({'PIANASOUL_MODEL': 'gemini'}, 'PIANASOUL_MODEL must be openai, bailian or anthropic')):
             with patch.dict('os.environ', values):
                 printed = self.start([], her=False, new=False)[0]  # no OpenAI key
             self.assertIn(f'her off ({why}', printed)
             self.assertFalse(self.core_made.call_args.kwargs['assistant'])
 
-    def test_with_qwen_her_own_key_is_all_she_needs(self):
-        with patch.dict('os.environ', {'PIANASOUL_MODEL': 'qwen', 'DASHSCOPE_API_KEY': 'test'}):
+    def test_with_model_studio_her_own_key_is_all_she_needs(self):
+        with patch.dict('os.environ', {'PIANASOUL_MODEL': 'bailian', 'DASHSCOPE_API_KEY': 'test'}):
             printed = self.start([], her=False, new=False)[0]  # no OpenAI key
         self.assertTrue(self.core_made.call_args.kwargs['assistant'])
         self.assertIn('her on', printed)

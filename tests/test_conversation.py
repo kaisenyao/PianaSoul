@@ -420,7 +420,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(stt(np.zeros(1600, dtype=np.float32), Mock()), '小茗同学，我想听小明的歌。')
 
     def test_the_volume_commands_are_spelling_hints_as_the_short_commands_have_them(self):
-        # 小声一点 was heard as 小心一点. The hints are short commands, word for word; Qwen's go with its requests too.
+        # 小声一点 was heard as 小心一点. The hints are short commands, word for word; Model Studio's go with its requests too.
         from pianasoul.playback_commands import COMMANDS
         self.assertTrue(all(any(w in words for words in COMMANDS.values()) for w in voice.STT_COMMAND_HINTS))
         stt = voice.Transcriber.__new__(voice.Transcriber)
@@ -461,9 +461,9 @@ class ConversationTests(unittest.TestCase):
         self.chat.reset.assert_not_called()
         self.assertEqual(self.c.state, 'waiting')
 
-    def test_her_name_then_nothing_qwen_hears_words_in_she_greets(self):
+    def test_her_name_then_nothing_model_studio_hears_words_in_she_greets(self):
         with patch.dict('os.environ', {'DASHSCOPE_API_KEY': 'test-key'}):
-            self.parts.stt = voice.QwenTranscriber()
+            self.parts.stt = voice.BailianTranscriber()
         self.assistant.lib.playable.return_value = []
         self.c = voice.Conversation(self.assistant, self.chat, self.parts, self.out)
         with patch('urllib.request.urlopen', ModelStudio(NO_WORDS)) as studio:
@@ -710,8 +710,8 @@ class LiveTests(unittest.TestCase):
         self.assertTrue((np.diff(up.astype(np.int32)) >= 0).all(), 'Smooth across the two frames')
 
 
-class QwenHearingTests(unittest.TestCase):
-    """voice.QwenTranscriber: a request heard whole by Qwen on Model Studio, a made-up one."""
+class BailianHearingTests(unittest.TestCase):
+    """voice.BailianTranscriber: a request heard whole on Model Studio, a made-up one."""
 
     def setUp(self):
         for patcher in (patch.dict('os.environ', {'DASHSCOPE_API_KEY': 'test-key', 'DASHSCOPE_REGION': ''}),
@@ -723,9 +723,9 @@ class QwenHearingTests(unittest.TestCase):
                                           for t in ('周杰伦 - 晴天 (MappleZS)', 'Chopin - Nocturne Op. 9 No. 2')]
 
     def hear(self, *answers):
-        """What Qwen's answers come to, and what was sent: (request, body, timeout) each."""
+        """What Model Studio's answers come to, and what was sent: (request, body, timeout) each."""
         with patch('urllib.request.urlopen', ModelStudio(*answers)) as studio:
-            return voice.QwenTranscriber()(np.zeros(1600, dtype=np.float32), self.lib), studio.sent
+            return voice.BailianTranscriber()(np.zeros(1600, dtype=np.float32), self.lib), studio.sent
 
     def test_the_request_goes_whole_with_the_words_to_expect_and_no_language(self):
         text, sent = self.hear('小明同学，弹晴天。')
@@ -776,15 +776,15 @@ class QwenHearingTests(unittest.TestCase):
     def test_a_refused_key_says_why_and_is_not_tried_again(self):
         with self.assertRaises(RuntimeError) as raised:
             self.hear((401, {'code': 'InvalidApiKey', 'message': 'Invalid API-key provided.'}))
-        self.assertEqual(str(raised.exception), 'Qwen error 401: InvalidApiKey: Invalid API-key provided.')
+        self.assertEqual(str(raised.exception), 'Model Studio error 401: InvalidApiKey: Invalid API-key provided.')
 
     def test_an_account_that_owes_money_is_not_asked_again_without_the_words_to_expect(self):
         studio = ModelStudio((400, {'code': 'Arrearage', 'message': 'Access denied, please make sure your account is '
                                                                     'in good standing.'}), '弹晴天。')
         with patch('urllib.request.urlopen', studio), self.assertRaises(RuntimeError) as raised:
-            voice.QwenTranscriber()(np.zeros(1600, dtype=np.float32), self.lib)
+            voice.BailianTranscriber()(np.zeros(1600, dtype=np.float32), self.lib)
         self.assertEqual(len(studio.sent), 1)
-        self.assertTrue(str(raised.exception).startswith('Qwen error 400: Arrearage'))
+        self.assertTrue(str(raised.exception).startswith('Model Studio error 400: Arrearage'))
 
     def test_a_key_made_in_singapore_is_heard_there(self):
         with patch.dict('os.environ', {'DASHSCOPE_REGION': 'singapore'}):
@@ -792,16 +792,17 @@ class QwenHearingTests(unittest.TestCase):
         self.assertTrue(sent[0][0].full_url.startswith('https://dashscope-intl.aliyuncs.com/api/v1/'))
 
     def test_her_ears_follow_her_model_line(self):
-        for values, made in (({'PIANASOUL_MODEL': 'qwen', 'OPENAI_API_KEY': ''}, voice.QwenTranscriber),
+        for values, made in (({'PIANASOUL_MODEL': 'bailian', 'OPENAI_API_KEY': ''}, voice.BailianTranscriber),
                              ({'PIANASOUL_MODEL': 'anthropic', 'OPENAI_API_KEY': 'test'}, voice.Transcriber),
                              ({'PIANASOUL_MODEL': '', 'OPENAI_API_KEY': 'test'}, voice.Transcriber)):
             with patch.dict('os.environ', values):
                 self.assertIs(type(voice.make_transcriber()), made, values)
-        with patch.dict('os.environ', {'PIANASOUL_MODEL': 'qwen'}):
+        with patch.dict('os.environ', {'PIANASOUL_MODEL': 'bailian'}):
             stt = voice.make_transcriber()
-        self.assertEqual(stt.label, 'Qwen qwen-audio-3.1-asr-flash, once you have finished')
+        self.assertEqual(stt.label, 'Model Studio qwen-audio-3.1-asr-flash, once you have finished')
         self.assertIsNone(stt.listen(self.lib), 'Heard whole')
-        with patch.dict('os.environ', {'PIANASOUL_MODEL': 'qwen', 'DASHSCOPE_API_KEY': '', 'OPENAI_API_KEY': 'test'}), \
+        with patch.dict('os.environ', {'PIANASOUL_MODEL': 'bailian', 'DASHSCOPE_API_KEY': '',
+                                       'OPENAI_API_KEY': 'test'}), \
                 self.assertRaisesRegex(ValueError, '^DASHSCOPE_API_KEY is not set$'):
             voice.make_transcriber()
 
@@ -978,12 +979,12 @@ class Synthesizer:
         raise urllib.error.HTTPError(request.full_url, status, 'error', {}, io.BytesIO(json.dumps(body).encode()))
 
 
-class QwenVoiceTests(unittest.TestCase):
-    """voice.Speaker with PIANASOUL_VOICE=qwen: her voice by Qwen on Model Studio, a made-up one."""
+class BailianVoiceTests(unittest.TestCase):
+    """voice.Speaker with PIANASOUL_VOICE=bailian: her voice on Model Studio, a made-up one."""
 
     def setUp(self):
-        values = {'PIANASOUL_VOICE': 'qwen', 'DASHSCOPE_VOICE_API_KEY': 'test-voice-key', 'DASHSCOPE_VOICE_REGION': '',
-                  'DASHSCOPE_API_KEY': 'test-model-key', 'DASHSCOPE_REGION': ''}
+        values = {'PIANASOUL_VOICE': 'bailian', 'DASHSCOPE_VOICE_API_KEY': 'test-voice-key',
+                  'DASHSCOPE_VOICE_REGION': '', 'DASHSCOPE_API_KEY': 'test-model-key', 'DASHSCOPE_REGION': ''}
         for patcher in (patch.dict('os.environ', values),
                         patch.object(voice, 'VOICE_ID', ''), patch('builtins.print'),
                         patch.object(voice, 'mac_voice', return_value=np.array([7], dtype=np.int16))):
@@ -996,7 +997,7 @@ class QwenVoiceTests(unittest.TestCase):
         with patch('urllib.request.urlopen', Synthesizer(*answers)) as studio:
             return [p.tolist() for p in self.speaker.stream(text)], studio.sent
 
-    def test_her_voice_comes_in_pieces_as_qwen_makes_it_an_odd_byte_waiting_for_its_other_half(self):
+    def test_her_voice_comes_in_pieces_as_model_studio_makes_it_an_odd_byte_waiting_for_its_other_half(self):
         said, sent = self.say('你好，Jasmine', events(audio(b'\x01\x00\x02'), audio(b'\x00\x03\x00'), END))
         self.assertEqual(said, [[1], [2, 3]])
         request, body, timeout = sent[0]
@@ -1006,7 +1007,7 @@ class QwenVoiceTests(unittest.TestCase):
         self.assertLessEqual(timeout, 30, 'Bounded')
         self.assertEqual(body, {'model': 'qwen-audio-3.1-tts-flash', 'input': {
             'text': '你好，Jasmine', 'voice': 'longanhuan_v3.1', 'format': 'pcm', 'sample_rate': 24000, 'rate': 1.0}})
-        self.assertEqual(self.speaker.label, 'Qwen qwen-audio-3.1-tts-flash, longanhuan_v3.1')
+        self.assertEqual(self.speaker.label, 'Model Studio qwen-audio-3.1-tts-flash, longanhuan_v3.1')
 
     def test_the_voice_named_speaks_in_the_region_its_key_was_made_in(self):
         with patch.dict('os.environ', {'DASHSCOPE_VOICE_REGION': 'singapore'}), \
@@ -1112,13 +1113,15 @@ class VoiceServiceTests(unittest.TestCase):
                 ({'ELEVENLABS_API_KEY': 'k'}, voice.ElevenLabsVoice, True, elevenlabs),
                 ({}, voice.ElevenLabsVoice, False, 'macOS (set ELEVENLABS_API_KEY and PIANASOUL_VOICE_ID)'),
                 ({'PIANASOUL_VOICE': 'elevenlabs', **both}, voice.ElevenLabsVoice, True, elevenlabs),
-                ({'PIANASOUL_VOICE': 'Qwen', **both}, voice.QwenVoice, True, 'Qwen qwen-audio-3.1-tts-flash, v'),
+                ({'PIANASOUL_VOICE': 'Bailian', **both}, voice.BailianVoice, True,
+                 'Model Studio qwen-audio-3.1-tts-flash, v'),
                 ({'PIANASOUL_VOICE': 'mac', **both}, type(None), False, 'macOS')):
             speaker = self.speaker(**values)
             self.assertEqual((type(speaker.service), speaker.cloud, speaker.label), (service, cloud, label), values)
-        parts = SimpleNamespace(stt=SimpleNamespace(label='Qwen x'),
-                                speaker=self.speaker(PIANASOUL_VOICE='qwen', **both))
-        self.assertIn('  voice    Qwen qwen-audio-3.1-tts-flash, v', voice.VoiceParts.describe(parts, 'Qwen m'))
+        parts = SimpleNamespace(stt=SimpleNamespace(label='Model Studio x'),
+                                speaker=self.speaker(PIANASOUL_VOICE='bailian', **both))
+        self.assertIn('  voice    Model Studio qwen-audio-3.1-tts-flash, v',
+                      voice.VoiceParts.describe(parts, 'Model Studio m'))
 
     def test_the_mac_voice_chosen_asks_no_cloud(self):
         speaker = self.speaker(PIANASOUL_VOICE='mac', ELEVENLABS_API_KEY='k')
@@ -1129,10 +1132,10 @@ class VoiceServiceTests(unittest.TestCase):
         urlopen.assert_not_called()
 
     def test_a_voice_or_a_region_it_does_not_know_is_an_error(self):
-        with self.assertRaisesRegex(ValueError, "^PIANASOUL_VOICE must be mac, elevenlabs or qwen, got 'minimax'$"):
+        with self.assertRaisesRegex(ValueError, "^PIANASOUL_VOICE must be mac, elevenlabs or bailian, got 'minimax'$"):
             self.speaker(PIANASOUL_VOICE='minimax')
         with self.assertRaisesRegex(ValueError, '^DASHSCOPE_VOICE_REGION must be beijing or singapore'):
-            self.speaker(PIANASOUL_VOICE='qwen', DASHSCOPE_VOICE_REGION='virginia')
+            self.speaker(PIANASOUL_VOICE='bailian', DASHSCOPE_VOICE_REGION='virginia')
 
 
 class Spotter:
