@@ -69,6 +69,7 @@ class ToolCall:
 class Reply:
     text: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+    tokens: tuple[int, int, int] = (0, 0, 0)  # read (all of them), of those read from the provider's cache, written
 
 
 def chosen_provider() -> str:
@@ -189,7 +190,10 @@ class OpenAIChat:
         self.previous = resp.id
         calls = [ToolCall(o.call_id, o.name, _parse_args(o.arguments))
                  for o in resp.output if getattr(o, "type", "") == "function_call"]
-        return Reply(resp.output_text or "", calls)
+        used = resp.usage  # as billed; the cached part is cheaper (Model Studio's implicit cache)
+        tokens = (used.input_tokens, getattr(used.input_tokens_details, "cached_tokens", 0) or 0,
+                  used.output_tokens) if used else (0, 0, 0)
+        return Reply(resp.output_text or "", calls, tokens)
 
     def _read(self, events, handed: list):
         """One streamed response, whole once it is over; handed gets the words before_tool said."""
@@ -251,7 +255,9 @@ class AnthropicChat:
         self.messages.append({"role": "assistant", "content": resp.content})
         text = "".join(b.text for b in resp.content if b.type == "text")
         calls = [ToolCall(b.id, b.name, _parse_args(b.input)) for b in resp.content if b.type == "tool_use"]
-        return Reply(text, calls)
+        cached = resp.usage.cache_read_input_tokens or 0
+        read = resp.usage.input_tokens + cached + (resp.usage.cache_creation_input_tokens or 0)
+        return Reply(text, calls, (read, cached, resp.usage.output_tokens))
 
     def send_user(self, text: str) -> Reply:
         self.turn_start = len(self.messages)

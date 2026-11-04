@@ -21,7 +21,8 @@ def events(*words, call=None, end="response.completed"):
     if call:
         out.append(NS(type="response.output_item.added", item=NS(type="function_call", name=call[0])))
         output.append(NS(type="function_call", call_id="c1", name=call[0], arguments=call[1]))
-    response = NS(id="r1", output=output, output_text="".join(words), status="completed", error=None)
+    usage = NS(input_tokens=5149, input_tokens_details=NS(cached_tokens=5120), output_tokens=47)
+    response = NS(id="r1", output=output, output_text="".join(words), status="completed", error=None, usage=usage)
     out.append(NS(type=end, response=response))
     return out
 
@@ -45,6 +46,9 @@ class OpenAIChatTests(unittest.TestCase):
         self.assertEqual(chat.previous, "r1")
         sent = chat.client.responses.create.call_args.kwargs
         self.assertEqual((sent["stream"], sent["reasoning"]), (True, {"effort": "low"}))
+
+    def test_each_reply_says_the_tokens_read_of_them_cached_and_written(self):
+        self.assertEqual(self.chat(stream=events("好呀。")).send_user("你好").tokens, (5149, 5120, 47))
 
     def test_nothing_is_handed_over_without_words_or_without_a_tool_call(self):
         for stream in (events(call=("play_recording", '{"id": 3}')), events("好呀，", "想听什么？")):
