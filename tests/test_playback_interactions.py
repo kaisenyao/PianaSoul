@@ -15,7 +15,7 @@ from unittest.mock import Mock, patch
 import mido
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import online
-from pianasoul.chat import MAX_TOOL_ROUNDS, NEW_CONVERSATION_AFTER_S, Assistant, TOOLS
+from pianasoul.chat import MAX_TOOL_ROUNDS, NEW_CONVERSATION_AFTER_S, Assistant, TOOLS, instructions
 from pianasoul.library import Library
 from pianasoul.lines import LINES, line, recorded
 from pianasoul.play import Output, Player
@@ -111,6 +111,9 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(set(tools['play_recording']['parameters']['properties']), {'id'})
         self.assertEqual(set(tools['control_playback']['parameters']['properties']), {'action'})
         self.assertFalse(tools['control_playback']['parameters']['additionalProperties'])
+
+    def test_she_writes_chinese_in_simplified_characters_whatever_the_user_writes(self):
+        self.assertIn('Write Chinese in\nsimplified characters, always.', instructions())
 
     def test_unoffered_id_cannot_change_current_or_pending_piece(self):
         self.prime(); self.connected = False
