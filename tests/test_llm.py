@@ -21,7 +21,8 @@ def events(*words, call=None, end="response.completed"):
     if call:
         out.append(NS(type="response.output_item.added", item=NS(type="function_call", name=call[0])))
         output.append(NS(type="function_call", call_id="c1", name=call[0], arguments=call[1]))
-    response = NS(id="r1", output=output, output_text="".join(words), status="completed", error=None)
+    usage = NS(input_tokens=5149, input_tokens_details=NS(cached_tokens=5120), output_tokens=47)
+    response = NS(id="r1", output=output, output_text="".join(words), status="completed", error=None, usage=usage)
     out.append(NS(type=end, response=response))
     return out
 
@@ -45,6 +46,23 @@ class OpenAIChatTests(unittest.TestCase):
         self.assertEqual(chat.previous, "r1")
         sent = chat.client.responses.create.call_args.kwargs
         self.assertEqual((sent["stream"], sent["reasoning"]), (True, {"effort": "low"}))
+
+    def test_each_reply_says_the_tokens_read_of_them_cached_and_written(self):
+        self.assertEqual(self.chat(stream=events("好呀。")).send_user("你好").tokens, (5149, 5120, 47))
+
+    def test_a_reply_held_back_is_asked_for_again_from_where_it_was_with_the_applications_word(self):
+        chat = self.chat()
+        chat.client.responses.create.side_effect = [iter(events("好呀。")), iter(events("这就取消～")),
+                                                    iter(events(call=("control_playback", '{"action": "cancel"}')))]
+        held = "Your reply was held back."
+        chat.send_user("你好")
+        chat.send_user("取消吧")
+        reply = chat.ask_again(held)
+        sent = chat.client.responses.create.call_args.kwargs
+        self.assertEqual((sent["input"], sent["previous_response_id"]),
+                         ([{"role": "user", "content": "取消吧"}, {"role": "developer", "content": held}], "r1"),
+                         'Not after the reply held back: it is never in the conversation')
+        self.assertEqual([c.name for c in reply.tool_calls], ["control_playback"])
 
     def test_nothing_is_handed_over_without_words_or_without_a_tool_call(self):
         for stream in (events(call=("play_recording", '{"id": 3}')), events("好呀，", "想听什么？")):
@@ -105,6 +123,20 @@ class OpenAIChatTests(unittest.TestCase):
             chat.send_user("你好")
         self.assertEqual((type(raised.exception), str(raised.exception)), (RuntimeError, "the model failed: try again"),
                          'Any other failure as before')
+
+
+class AnthropicChatTests(unittest.TestCase):
+    def test_a_reply_held_back_is_asked_for_again_with_the_applications_word_in_its_request(self):
+        with patch.dict(os.environ, ANTHROPIC_API_KEY="not a key"):
+            chat = llm.AnthropicChat("claude-haiku-5-5", "instructions", [])
+        usage = NS(input_tokens=10, cache_read_input_tokens=5000, cache_creation_input_tokens=0, output_tokens=7)
+        chat.client = Mock()
+        chat.client.messages.create.return_value = NS(content=[NS(type="text", text="好。")], usage=usage)
+        chat.send_user("取消吧")
+        self.assertEqual(chat.ask_again("Your reply was held back.").tokens, (5010, 5000, 7))
+        self.assertEqual(chat.messages[0], {"role": "user", "content": [
+            {"type": "text", "text": "取消吧"}, {"type": "text", "text": "Your reply was held back."}]})
+        self.assertEqual([m["role"] for m in chat.messages], ["user", "assistant"], 'The reply held back is gone')
 
 
 # The variables that choose her model line, and where it is asked.
@@ -265,6 +297,22 @@ class ModelStudioTests(unittest.TestCase):
             with self.assertRaisesRegex(llm.Refused, "Input data may contain inappropriate content"):
                 places.REAL_COMPLETE_JSON("Name it.")
         self.assertEqual(len(server.requests), 4, 'Each asked once: the SDK does not ask again')
+
+    def test_an_error_model_studio_streams_without_a_type_is_said_as_it_is_and_not_asked_again(self):
+        unsupported = streamed({"code": "InvalidParameter", "message": "Unsupported model: MiniMax/MiniMax-M3.",
+                                "request_id": "r"})  # as Model Studio streams it, 2026-11-04
+        with line(PIANASOUL_MODEL="qwen:MiniMax/MiniMax-M3", DASHSCOPE_API_KEY="dashscope-test"), \
+                Server(unsupported) as server:
+            with self.assertRaisesRegex(RuntimeError, "^the model failed: Unsupported model: MiniMax/MiniMax-M3"):
+                llm.make_chat("instructions", [])[0].send_user("你好")
+        self.assertEqual(len(server.requests), 1, 'Not taken for a stream that broke off')
+
+    def test_a_model_that_always_thinks_is_told_to_think_least(self):
+        with line(PIANASOUL_MODEL="qwen:glm-5.3", DASHSCOPE_API_KEY="dashscope-test"), \
+                Server(said("好呀。"), httpx2.Response(200, json=completed("{}"))) as server:
+            llm.make_chat("instructions", [])[0].send_user("你好")
+            places.REAL_COMPLETE_JSON("Name it.")
+        self.assertEqual([server.sent(i)[2]["reasoning"] for i in (0, 1)], [{"effort": "low"}] * 2)
 
     def test_a_refusal_spelt_as_in_compatible_mode_is_one_too(self):
         in_error = httpx2.Response(400, json={"error": {"code": "data_inspection_failed", "type": "data_inspection_failed",

@@ -36,6 +36,12 @@ PROVIDERS = {
     "qwen": Provider("Qwen", "qwen3.8-flash", "DASHSCOPE_API_KEY", hears="qwen",
                      always={"reasoning": {"effort": "none"}}),
 }
+# Model Studio's models that think whatever they are told, and the least they take: told none, GLM says it "does
+# not support 'reasoning.effort' to be 'none'" (2026-11-04).
+LEAST_THINKING = {"glm-5.3": {"reasoning": {"effort": "low"}}}
+# How the application's word on a reply held back is given (OpenAIChat.ask_again): as instructions, not as the
+# user's words.
+NOTE_ROLE = "developer"
 # Model Studio's address in each region; a key works only in the region it was made in.
 DASHSCOPE_HOSTS = {"beijing": "dashscope.aliyuncs.com", "singapore": "dashscope-intl.aliyuncs.com"}
 # Model Studio's code for words that did not pass its content inspection, those asked or those written.
@@ -66,6 +72,7 @@ class ToolCall:
 class Reply:
     text: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+    tokens: tuple[int, int, int] = (0, 0, 0)  # read (all of them), of those read from the provider's cache, written
 
 
 def chosen_provider() -> str:
@@ -89,6 +96,11 @@ def model_spec() -> tuple[str, str]:
     if not spec and not os.environ.get(PROVIDERS[provider].key):
         raise ValueError("set OPENAI_API_KEY or ANTHROPIC_API_KEY, or PIANASOUL_MODEL=qwen and DASHSCOPE_API_KEY")
     return provider, spec.partition(":")[2] or PROVIDERS[provider].model
+
+
+def settings(provider: str, model: str) -> dict:
+    """What each request to this provider's model says besides (Responses API parameters)."""
+    return {**PROVIDERS[provider].always, **LEAST_THINKING.get(model, {})}
 
 
 def keys_needed(provider: str) -> list[str]:
@@ -148,11 +160,12 @@ def _parse_args(raw) -> dict:
 class OpenAIChat:
     def __init__(self, model: str, instructions: str, tools: list[dict], provider: str = "openai"):
         self.client, self.model, self.instructions = openai_client(provider), model, instructions
-        self.always = PROVIDERS[provider].always
+        self.always = settings(provider, model)
         self.tools = [{"type": "function", "name": t["name"], "description": t["description"],
                        "parameters": t["parameters"]} for t in tools]
         self.previous = self.turn_start = None
         self.earlier: list[dict] = []  # a conversation picked up again, sent before the first request
+        self.asked: tuple[str | None, list] = (None, [])  # the latest response asked for: after which, and with what
         # Called with (the words written, the tool's name) as the model, having written words, starts on its first
         # tool call: what it says it will do may be said while it does it. True: they were said.
         self.before_tool = None
@@ -163,6 +176,7 @@ class OpenAIChat:
         that comes whole, unless its words were handed over already: they are never said twice."""
         from openai import APIConnectionError
 
+        self.asked = self.previous, items
         kwargs = {"previous_response_id": self.previous} if self.previous else {}
         if THINKS.match(self.model):
             kwargs["reasoning"] = REASONING
@@ -181,7 +195,10 @@ class OpenAIChat:
         self.previous = resp.id
         calls = [ToolCall(o.call_id, o.name, _parse_args(o.arguments))
                  for o in resp.output if getattr(o, "type", "") == "function_call"]
-        return Reply(resp.output_text or "", calls)
+        used = resp.usage  # as billed; the cached part is cheaper (Model Studio's implicit cache)
+        tokens = (used.input_tokens, getattr(used.input_tokens_details, "cached_tokens", 0) or 0,
+                  used.output_tokens) if used else (0, 0, 0)
+        return Reply(resp.output_text or "", calls, tokens)
 
     def _read(self, events, handed: list):
         """One streamed response, whole once it is over; handed gets the words before_tool said."""
@@ -195,7 +212,7 @@ class OpenAIChat:
                     handed.append(words.strip())
             elif event.type in {"response.completed", "response.incomplete"}:
                 resp = event.response
-            elif event.type in {"response.failed", "error"}:
+            elif event.type in {"response.failed", "error"} or getattr(event, "code", None):  # Model Studio's: no type
                 error = getattr(getattr(event, "response", None), "error", None) or event
                 message = getattr(error, "message", error)
                 if is_refusal(getattr(error, "code", None)):
@@ -211,6 +228,12 @@ class OpenAIChat:
 
     def send_tool_results(self, results: list[tuple[ToolCall, str]]) -> Reply:
         return self._call([{"type": "function_call_output", "call_id": c.id, "output": out} for c, out in results])
+
+    def ask_again(self, note: str) -> Reply:
+        """The latest response asked for once more, with the application's word on it (note): from where it was
+        asked, so that the reply held back is not in the conversation, and words said before it stay there."""
+        self.previous, items = self.asked
+        return self._call([*items, {"role": NOTE_ROLE, "content": note}])
 
     def discard_turn(self) -> None:
         """Forget the latest request and what followed it; the conversation before it stays."""
@@ -243,7 +266,9 @@ class AnthropicChat:
         self.messages.append({"role": "assistant", "content": resp.content})
         text = "".join(b.text for b in resp.content if b.type == "text")
         calls = [ToolCall(b.id, b.name, _parse_args(b.input)) for b in resp.content if b.type == "tool_use"]
-        return Reply(text, calls)
+        cached = resp.usage.cache_read_input_tokens or 0
+        read = resp.usage.input_tokens + cached + (resp.usage.cache_creation_input_tokens or 0)
+        return Reply(text, calls, (read, cached, resp.usage.output_tokens))
 
     def send_user(self, text: str) -> Reply:
         self.turn_start = len(self.messages)
@@ -253,6 +278,15 @@ class AnthropicChat:
     def send_tool_results(self, results: list[tuple[ToolCall, str]]) -> Reply:
         self.messages.append({"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": c.id, "content": out} for c, out in results]})
+        return self._call()
+
+    def ask_again(self, note: str) -> Reply:
+        """As OpenAIChat's: the note joins what the latest response answered (the Messages API has no other turn
+        for it)."""
+        self.messages.pop()
+        asked = self.messages[-1]["content"]
+        self.messages[-1] = {"role": "user", "content": [
+            *(asked if isinstance(asked, list) else [{"type": "text", "text": asked}]), {"type": "text", "text": note}]}
         return self._call()
 
     def discard_turn(self) -> None:
@@ -294,7 +328,7 @@ def complete_json(prompt: str) -> dict:
     else:
         with refusals():
             text = openai_client(provider).responses.create(model=model, input=prompt,
-                                                            **PROVIDERS[provider].always).output_text
+                                                            **settings(provider, model)).output_text
     match = re.search(r"\{.*\}", text or "", re.S)
     try:
         return json.loads(match.group(0)) if match else {}

@@ -308,6 +308,8 @@ Set these in `~/.zshrc`.
 - `PIANASOUL_WAKE_THRESHOLD`: how readily she hears her name; lower hears more. Default `0.2`.
 - `PIANASOUL_MODEL`: the chat model: `openai`, `qwen` or `anthropic`, alone or with a model after a colon. Default
   `openai:gpt-6-luna`; `qwen` is `qwen3.8-flash`, and Qwen's `qwen-audio-3.1-asr-flash` then hears her requests.
+  After `qwen:` may come any model Model Studio serves through its Responses API, such as `qwen3.8-max`,
+  `deepseek-v4.1-flash`, `kimi-k3` or `glm-5.3`.
 - `PIANASOUL_STT_MODEL`: OpenAI's speech recognition model. Default `gpt-transcribe`.
 - `PIANASOUL_TTS_MODEL`: the ElevenLabs model. Default `eleven_v4_turbo`; `eleven_v4` is richer and slower.
 
@@ -415,6 +417,11 @@ where it was heard, with its list, and play goes on from there. The phone shows 
   transcription returned in the same request, one of the pieces she prepared lately, one of your playlists by its
   name, or the pieces she played in the conversation, so it cannot play something it made up. Short requests such as "stop" are done without the model.
 
+- **Saying only what was done.** A reply that says something was done, or is on its way, when no tool did it (some
+  models write "retrying now" and call nothing), or that asks which piece you mean before looking in your library,
+  is held back, and the model is asked for it once more from the same point, told what was wrong. Words she said
+  before it stay said; nothing else changes.
+
 - **Another chat model.** Anthropic can do the chat: set `PIANASOUL_MODEL=anthropic:claude-haiku-5-5` and
   `ANTHROPIC_API_KEY`. Speech recognition still needs `OPENAI_API_KEY`.
 
@@ -430,7 +437,10 @@ uv pip install --python .venv/bin/python -e ".[advanced]" httpx
 for test in tests/test_web_*.js; do node "$test"; done
 ```
 
-`.venv/bin/python tests/manual_playback_intents.py` checks 26 spoken requests against the real chat model: playing, finding pieces, and keeping company.
+`.venv/bin/python tests/manual_playback_intents.py` checks 30 spoken requests against the real chat model: playing,
+finding pieces, and keeping company. `--model` names the model as `PIANASOUL_MODEL` does (again to compare several),
+`--rounds` asks each request more than once, and `--save` keeps, for each, what she said, the tools she called, the
+time to her first words and to the end, and the tokens; a summary for each model follows.
 
 <br>
 
