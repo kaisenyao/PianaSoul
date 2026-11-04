@@ -5,6 +5,10 @@ button): the same work on the same Mac. A recording put in the library folder is
 after everything asked for. Each piece has a status (queued, downloading, converting) and a progress that goes once
 round: the download is the first part of it, the transcription the rest, estimated from how fast this Mac
 transcribed before. A recording in the library folder (Library.audio) shows the status of its piece's making.
+
+She may give a piece other versions besides the one she chose (the next good ones of her search): one that cannot
+be made (its download, its transcription, a preview only, too long) gives way to the next, in its place in the
+queue, and the piece fails only when none could be made.
 """
 
 from __future__ import annotations
@@ -96,6 +100,8 @@ class Job:
     query: str = ""  # what was asked for or searched, to name the piece by
     video: dict = field(default_factory=dict)  # what the search said about the video
     auto: bool = False  # not asked for: a recording put in the library folder, after everything asked for
+    # Other versions of the piece, best first ({"url", "performer"}): the next is made when this one cannot be
+    versions: list[dict] = field(default_factory=list)
     audio: int | None = None  # the recording in the library folder it is made from (Library.audio)
     status: str = "queued"  # downloading, converting, then done, failed or stopped
     progress: float = 0.0
@@ -139,10 +145,12 @@ class Downloads:
 
     # ---- asking for a piece -------------------------------------------------------------------------
     def add(self, source: str, *, piece: str = "", artist: str = "", performer: str = "", aliases: str = "",
-            tags: str = "", query: str = "", video: dict | None = None, auto: bool = False) -> Job:
+            tags: str = "", query: str = "", video: dict | None = None, auto: bool = False,
+            versions: list[dict] = ()) -> Job:
         """Queue a piece, by its names when they are known; a piece already in the library, or already queued,
         is not done twice (one queued on its own and now asked for moves up). A short link is followed first, to the
-        video it stands for (OnlineError when it cannot be)."""
+        video it stands for (OnlineError when it cannot be). versions: other videos of the piece, best first, each
+        {"url", "performer"}, made in turn while one cannot be (_next_version)."""
         local = not re.match(r"https?://", source.strip())
         source = str(Path(source).expanduser().resolve()) if local else clean_url(online.resolved(source))
         with self._cond:
@@ -151,7 +159,7 @@ class Downloads:
                     job.auto = job.auto and auto
                     return job
             job = Job(next(self._ids), source, piece.strip(), artist.strip(), performer.strip(), aliases.strip(), tags,
-                      query.strip(), dict(video or {}), auto)
+                      query.strip(), dict(video or {}), auto, [dict(v) for v in versions])
             known = self.lib.by_source(source)
             if known and known["file_exists"]:
                 job.status, job.result = "done", known
@@ -198,15 +206,36 @@ class Downloads:
             except Stopped:
                 log.debug("stopped: %s", job.title or job.source)
                 job.status, job.error = "stopped", "stopped"
-            except Exception as exc:  # this piece fails; the queue goes on
+            except Exception as exc:  # this piece fails, unless another version of it can be made; the queue goes on
                 job.status, job.error = "failed", f"{type(exc).__name__}: {exc}"
                 print(f"  · could not get {job.title or job.source}: {job.error}", flush=True)
             with self._cond:
+                if job.status == "failed" and self._next_version(job):
+                    continue  # first in the queue still: made next
                 if job in self.jobs:
                     self.jobs.remove(job)
             self._ended(job)
             job.finished.set()
             self.changed()
+
+    def _next_version(self, job: Job) -> bool:
+        """A piece that could not be made, from its next version instead (one being made for another piece is left
+        out): True when it waits to be made again, from where it was in the queue. Not once stopped; a version in
+        the library already makes it done at once (False)."""
+        while job.versions and job in self.jobs and not job.stopped.is_set():
+            version = job.versions.pop(0)
+            source = clean_url(version["url"])
+            if any(j.source == source for j in self.jobs):
+                continue
+            job.source, job.performer, job.video, job.progress, job.error = source, version["performer"], {}, 0.0, ""
+            known = self.lib.by_source(source)
+            if known and known["file_exists"]:
+                job.status, job.result = "done", known
+                return False
+            job.status = "queued"
+            print(f"  · trying another version: {job.title or source}", flush=True)
+            return True
+        return False
 
     def _ended(self, job: Job) -> None:
         """The recording in the library folder it was made from shows how it went."""

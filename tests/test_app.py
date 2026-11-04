@@ -173,6 +173,42 @@ class PlaybackTests(Base):
         self.p.remove(b)
         self.assertEqual(self.p.ids, [c, a])
 
+    def test_a_piece_lined_up_comes_after_the_pieces_of_its_request_still_to_come(self):
+        a, b, c = self.ids
+        self.p.select(a, [a, b], {'kind': 'conversation', 'id': 1})
+        listed = self.p.listed
+        self.assertTrue(self.p.line_up(c, [a, b], listed))
+        self.assertEqual(self.p.ids, [a, b, c])
+        self.p.select(a, [a, b, c], {'kind': 'library'})
+        self.assertTrue(self.p.line_up(c, [a], self.p.listed), 'One in the list already moves there')
+        self.assertEqual(self.p.ids, [a, c, b], 'Next, when none of its request is still to come')
+        self.assertFalse(self.p.line_up(a, [a], self.p.listed), 'Not the piece playing')
+
+    def test_a_piece_lined_up_keeps_its_place_in_the_list_s_own_order_while_shuffled(self):
+        a, b, c = self.ids
+        self.p.select(a, [a, b], {'kind': 'conversation', 'id': 1})
+        self.p.set_mode('shuffle')
+        self.p.line_up(c, [a], self.p.listed)
+        self.assertEqual(self.p.ids, [a, c, b])
+        self.p.set_mode('order')
+        self.assertEqual(self.p.ids, [a, c, b])
+
+    def test_only_the_list_it_was_lined_up_for_takes_it_while_it_goes_on(self):
+        a, b, c = self.ids
+        self.p.select(a, [a], {'kind': 'conversation', 'id': 1})
+        listed = self.p.listed
+        self.p.pause()
+        self.assertTrue(self.p.line_up(b, [a], listed), 'Paused, it goes on later')
+        self.p.state, self.p.completed = 'stopped', ('晴天', time.perf_counter())
+        self.assertTrue(self.p.line_up(c, [a, b], listed), 'From one piece to the next')
+        self.p.show(a, [a], {'kind': 'favorites'})
+        self.assertFalse(self.p.line_up(c, [a], listed), 'Another list, tapped on the phone')
+        for over in (self.p.stop, self.p._end_list):
+            self.p.select(a, [a], {'kind': 'conversation', 'id': 1})
+            over()
+            self.assertFalse(self.p.line_up(b, [a], self.p.listed), over.__name__)
+            self.assertEqual(self.p.ids, [a])
+
     def test_a_natural_finish_plays_the_next_piece_after_a_short_silence(self):
         a, b, c = self.ids
         self.p.select(a, self.ids)
@@ -634,6 +670,15 @@ class AssistantTests(Base):
         self.a.ask(Ahead('好，这就弹～', [self.call('play_recording', id=self.ids[0])], '好。'), '弹晴天', speak=speak)
         self.assertNotIn(('好，这就弹～', True), said, 'Words that come with an action: her line follows it')
         self.assertTrue(said and '晴天' in said[0][0])
+        said.clear()
+        plan = '《晴天》先弹给你，再给你找一首夜曲～'
+        answer = self.a.ask(Ahead(plan, [self.call('search_library', query='Nocturne'),
+                                         self.call('play_recording', id=self.ids[0]),
+                                         self.call('play_recording', id=self.ids[2])], '找到啦，晴天之后就是夜曲。'),
+                            '弹晴天，再来一首夜曲', speak=speak)
+        self.assertEqual((said, answer), ([(plan, True), ('', False)], ''),
+                         'Her sentence about both, said as she looks, introduces the first: nothing after it')
+        self.assertEqual(self.p.ids, [self.ids[0], self.ids[2]])
 
     def test_the_piece_she_found_starts_once_her_words_as_she_looked_have_been_heard(self):
         events, saying = [], []
@@ -930,11 +975,23 @@ class AssistantTests(Base):
             'performer': "Melody's Piano Garden", 'aliases': 'A Little Happiness', 'title': 'ignored'}))
         self.a.downloads.add.assert_called_once_with('https://youtu.be/abcdefghijk', query='我想听小幸运', piece='小幸运',
                                                      artist='田馥甄', performer="Melody's Piano Garden",
-                                                     aliases='A Little Happiness', tags='')
+                                                     aliases='A Little Happiness', tags='', versions=[])
         self.assertEqual((done['status'], done['id']), ('done', self.ids[0]), 'Made before: there at once, to play')
         brief = json.loads(self.a.run_tool('search_library', {'query': '晴天'}))['results'][0]
         self.assertEqual((brief['piece'], brief['artist'], brief['performer']), ('晴天', '周杰伦', 'MappleZS'))
         self.assertNotIn('title', brief)
+
+    def test_she_hands_over_at_most_two_other_versions_and_only_links(self):
+        made = Job(1, 'https://www.youtube.com/watch?v=abcdefghijk', status='done', result=self.lib.get(self.ids[0]))
+        made.finished.set()
+        self.a.downloads = Mock(add=Mock(return_value=made))
+        self.a.run_tool('transcribe_url', {'url': 'https://youtu.be/abcdefghijk', 'piece': '晴天', 'alternatives': [
+            {'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': ' Kassia '}, 'https://youtu.be/ccccccccccc',
+            {'url': 'not a link', 'performer': 'C'}, {'url': 'https://youtu.be/ddddddddddd'},
+            {'url': 'https://youtu.be/eeeeeeeeeee', 'performer': 'E'}]})
+        self.assertEqual(self.a.downloads.add.call_args.kwargs['versions'],
+                         [{'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': 'Kassia'},
+                          {'url': 'https://youtu.be/ddddddddddd', 'performer': ''}])
 
     def test_she_changes_one_name_and_the_title_follows(self):
         rec = json.loads(self.a.run_tool('update_recording', {'id': self.ids[0], 'performer': 'Fei Wang', 'tags': 'pop'}))
@@ -977,7 +1034,7 @@ class PreparedTests(Base):
 
     def settled(self, a):
         """What she does with the pieces made is done (before the library closes)."""
-        self.eventually(lambda: all(not job.finished.is_set() for job, _, _ in a.preparing.values()))
+        self.eventually(lambda: all(not job.finished.is_set() for job, _ in a.preparing.values()))
         with a._turn:
             pass
 
@@ -1002,6 +1059,18 @@ class PreparedTests(Base):
 
     def said_last(self, words) -> bool:
         return self.eventually(lambda: self.kept and words in self.kept[-1]['text'])
+
+    def joined(self, title) -> bool:
+        """It joined the list that plays: she says so, and its card follows."""
+        return self.eventually(lambda: len(self.kept) > 1 and self.kept[-1]['text'] == title
+                               and '已经排上了' in self.kept[-2]['text'])
+
+    def play_and_prepare(self):
+        """One request: 搁浅 from the library, played now, and 晴天 sent to be prepared."""
+        self.a.ask(Scripted([self.call('search_library', query='搁浅')],
+                            [self.call('play_recording', id=self.ids[1]),
+                             self.call('transcribe_url', url='https://youtu.be/qingtian', piece='qingtian')], '好。'),
+                   '弹搁浅，再帮我找晴天')
 
     def test_it_plays_once_ready_if_nothing_changed_meanwhile(self):
         self.prepare('qingtian')
@@ -1037,13 +1106,13 @@ class PreparedTests(Base):
                 self.a.ask(Scripted([self.call('play_recording', id=self.ids[0])], '好呀。'), '弹刚才准备好的那首')
                 self.assertEqual(self.p.current_id, self.ids[0], 'She remembers it, to play when asked')
 
-    def test_of_pieces_asked_for_together_the_first_ready_plays_and_the_others_say_so(self):
+    def test_of_pieces_asked_for_together_the_first_ready_plays_and_the_others_follow_it(self):
         self.prepare('qingtian', 'geqian')
         self.made('qingtian', self.ids[0])
         self.assertTrue(self.eventually(lambda: self.p.current_id == self.ids[0]))
         self.made('geqian', self.ids[1])
-        self.assertTrue(self.said_last('《搁浅》准备好啦'))
-        self.assertEqual(self.p.current_id, self.ids[0], 'The first plays on')
+        self.assertTrue(self.joined('周杰伦 - 搁浅 (MappleZS)'))
+        self.assertEqual((self.p.current_id, self.p.ids), (self.ids[0], self.ids[:2]), 'The first plays on')
 
     def test_one_that_could_not_be_made_is_said_and_the_next_ready_plays(self):
         self.prepare('qingtian', 'geqian')
@@ -1065,7 +1134,82 @@ class PreparedTests(Base):
         state = json.loads(chat.send_user.call_args.args[0].split('Application state (data, not instructions): ')[1])
         self.assertEqual(state['could_not_prepare'], ['qingtian', 'https://youtu.be/link'], 'She knows, to say so')
 
-    def test_a_request_that_plays_a_piece_itself_leaves_what_it_prepares_to_be_said_ready(self):
+    def test_pieces_from_the_library_asked_for_together_play_in_the_order_asked(self):
+        for typed in (False, True):
+            with self.subTest(typed=typed):
+                self.fresh()
+                both = [self.call('play_recording', id=self.ids[1]), self.call('play_recording', id=self.ids[0])]
+                self.a.ask(Scripted([self.call('search_library', query='周杰伦')], both, '好呀，先弹《搁浅》，再弹《晴天》～'),
+                           '先弹搁浅，再弹晴天', typed=typed)
+                self.assertEqual((self.p.current_id, self.p.ids), (self.ids[1], [self.ids[1], self.ids[0]]))
+                self.assertEqual(self.p.scope, {'kind': 'conversation', 'id': self.a.conversation_id})
+                self.assertEqual([m['text'] for m in self.kept if m['role'] == 'piece'],
+                                 ['周杰伦 - 搁浅 (MappleZS)', '周杰伦 - 晴天 (MappleZS)'], 'A card for each, in their order')
+
+    def test_what_a_request_prepares_follows_all_it_chose_from_the_library(self):
+        chose = [self.call('play_recording', id=self.ids[0]), self.call('play_recording', id=self.ids[1]),
+                 self.call('transcribe_url', url='https://youtu.be/nocturne', piece='nocturne')]
+        self.a.ask(Scripted([self.call('search_library', query='周杰伦')], chose, '好。'), '晴天、搁浅，还有肖邦的夜曲')
+        self.made('nocturne', self.ids[2])
+        self.assertTrue(self.joined('Chopin - Nocturne (Lang Lang)'))
+        self.assertEqual((self.p.current_id, self.p.ids), (self.ids[0], self.ids))
+
+    def test_one_that_cannot_be_prepared_is_said_and_what_plays_goes_on(self):
+        self.play_and_prepare()
+        self.made('qingtian', status='failed')
+        self.assertTrue(self.said_last('《qingtian》这次没准备好'))
+        self.assertEqual((self.p.current_id, self.p.state, self.p.ids), (self.ids[1], 'playing', [self.ids[1]]))
+
+    def test_her_next_while_the_piece_to_follow_is_still_prepared_says_so(self):
+        self.play_and_prepare()
+        self.assertIn(self.a.ask(Scripted(), '下一首'), every('coming', True, 'qingtian'))
+        self.assertEqual(self.p.current_id, self.ids[1], 'Nothing changes')
+        self.made('qingtian', self.ids[0])
+        self.assertTrue(self.joined('周杰伦 - 晴天 (MappleZS)'))
+        self.a.ask(Scripted(), '下一首')
+        self.assertEqual(self.p.current_id, self.ids[0])
+
+    def test_paused_meanwhile_its_request_s_list_still_takes_it(self):
+        pauses = {'by her': lambda: self.a.ask(Scripted(), '暂停'),
+                  'on the phone': lambda: (setattr(self.a, 'taps', self.a.taps + 1), self.p.pause())}
+        for pause, make in pauses.items():
+            with self.subTest(pause=pause):
+                self.fresh()
+                self.play_and_prepare()
+                make()
+                self.made('qingtian', self.ids[0])
+                self.assertTrue(self.joined('周杰伦 - 晴天 (MappleZS)'))
+                self.assertEqual((self.p.state, self.p.ids), ('paused', [self.ids[1], self.ids[0]]))
+
+    def test_ready_once_its_request_s_list_has_played_to_its_end_it_plays_at_its_end(self):
+        self.play_and_prepare()
+        self.a.taps += 1  # the phone's player used meanwhile, within that list
+        self.p._end_list()
+        self.made('qingtian', self.ids[0])
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['text'] == '周杰伦 - 晴天 (MappleZS)'))
+        self.assertEqual((self.p.current_id, self.p.state, self.p.ids), (self.ids[0], 'playing', [self.ids[1], self.ids[0]]))
+        self.assertIn('晴天', self.kept[-2]['text'])
+
+    def test_once_another_piece_was_chosen_it_is_only_said_to_be_ready(self):
+        library = [self.ids[2], self.ids[1]]
+        changes = {
+            'on the phone': (lambda: (setattr(self.a, 'taps', self.a.taps + 1),
+                                      self.p.select(self.ids[2], library, {'kind': 'library'})), library),
+            'by her': (lambda: self.a.ask(Scripted([self.call('search_library', query='Nocturne')],
+                                                   [self.call('play_recording', id=self.ids[2])], '好。'), '弹夜曲'),
+                       [self.ids[2]]),
+            'cancelled': (lambda: self.a.ask(Scripted(), '取消'), [self.ids[1]]),
+        }
+        for change, (make, ids) in changes.items():
+            with self.subTest(change=change):
+                self.fresh()
+                self.play_and_prepare()
+                make()
+                self.made('qingtian', self.ids[0])
+                self.assertTrue(self.said_last('准备好啦，怕打断你'))
+                self.assertEqual(self.p.ids, ids, 'What was chosen since stands')
+
+    def test_what_a_request_prepares_follows_the_piece_it_plays(self):
         play = [self.call('search_library', query='搁浅')], [self.call('play_recording', id=self.ids[1])]
         prepare = [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='qingtian')]
         go_on = [self.call('control_playback', action='resume')]
@@ -1073,14 +1217,15 @@ class PreparedTests(Base):
             with self.subTest(order=order):
                 self.fresh()
                 if order == 'go on with the paused one':
-                    self.p.select(self.ids[1], self.ids)
+                    self.p.select(self.ids[1], [self.ids[2], self.ids[1], self.ids[0]], {'kind': 'library'})
                     self.p.pause()
                 steps = {'play first': [*play, prepare], 'prepare first': [prepare, *play],
                          'go on with the paused one': [go_on, prepare]}[order]
                 self.a.ask(Scripted(*steps, '好。'), '弹搁浅，再帮我找晴天')
                 self.made('qingtian', self.ids[0])
-                self.assertTrue(self.said_last('准备好啦'))
+                self.assertTrue(self.joined('周杰伦 - 晴天 (MappleZS)'))
                 self.assertEqual(self.p.current_id, self.ids[1], 'The piece it played plays on')
+                self.assertEqual(self.p.ids[self.p.ids.index(self.ids[1]) + 1], self.ids[0], 'The other comes next')
 
     def test_stopped_in_the_same_request_it_still_plays_once_ready(self):
         self.a.ask(Scripted([self.call('transcribe_url', url='https://youtu.be/daoxiang', piece='daoxiang')],
@@ -1275,6 +1420,75 @@ class DownloadTests(Base):
             jobs[0].finished.wait(2)
         self.assertEqual(jobs[0].status, 'stopped')
         self.assertEqual(self.lib.count(), 3)
+
+    def versions(self, *failing):
+        """Downloads whose videos with these ids cannot be had (one too long, say); the others are made. Returns
+        them, and the videos asked for, in order."""
+        audio = self.root / 'a.m4a'
+        audio.write_bytes(b'x')
+        asked = []
+
+        def download(url, folder, progress):
+            asked.append(url[-11:])
+            if url[-11:] in failing:
+                raise ValueError('the video is longer than 20 minutes')
+            return audio, {'video_title': url[-11:]}
+        convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
+        for made in (patch('pianasoul.download.download_audio', side_effect=download),
+                     patch('pianasoul.pipeline.convert_apart', side_effect=convert),
+                     patch('pianasoul.downloads._video_page', return_value={})):
+            made.start()
+            self.addCleanup(made.stop)
+        return self.downloads(), asked
+
+    def test_a_piece_that_cannot_be_made_is_made_from_its_next_version_in_its_place_in_the_queue(self):
+        d, asked = self.versions('aaaaaaaaaaa', 'bbbbbbbbbbb')
+        versions = [{'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': 'B'},
+                    {'url': 'https://youtu.be/ccccccccccc', 'performer': 'Kassia'},
+                    {'url': 'https://youtu.be/ddddddddddd', 'performer': 'D'}]
+        seen = []
+        d.listeners.append(lambda: seen.extend(j['title'] for j in d.snapshot()))
+        job = d.add('https://youtu.be/aaaaaaaaaaa', piece='卡农', artist='Pachelbel', performer='A', versions=versions)
+        after = d.add('https://youtu.be/eeeeeeeeeee', piece='晴天')
+        job.finished.wait(5)
+        after.finished.wait(5)
+        self.assertEqual((job.status, job.result['title'], job.result['source_url']),
+                         ('done', 'Pachelbel - 卡农 (Kassia)', 'https://www.youtube.com/watch?v=ccccccccccc'))
+        self.assertEqual(asked, ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc', 'eeeeeeeeeee'], 'Before the next piece')
+        self.assertIn('Pachelbel - 卡农 (Kassia)', seen, 'The phone shows the version being made')
+
+    def test_a_piece_fails_only_once_none_of_its_versions_could_be_made(self):
+        d, asked = self.versions('aaaaaaaaaaa', 'bbbbbbbbbbb')
+        job = d.add('https://youtu.be/aaaaaaaaaaa', piece='卡农',
+                    versions=[{'url': 'https://youtu.be/aaaaaaaaaaa', 'performer': ''},
+                              {'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': ''}])
+        job.finished.wait(5)
+        self.assertEqual((job.status, job.result), ('failed', None))
+        self.assertEqual(asked, ['aaaaaaaaaaa', 'bbbbbbbbbbb'], 'The version it was is not tried again')
+        self.assertIn('longer than 20 minutes', job.error)
+
+    def test_a_version_in_the_library_already_is_the_piece_at_once(self):
+        self.lib.execute("UPDATE recordings SET source_type = 'url', source_url = ? WHERE id = ?",
+                         ('https://www.youtube.com/watch?v=bbbbbbbbbbb', self.ids[0]))
+        d, asked = self.versions('aaaaaaaaaaa')
+        job = d.add('https://youtu.be/aaaaaaaaaaa', piece='晴天',
+                    versions=[{'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': 'MappleZS'}])
+        job.finished.wait(5)
+        self.assertEqual((job.status, job.result['id'], asked), ('done', self.ids[0], ['aaaaaaaaaaa']))
+
+    def test_a_piece_stopped_tries_no_other_version(self):
+        gate = threading.Event()
+        def download(url, folder, progress):
+            gate.wait(2)
+            raise ValueError('stopped meanwhile')
+        with patch('pianasoul.download.download_audio', side_effect=download) as downloaded:
+            d = self.downloads()
+            job = d.add('https://youtu.be/aaaaaaaaaaa', versions=[{'url': 'https://youtu.be/bbbbbbbbbbb', 'performer': ''}])
+            time.sleep(0.1)
+            d.stop(job.id)
+            gate.set()
+            job.finished.wait(2)
+        self.assertEqual((job.status, downloaded.call_count), ('stopped', 1))
 
     def test_a_stopped_piece_leaves_nothing(self):
         gate = threading.Event()

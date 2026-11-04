@@ -40,7 +40,8 @@
   piano performance (no tutorials or falling notes) and turns it into MIDI with
   [Transkun](https://github.com/Yujia-Yan/Transkun): notes, timing, dynamics and pedal. Your own recordings work
   too. This happens in the background, so you can keep talking with her; the piece plays once it is ready, unless
-  you have chosen something else meanwhile, and then she tells you it is ready.
+  you have chosen something else meanwhile, and then she tells you it is ready. Should the performance she chose
+  not download or transcribe, she quietly tries the next good one from the same search.
 
 - **Your library is a folder on your Mac.** Put MIDI files in `~/Music/PianaSoul`, in Finder or from the phone, and
   they are in the app at once, with favorites, recently played and search. The basics need no key at all.
@@ -265,6 +266,8 @@ The app, voice and chat are one assistant, with one library and one set of conve
 - **Voice.** Say "Hey Jasmine" (or "Xiǎomíng Tóngxué"), then a piece: "Hey Jasmine, play Clair de Lune". "Stop",
   "continue", "start over", "next", "previous", "louder", "softer" and "bye" act at once, in English or Chinese. A
   piece she chooses plays on its own; in a playlist, "next" past the last piece starts it again from the first.
+  Several asked for at once ("Clair de Lune, then Gymnopédie No. 1") play in that order, those in your library
+  first while she gets the others ready; each joins Playing Next once it is ready.
 
 - **Chat.** Run `./run.sh chat` and ask in any language: "Chopin's Nocturne Op. 9 No. 2 by Rubinstein", "something
   gentle by Debussy", a video link, or a path to your own recording. `/help` lists the commands.

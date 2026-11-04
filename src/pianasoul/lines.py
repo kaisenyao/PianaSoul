@@ -51,7 +51,14 @@ LINES = {
     "playlist_ready": {"zh": ["怕打断你，歌单《{piece}》就先没弹，想听随时告诉我～"],
                        "en": ["I didn't want to interrupt, so your playlist {piece} can wait. Just say when you'd "
                               "like it."]},
-    # A piece she was preparing in the background could not be made: named, or a pasted link not named yet
+    # 下一首 with nothing after this one yet, but a piece asked for with it still being prepared
+    "coming": {"zh": ["《{piece}》还在准备，好了马上接着弹～"],
+               "en": ["{piece} is still being prepared. It'll play next, once it's ready."]},
+    # Got ready while pieces of its request play: it joins their list, after them
+    "lined_up": {"zh": ["《{piece}》准备好啦，已经排上了，轮到它就弹～"],
+                 "en": ["{piece} is ready. It's lined up and will play when its turn comes."]},
+    # A piece she was preparing in the background could not be made (none of its versions): named, or a pasted link
+    # not named yet
     "not_ready": {"zh": ["《{piece}》这次没准备好，要不要换个版本试试？"],
                   "en": ["I couldn't get {piece} ready this time. Shall I try another version?"]},
     "link_not_ready": {"zh": ["那个链接这次没准备好，要不要换一个试试？"],
