@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from statistics import median
 import time
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import mido
 from openai import APIStatusError
@@ -25,9 +25,11 @@ from pianasoul import online
 from pianasoul.chat import TOOLS, instructions
 from pianasoul.downloads import clean_url
 from pianasoul.llm import make_chat, model_spec
+from pianasoul.voice import finish_interaction
 from test_playback_interactions import PlaybackTests
 
-# Each case starts with 贝加尔湖畔 paused at 22 seconds.
+# Each case starts with 贝加尔湖畔 paused at 22 seconds; for 'pause', paused for her to listen, as her voice holds a piece
+# that plays: it plays on after her reply unless she pauses it.
 # 'replay' after a disconnection is ambiguous: allow resume or restart of the SAME piece.
 # Explicit 'from the beginning' cases still require zero; continuation cases require 22.
 CASES = [
@@ -182,9 +184,10 @@ def add_english_titles(fixture):
         fixture.lib.add(path, title)
 
 
-def check(expected, fixture, answer, trace, results, asked, playing):
-    """Whether she did what the request asked, as the piano, the pending piece and the playlists are now; playing is
-    what played as she answered, before anything was made."""
+def check(expected, fixture, answer, said, trace, results, asked, playing):
+    """Whether she did what the request asked, as the piano, the pending piece and the playlists are now; answer is her
+    last reply, said all she said for the request, and playing what played as she answered, before anything was
+    made."""
     player, pending = fixture.player, fixture.a.pending
     baikal, moon = (r['id'] for r in fixture.records)
     names = [name for name, _ in trace]
@@ -195,7 +198,8 @@ def check(expected, fixture, answer, trace, results, asked, playing):
         site = expected[7:]
         words = [a['query'] for name, a in trace if name == 'search_online']
         return 'search_online' in names and 'search_library' in names[:names.index('search_online')] \
-            and all(online.PIANO_WORD[site] in w for w in words) and prepared_well(trace, results, site) \
+            and all(online.PIANO_WORD[site] in online.for_site(w, site) for w in words) \
+            and prepared_well(trace, results, site) \
             and '十年' in player.current[1] and player.state == 'playing' and player._from == 0
     if expected == 'unreachable':
         return names.count('search_online') == 1 and 'transcribe_url' not in names \
@@ -205,11 +209,12 @@ def check(expected, fixture, answer, trace, results, asked, playing):
         versions = [clean_url(v['url']) for v in sent.get('alternatives') or []]
         return prepared_well(trace, results, 'youtube') and asked[1:2] == versions[:1] \
             and player.state == 'playing' and fixture.lib.get(player.current_id)['source_url'] == versions[0]
-    if expected.startswith('several:'):  # one sentence of hers says the plan: it names both
+    if expected.startswith('several:'):  # all she said names both: the plan may come before a search, the news after
         titles = expected[8:].split(',')
         first, then = (by_title(fixture, t) for t in titles)
+        heard = ' '.join(said)
         return playing == (first, 'playing', 0) and (player.current_id, player.ids) == (first, [first, then]) \
-            and names.count('transcribe_url') <= 1 and all(any(name in answer for name in SAID[t]) for t in titles)
+            and names.count('transcribe_url') <= 1 and all(any(name in heard for name in SAID[t]) for t in titles)
     if expected in {'resume', 'pending', 'restart', 'new_song', 'replay'}:
         offset = 0 if expected in {'restart', 'new_song'} else 22
         title = '月光' if expected == 'new_song' else '贝加尔湖畔'
@@ -272,6 +277,8 @@ def run(index, text, expected):
             fixture.a.control_playback('resume')
             fixture.connected = True
         if expected.startswith('offline_'): fixture.connected = False
+        paused_for_her = expected == 'pause'  # as voice's hold_piece leaves it: not touched since
+        if paused_for_her: fixture.a.touched_playback = False
         original, results, asked = fixture.a.run_tool, [], []  # what search_online found; the videos downloaded
         enabled = {'control_playback', 'search_library', 'play_recording', 'library_info', 'play_playlist',
                    'replay_conversation', 'save_conversation_as_playlist', 'rename_playlist',
@@ -302,8 +309,10 @@ def run(index, text, expected):
                 said.append(words)
                 kept['first_words_s'] = kept['first_words_s'] or round(time.monotonic() - started, 2)
         with online_as(fixture, expected, asked) if expected in ONLINE else contextlib.nullcontext():
-            answer = fixture.a.ask(chat, text, speak=speak)
+            answer = fixture.a.ask(chat, text, speak=speak, paused_for_her=paused_for_her)
             kept['done_s'] = round(time.monotonic() - started, 2)
+            if paused_for_her:
+                finish_interaction(fixture.a, Mock(), answer, True)  # as her voice ends the request
             player = fixture.player
             if player._thread: player._thread.join()
             playing = player.current_id, player.state, player._from  # as she answered, before anything is made
@@ -311,7 +320,7 @@ def run(index, text, expected):
         if answer:
             said.append(answer)
             kept['first_words_s'] = kept['first_words_s'] or kept['done_s']
-        if not check(expected, fixture, answer, trace, results, asked, playing): kept['result'] = 'FAIL'
+        if not check(expected, fixture, answer, said, trace, results, asked, playing): kept['result'] = 'FAIL'
     except APIStatusError as exc:
         if exc.status_code < 500:
             raise  # a key, quota, payment or permission error, or a model not offered: it would only come again
