@@ -256,6 +256,13 @@ class SitesTests(unittest.TestCase):
         self.assertEqual((sites.asked, [v['site'] for v in found]), ([('晴天 钢琴', 8, 'bilibili')], ['bilibili'] * 3),
                          'Only the sites chosen')
 
+    def test_as_many_videos_as_her_model_asks_for_in_any_form_and_at_least_one(self):
+        for asked_for, many in (('8', 8), (8.0, 8), (3, 3), (0, 1), (-1, 1)):
+            sites = Sites(youtube=(0, 8), bilibili=(0, 8))
+            with patch.object(online, 'search', sites):
+                found, _ = online.search_sites('晴天', asked_for, ['youtube', 'bilibili'])
+            self.assertEqual((len(found), {n for _, n, _ in sites.asked}), (many, {many}), repr(asked_for))
+
     def test_a_site_out_of_reach_does_not_hold_the_videos_of_another(self):
         sites = Sites(youtube=(None, 3), bilibili=(.05, 2))
         self.addCleanup(sites.released.set)

@@ -223,6 +223,7 @@ def search_sites(query: str, max_results: int, sources: list[str]) -> tuple[list
     could not be searched could not, in SOURCES' order. A site still searching LATE_S after another gave videos is
     not waited for, and counts as out of reach: where YouTube is (mainland China), its 8 s would hold the videos
     there are."""
+    max_results = max(1, int(max_results))  # as her model sends it ("8", 8.0 too), for each site and the merge
     answers = queue.Queue()
 
     def ask(source: str) -> None:
