@@ -9,14 +9,18 @@ const isLink = q => /^https?:\/\//i.test(q);
 const linkIn = q => q.match(/https?:\/\/[!-~]+/i)?.[0];  // up to a space, a CJK character or a 】
 
 // Several sites' videos as one list: the first of each, then the second of each, and so on (round robin, the usual
-// way to merge the ranked lists of several engines), a video already in it left out. The Mac's merge for her
-// (online.merged) is the same, tested with the same cases.
+// way to merge the ranked lists of several engines), a video already in it left out: the same address, or the same
+// title and length (to 2 s), as one performance posted on both sites is. The Mac's merge for her (online.merged) is
+// the same, tested with the same cases.
+const titleOf = video => (video.video_title || '').toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+const same = (a, b) => a.url === b.url
+  || !!titleOf(a) && titleOf(a) === titleOf(b) && Math.abs((a.duration_s || 0) - (b.duration_s || 0)) <= 2;
 export function merged(lists) {
-  const seen = new Set(), together = [];
+  const together = [];
   for (let rank = 0; rank < Math.max(0, ...lists.map(videos => videos.length)); rank++) {
     for (const videos of lists) {
       const video = videos[rank];
-      if (video && !seen.has(video.url)) { seen.add(video.url); together.push(video); }
+      if (video && !together.some(kept => same(video, kept))) together.push(video);
     }
   }
   return together;

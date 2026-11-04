@@ -263,15 +263,23 @@ def for_site(query: str, source: str) -> str:
 
 def merged(lists: list[list[dict]]) -> list[dict]:
     """Several sites' videos as one list: the first of each, then the second of each, and so on (round robin, the
-    usual way to merge the ranked lists of several engines), a video already in it left out. The phone's merge
-    (web/online.js) is the same, tested with the same cases."""
-    seen, together = set(), []
+    usual way to merge the ranked lists of several engines), a video already in it left out (_same). The phone's
+    merge (web/online.js) is the same, tested with the same cases."""
+    together = []
     for rank in range(max(map(len, lists), default=0)):
         for videos in lists:
-            if rank < len(videos) and videos[rank]["url"] not in seen:
-                seen.add(videos[rank]["url"])
+            if rank < len(videos) and not any(_same(videos[rank], kept) for kept in together):
                 together.append(videos[rank])
     return together
+
+
+def _same(a: dict, b: dict) -> bool:
+    """One video: the same address, or the same title and length (to 2 s), as one performance posted on both sites
+    is (a live search for 童话 found one, its title the same on each)."""
+    def title(video):
+        return " ".join(str(video.get("video_title") or "").lower().split())
+    return a["url"] == b["url"] or bool(title(a)) and title(a) == title(b) \
+        and abs((a.get("duration_s") or 0) - (b.get("duration_s") or 0)) <= 2
 
 
 def _youtube(query: str, n: int) -> list[dict]:
