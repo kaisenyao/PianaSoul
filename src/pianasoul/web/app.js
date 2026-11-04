@@ -1333,6 +1333,26 @@ function fitField(field) {
   field.style.height = field.scrollHeight + 'px';
 }
 for (const field of document.querySelectorAll('textarea.fline')) field.addEventListener('input', () => fitField(field));
+
+// A single-line field's clear button (style.css): a tap empties it as typing would (its input event), the keyboard
+// staying up. A search field shows it whenever it has text; a text field while it is edited and has text, as iOS.
+function clearable(input) {
+  const clear = Object.assign(document.createElement('button'), {type: 'button', className: 'clear'});
+  clear.dataset.tLabel = 'clearText';  // named in the page's language, and again as it changes (applySettings)
+  clear.setAttribute('aria-label', T.clearText);
+  clear.addEventListener('pointerdown', e => e.preventDefault());  // the field keeps the focus
+  clear.addEventListener('click', () => {
+    input.value = '';
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    input.focus();
+  });
+  input.after(clear);
+  if (input.type === 'search') return;
+  const shown = () => { clear.hidden = !input.value || document.activeElement !== input; };
+  for (const type of ['input', 'focus', 'blur']) input.addEventListener(type, shown);
+  shown();
+}
+for (const input of document.querySelectorAll('.field input, .frow input, input.fline')) clearable(input);
 $('#group-foot').addEventListener('click', e => {
   if (e.target.closest('#group-add') && state.session?.kind === 'playlist') openPick(state.session.id);
 });

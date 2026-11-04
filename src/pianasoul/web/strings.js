@@ -3,7 +3,7 @@
 const zh = {
   name: '小茗同学', you: '你', saidBy: who => `${who}：`, andMore: names => `${names}等`,
   intro: '我是小茗同学（Jasmine），想听什么，我弹给你听～',
-  search: '搜索', searchAll: '搜索对话和曲目', searchPieces: '搜索曲目', cancel: '取消', done: '完成', save: '保存', ok: '好',
+  search: '搜索', searchAll: '搜索对话和曲目', searchPieces: '搜索曲目', clearText: '清除文本', cancel: '取消', done: '完成', save: '保存', ok: '好',
   library: '曲库', favorites: '收藏', recent: '最近播放', artists: '艺术家', seeAll: '查看全部',
   playlists: '歌单', newPlaylist: '新建歌单…', newPlaylistTitle: '新建歌单', editPlaylist: '编辑歌单', playlistName: '歌单名称', nameHead: '名称', description: '简介', playlistDescriptionHint: '添加简介',
   artistDescriptionHint: '添加简介', editArtist: '编辑艺术家',
@@ -160,8 +160,8 @@ const zh = {
 const en = {
   name: 'Jasmine', you: 'You', saidBy: who => `${who}: `, andMore: names => `${names} …`,
   intro: "I'm Jasmine. Name a piece, I'll play it~",
-  search: 'Search', searchAll: 'Search conversations and pieces', searchPieces: 'Search pieces', cancel: 'Cancel',
-  done: 'Done', save: 'Save', ok: 'OK',
+  search: 'Search', searchAll: 'Search conversations and pieces', searchPieces: 'Search pieces', clearText: 'Clear text',
+  cancel: 'Cancel', done: 'Done', save: 'Save', ok: 'OK',
   library: 'Library', favorites: 'Favorites', recent: 'Recently Played', artists: 'Artists', seeAll: 'See All',
   playlists: 'Playlists', newPlaylist: 'New Playlist…', newPlaylistTitle: 'New Playlist', editPlaylist: 'Edit Playlist', playlistName: 'Playlist Name', nameHead: 'Name', description: 'Description', playlistDescriptionHint: 'Add a Description',
   artistDescriptionHint: 'Add a Description', editArtist: 'Edit Artist',
