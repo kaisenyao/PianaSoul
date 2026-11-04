@@ -20,6 +20,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import online
 from .library import CACHE_DIR, file_result, make_title
 
 log = logging.getLogger(__spec__.name)
@@ -31,8 +32,14 @@ TRACKING_PARAMS = {"si", "feature", "pp", "spm_id_from", "vd_source", "share_sou
                    "share_plat", "share_from", "from_spmid", "unique_k", "bbid"}
 
 
+# Bilibili's own conversion of a video's number (av…) into its id (BV…), which its links and its search now give.
+BV_LETTERS = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf"
+BV_PLACES = (8, 7, 0, 5, 1, 3, 2, 4, 6)
+
+
 def clean_url(url: str) -> str:
-    """Canonical form of a pasted link, so the same video is recognized when it comes back."""
+    """Canonical form of a pasted link, so the same video is recognized when it comes back: a YouTube video as
+    www.youtube.com/watch?v=…, a Bilibili one as www.bilibili.com/video/BV… (?p=… for a part after the first)."""
     parts = urllib.parse.urlsplit(url.strip())
     host = re.sub(r"^(www|m|music)\.", "", parts.netloc.lower())
     path = parts.path.split("/")
@@ -45,16 +52,32 @@ def clean_url(url: str) -> str:
             path[2] if len(path) > 2 and path[1] in {"shorts", "live", "embed"} else "")
     if re.fullmatch(r"[\w-]{11}", vid):
         return f"https://www.youtube.com/watch?v={vid}"
+    video = re.fullmatch(r"/video/(?:bv([0-9a-z]{10})|av(\d+))/?", parts.path, re.IGNORECASE)
+    if host == "bilibili.com" and video:
+        bvid = f"BV{video[1]}" if video[1] else bv_of(int(video[2]))
+        part = int(query["p"][0]) if query.get("p", [""])[0].isdigit() else 1
+        return f"https://www.bilibili.com/video/{bvid}" + (f"?p={part}" if part > 1 else "")
     kept = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
             if k not in TRACKING_PARAMS and not k.startswith("utm_")]
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(kept), ""))
 
 
-def _video_page(url: str) -> dict:
-    """For a YouTube video, what its page says, with the channel's picture (online search); else nothing."""
-    from . import online
+def bv_of(av: int) -> str:
+    """A Bilibili video's id (BV…) from its number (av…)."""
+    code, letters = (1 << 51 | av) ^ 23442827791579, [""] * len(BV_PLACES)
+    for place in BV_PLACES:
+        code, letter = divmod(code, len(BV_LETTERS))
+        letters[place] = BV_LETTERS[letter]
+    return "BV1" + "".join(letters)
 
-    return online.details([url]).get(url, {}) if online.video_id(url) else {}
+
+def _video_page(url: str) -> dict:
+    """For a YouTube video, what its page says, with the channel's picture (online search); for a Bilibili one a
+    search found, its UP主's picture, which no page yt-dlp reads gives; else nothing."""
+    if online.video_id(url):
+        return online.details([url]).get(url, {})
+    avatar = online.avatar_found(url)
+    return {"channel_avatar": avatar} if avatar else {}
 
 
 class Stopped(Exception):
@@ -118,9 +141,10 @@ class Downloads:
     def add(self, source: str, *, piece: str = "", artist: str = "", performer: str = "", aliases: str = "",
             tags: str = "", query: str = "", video: dict | None = None, auto: bool = False) -> Job:
         """Queue a piece, by its names when they are known; a piece already in the library, or already queued,
-        is not done twice (one queued on its own and now asked for moves up)."""
+        is not done twice (one queued on its own and now asked for moves up). A short link is followed first, to the
+        video it stands for (OnlineError when it cannot be)."""
         local = not re.match(r"https?://", source.strip())
-        source = str(Path(source).expanduser().resolve()) if local else clean_url(source)
+        source = str(Path(source).expanduser().resolve()) if local else clean_url(online.resolved(source))
         with self._cond:
             for job in self.jobs:
                 if job.source == source:

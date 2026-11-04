@@ -235,15 +235,17 @@ class Core:
 
     def settings(self) -> dict:
         """language: zh or en, or empty until one is chosen (the app then uses the phone's). appearance: dark until
-        another is chosen (light, or the phone's: system). output: the MIDI output's unique ID, or None until one is
-        chosen."""
+        another is chosen (light, or the phone's: system). search_source: the site online search searches, for her
+        and every phone (online.SOURCES): youtube until another is chosen. output: the MIDI output's unique ID, or None
+        until one is chosen."""
         return {"language": self.lib.setting("language", ""),
                 "appearance": self.lib.setting("appearance", "dark"),
+                "search_source": online.chosen_source(self.lib),
                 "output": (self.playback.chosen() or {}).get("id")}
 
     def set_settings(self, **values) -> dict:
         """Settings that exist, with values they can have; an output by its unique ID, one this Mac has."""
-        allowed = {"language": ("zh", "en"), "appearance": ("system", "dark", "light")}
+        allowed = {"language": ("zh", "en"), "appearance": ("system", "dark", "light"), "search_source": online.SOURCES}
         for key, value in values.items():
             if key == "output":
                 out = next((o for o in self.outputs() if str(o.id) == str(value)), None)

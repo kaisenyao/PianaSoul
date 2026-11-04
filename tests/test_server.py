@@ -175,7 +175,7 @@ class AppTests(unittest.TestCase):
     def test_settings_take_only_what_exists(self):
         signed_in(self.client)
         self.assertEqual(self.client.patch('/api/settings', json={'language': 'en', 'appearance': 'light'}).json(),
-                         {'language': 'en', 'appearance': 'light', 'output': None})
+                         {'language': 'en', 'appearance': 'light', 'search_source': 'youtube', 'output': None})
         self.assertEqual(self.client.patch('/api/settings', json={'language': 'fr'}).json()['language'], 'en')
 
     def test_the_midi_file_is_shared_by_its_title(self):
@@ -260,6 +260,59 @@ class AppTests(unittest.TestCase):
         self.assertEqual([(r['url'], r['duration_s'], r['channel_avatar'], r['thumbnail'], r['published']) for r in found],
                          [('https://www.youtube.com/watch?v=abcdefghijk', 242, 'https://yt3/c.jpg',
                            'https://i.ytimg.com/l.jpg', '2024-01-02')])
+
+    def test_a_search_on_bilibili_offers_its_piano_versions(self):
+        from test_online import PAGE, Site, asked
+        site = Site(PAGE)
+        with patch('yt_dlp.YoutubeDL', site):
+            found = signed_in(self.client).get('/api/online', params={'q': '晴天', 'source': 'bilibili'}).json()
+        self.assertEqual(asked(site.requests[0])['keyword'], '晴天 钢琴')
+        self.assertEqual([(r['url'], r['channel_avatar']) for r in found],
+                         [('https://www.bilibili.com/video/BV1Aa411A7aA', 'https://i1.hdslb.com/bfs/face/one.jpg')])
+        self.assertNotIn('flags', found[0])
+
+    def test_a_pasted_bilibili_link_is_that_one_video(self):
+        from pianasoul import online
+        info = {'title': '晴天 钢琴', 'uploader': '钢琴小站', 'duration': 268.2, 'thumbnail': 'http://i0.hdslb.com/a.jpg'}
+        shared = 'https://m.bilibili.com/video/BV1We4y1g7sj?p=1&share_source=copy_web'
+        with patch.object(online, 'resolved', return_value=shared) as followed, \
+                patch('pianasoul.download.video_info', return_value=info) as read:
+            found = signed_in(self.client).get('/api/online', params={'q': 'https://b23.tv/AbCdEfG'}).json()
+        followed.assert_called_once_with('https://b23.tv/AbCdEfG')
+        read.assert_called_once_with('https://www.bilibili.com/video/BV1We4y1g7sj')
+        self.assertEqual([(r['url'], r['channel'], r['duration_s'], r['thumbnail']) for r in found],
+                         [('https://www.bilibili.com/video/BV1We4y1g7sj', '钢琴小站', 268.2, 'https://i0.hdslb.com/a.jpg')])
+
+    def test_a_search_that_fails_says_why_and_where_not_that_nothing_was_found(self):
+        from yt_dlp.networking.exceptions import TransportError
+        from yt_dlp.utils import DownloadError, ExtractorError
+        from pianasoul import online
+        signed_in(self.client)
+        for error in (online.OnlineError('timed out', 'unreachable', 'youtube'),
+                      online.OnlineError('HTTP Error 412: Precondition Failed', 'refused', 'bilibili')):
+            with patch.object(online, 'search', side_effect=error):
+                found = self.client.get('/api/online', params={'q': '晴天', 'source': error.source})
+            self.assertEqual((found.status_code, found.json()), (502, {'error': error.reason, 'source': error.source}))
+        self.assertEqual(self.client.get('/api/online', params={'q': '晴天', 'source': 'vimeo'}).status_code, 400)
+        cut_off = DownloadError('ERROR: timed out', exc_info=(None, ExtractorError(
+            'timed out', cause=TransportError(cause=TimeoutError('timed out'))), None))
+        with patch('pianasoul.download.video_info', side_effect=cut_off):
+            found = self.client.get('/api/online', params={'q': 'https://www.bilibili.com/video/BV1We4y1g7sj'})
+        self.assertEqual(found.json(), {'error': 'unreachable', 'source': 'bilibili'}, "A link: its own site's")
+        with patch('pianasoul.download.video_info', side_effect=ValueError('provide a single video URL')):
+            found = self.client.get('/api/online', params={'q': 'https://example.com/a', 'source': 'bilibili'})
+        self.assertEqual(found.json(), {'error': 'failed', 'source': ''}, 'Another site')
+
+    def test_the_site_searched_is_one_setting_for_her_and_every_phone(self):
+        signed_in(self.client)
+        with self.client.websocket_connect('/events', headers=ORIGIN) as socket:
+            self.client.patch('/api/settings', json={'search_source': 'bilibili'})
+            event = socket.receive_json()
+        self.assertEqual((event['type'], event['search_source']), ('settings', 'bilibili'))
+        self.assertEqual(self.client.get('/api/state').json()['settings']['search_source'], 'bilibili')
+        with patch('pianasoul.online.search', return_value=[]) as searched:
+            self.core.assistant.run_tool('search_online', {'query': '晴天 钢琴'})
+        searched.assert_called_once_with('晴天 钢琴', 8, 'bilibili')
 
     def test_events_tell_the_page_what_changed(self):
         signed_in(self.client)

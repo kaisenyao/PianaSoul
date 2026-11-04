@@ -1070,6 +1070,21 @@ class DownloadTests(Base):
         again = d.add('https://www.youtube.com/watch?v=abcdefghijk')
         self.assertEqual(again.status, 'done', 'Not made twice')
 
+    def test_a_bilibili_piece_from_a_short_link_is_its_video_with_the_up_s_picture_its_search_found(self):
+        from pianasoul import online
+        audio = self.root / 'a.m4a'
+        audio.write_bytes(b'x')
+        convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
+        video = 'https://www.bilibili.com/video/BV1We4y1g7sj'
+        with patch.object(online, 'resolved', return_value='https://m.bilibili.com/video/BV1We4y1g7sj/?share_source=x'), \
+             patch.dict(online._avatars, {video: 'https://i1.hdslb.com/bfs/face/up.jpg'}), \
+             patch('pianasoul.download.download_audio', return_value=(audio, {'video_title': '晴天 钢琴', 'channel': 'UP'})) as got, \
+             patch('pianasoul.pipeline.convert_apart', side_effect=convert):
+            rec = piece_made(self.downloads(), 'https://b23.tv/AbCdEfG')
+        self.assertEqual(got.call_args.args[0], video)
+        self.assertEqual((rec['source_url'], rec['channel'], rec['channel_avatar']),
+                         (video, 'UP', 'https://i1.hdslb.com/bfs/face/up.jpg'))
+
     def test_a_recording_of_yours_is_named_from_its_file(self):
         audio = self.root / '想见你想见你想见你 钢琴.mp3'
         audio.write_bytes(b'x')
@@ -1215,10 +1230,11 @@ class CoreTests(Base):
         core.type('你好')
         self.assertTrue(done.wait(2))
         self.assertEqual([e['message']['role'] for e in events if e['type'] == 'message'], ['user', 'assistant'])
-        self.assertEqual(core.settings(), {'language': '', 'appearance': 'dark', 'output': None},
-                         "The phone's language and dark, until others are chosen")
-        self.assertEqual(core.set_settings(language='en', appearance='nonsense'),
-                         {'language': 'en', 'appearance': 'dark', 'output': None})
+        self.assertEqual(core.settings(), {'language': '', 'appearance': 'dark', 'search_source': 'youtube',
+                                           'output': None},
+                         "The phone's language, dark and YouTube, until others are chosen")
+        self.assertEqual(core.set_settings(language='en', appearance='nonsense', search_source='vimeo'),
+                         {'language': 'en', 'appearance': 'dark', 'search_source': 'youtube', 'output': None})
         self.assertEqual(core.set_settings(language='system')['language'], 'en', 'Only Chinese or English')
 
     def test_with_her_pieces_get_their_other_names_at_the_start_and_as_they_come(self):
