@@ -7,6 +7,7 @@ import {addOrb, animateOrb, homeColor, sameLook} from './orb.js';
 import {createCues} from './cues.js';
 import {SOURCES, onlineSearch} from './online.js';
 import {tapPreparing} from './preparing.js';
+import {pieceNotes} from './rolls.js';
 import {uploader} from './upload.js';
 import {voice as makeVoice} from './voice.js';
 
@@ -832,7 +833,6 @@ $('#sel-delete').addEventListener('click', () => {
 });
 function deletePieces(ids) {
   data.recordings = data.recordings.filter(r => !ids.includes(r.id));
-  for (const id of ids) rolls.delete(id);  // its number may be given to the next new piece
   refresh();
   api('/api/recordings', 'DELETE', {ids}).catch(() => {});
 }
@@ -1543,23 +1543,9 @@ function renderProgress() {
   document.querySelectorAll(`.card[data-piece="${p.id}"] .cfill`).forEach(el => { el.style.width = f * 100 + '%'; });
 }
 
-// The artwork is the piece itself: its notes, scrolling past as the piano plays them. Of a piece being made, those
-// there so far, asked for again as more comes, and once it is made.
-const rolls = new Map();
-function notesFor(p) {
-  const roll = rolls.get(p.id), ready = pb().id === p.id && pb().ready != null ? pb().ready : Infinity;
-  const more = roll && !roll.asking && roll.ready < ready && (ready === Infinity || ready - roll.ready >= 8);  // a part or so
-  if (!rolls.has(p.id) || more) {
-    if (roll) roll.asking = true;
-    else rolls.set(p.id, null);
-    api(`/api/recordings/${p.id}/notes`).then(notes => {
-      let lo = 60, hi = 72;
-      for (const n of notes) { lo = Math.min(lo, n[2]); hi = Math.max(hi, n[2]); }
-      rolls.set(p.id, {notes, lo: lo - 3, hi: hi + 3, ready});
-    }).catch(() => setTimeout(() => rolls.delete(p.id), 10000));  // asked again in a while, not every frame
-  }
-  return rolls.get(p.id);
-}
+// The artwork is the piece itself: its notes (web/rolls.js), of one being made as much as is there.
+const rollOf = pieceNotes(id => api(`/api/recordings/${id}/notes`));
+const notesFor = p => rollOf(p, pb().id === p.id && pb().ready != null ? pb().ready : Infinity);
 function drawRoll(canvas, p, pos, small) {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (!w || !h) return;
