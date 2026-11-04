@@ -921,7 +921,9 @@ class AssistantTests(Base):
         self.assertIn('It neither asks the listener to wait nor says how long it takes, and it is your only sentence '
                       'before your news', flat)
         self.assertIn('It never asks the listener to wait or says how long it takes', flat)
-        self.assertIn("Spoken, it is said right before the piece's first note", flat, 'Her news, as it is said')
+        self.assertIn('Spoken, it is said at once, and the piece follows it with nothing more said', flat,
+                      'Her news, as it is said')
+        self.assertIn('nothing of waiting, of getting it ready or of when it plays, and no remark about the music', flat)
         for waiting in ('稍等', '准备好就', 'moment', "as soon as it's ready"):
             self.assertNotIn(waiting, told)
         for text in LINES['searching']['zh']:
@@ -1190,34 +1192,47 @@ class PreparedTests(Base):
         thread.start()
         self.addCleanup(thread.join)
 
-    def test_spoken_a_piece_found_online_has_two_sentences_of_hers_and_her_news_comes_right_before_its_first_note(self):
+    def test_spoken_her_news_is_said_at_once_and_the_piece_starts_as_soon_as_it_can_play_with_no_line_more(self):
         news = '找到啦，是 Jason Piano 弹的《晴天》～'
-        self.plays_in(0.3)
+        self.plays_in(0.5)
         started = time.monotonic()
         with patch.object(self.a, 'search_online', return_value={'results': []}):
             answer = self.ask_aloud(('我找找《晴天》～', [self.call('search_library', query='Sunny Day')]),
                                     ('好呀，我去找一版《晴天》～', [self.call('search_online', query='周杰伦 晴天 piano')]),
                                     (news, [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')]),
                                     '')
-        self.assertGreaterEqual(time.monotonic() - started, 0.3, 'Her news waits for the piece')
+        self.assertLess(time.monotonic() - started, 0.3, 'Her news does not wait for the piece')
         self.assertEqual(self.said, ['我找找《晴天》～'], 'One sentence before her news: the first she said')
-        self.assertEqual(answer, news, 'Her reply, which voice says right before the first note')
-        rec_id = self.queue.jobs['https://youtu.be/qingtian'].recording
+        self.assertEqual(answer, news, 'Her reply, which voice says at once')
+        job = self.queue.jobs['https://youtu.be/qingtian']
+        self.assertTrue(self.eventually(lambda: job.recording is not None and self.p.current_id == job.recording))
+        self.assertLess(time.monotonic() - started, 0.8, 'It starts as soon as it can play, 0.5 s after it was sent')
         self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
-        self.assertEqual(self.p.current_id, rec_id, 'It follows her news at once')
         self.assertEqual([m['text'] for m in self.kept if m['role'] == 'assistant'], ['我找找《晴天》～', news],
                          'Her news is its line: no other comes')
-        self.made('qingtian', rec_id)
+        self.made('qingtian', job.recording)
 
-    def test_spoken_her_news_is_said_once_the_piece_is_a_while_away_and_nothing_follows_when_it_starts(self):
+    def test_spoken_her_words_as_she_sends_it_and_her_reply_after_are_her_news_in_one_line(self):
+        self.plays_in(0.3)
+        answer = self.ask_aloud(('我找找《晴天》～', [self.call('search_library', query='Sunny Day')]),
+                                ('找到啦，是 Jason Piano 弹的《晴天》～',
+                                 [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')]),
+                                '很温柔的一版。')
+        self.assertEqual((self.said, answer), (['我找找《晴天》～'], '找到啦，是 Jason Piano 弹的《晴天》～ 很温柔的一版。'),
+                         'Said together, as voice says her reply: two lines of hers at most')
+        job = self.queue.jobs['https://youtu.be/qingtian']
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+        self.assertEqual([m['text'] for m in self.kept if m['role'] == 'assistant'], ['我找找《晴天》～', answer])
+        self.made('qingtian', job.recording)
+
+    def test_spoken_her_news_is_said_before_the_piece_can_play_and_nothing_follows_when_it_starts(self):
         from pianasoul.voice import finish_interaction
         news = '找到啦，是 Jason Piano 弹的《晴天》～'
         self.p.select(self.ids[1], [self.ids[1]], {'kind': 'library'})
         self.p.pause()  # paused while she listens (voice's hold_piece)
-        with patch.object(chat_module, 'NEWS_WAIT_S', 0.2):
-            started = time.monotonic()
-            answer = self.ask_aloud([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')], news)
-        self.assertLess(time.monotonic() - started, 2)
+        started = time.monotonic()
+        answer = self.ask_aloud([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')], news)
+        self.assertLess(time.monotonic() - started, 0.3, 'Not held for the piece')
         self.assertEqual((answer, self.p.current_id), (news, self.ids[1]), 'Said without the piece, not there yet')
         self.assertTrue(self.a.piece_to_start(), 'Voice waits for her name after it, so that it starts once it can')
         speaker = Mock()
@@ -1244,7 +1259,7 @@ class PreparedTests(Base):
 
     def test_typed_her_news_shows_at_once_and_the_piece_has_her_line_as_it_starts(self):
         news = '找到啦，是 Jason Piano 弹的《晴天》～'
-        with patch.object(chat_module, 'NEWS_WAIT_S', 30), patch.object(chat_module, 'TYPED_REPLY_S', 0):
+        with patch.object(chat_module, 'TYPED_REPLY_S', 0):
             started = time.monotonic()
             self.a.ask(Scripted([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')], news),
                        '弹一首晴天', typed=True)

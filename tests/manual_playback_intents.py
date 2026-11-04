@@ -102,10 +102,10 @@ VIDEOS = {
 }
 
 
-# Her words for a piece found online: two at most, what she will do and her news of it, which is said right before
-# its first note, so that neither asks to wait or says when it plays.
-WAITING = re.compile(r'稍等|等我|等一下|稍候|准备好|好了就|\bmoment\b|\bhang on\b|\bbear with me\b|\bready\b|\bas soon as\b',
-                     re.I)
+# Her words for a piece found online: two at most, what she will do and her news of it, said at once and followed by
+# the piece with nothing more, so that neither asks to wait nor says when or how it plays.
+WAITING = re.compile(r'稍等|等我|等一下|稍候|准备好|好了就|一会儿|马上|弹给你|弹起来|响起来|\bmoment\b|\bhang on\b|'
+                     r'\bbear with me\b|\bready\b|\bas soon as\b|\bshortly\b|\bright away\b|\bplay it for you\b', re.I)
 
 
 def two_lines(said):
