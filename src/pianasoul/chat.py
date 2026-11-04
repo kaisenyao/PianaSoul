@@ -10,7 +10,7 @@ the library folder's Transcribed/), and plays it on the piano over MIDI once it 
 from __future__ import annotations
 
 from collections import Counter, deque
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import Future
 import inspect
@@ -47,6 +47,11 @@ PLAYS = {"play_recording", "control_playback", "play_playlist", "replay_conversa
 WAITS = {"search_online": "searching"}  # a long step, and her line for it
 ANSWERED_IN = {"search_library", "search_online", "library_info"}  # their results bring words in other languages
 PREPARED_KEPT = 5  # the latest pieces she prepared in the background, remembered to be asked for
+# Of a piece she prepares, the versions tried besides the one she chose while one cannot be made: each may take a
+# download and a transcription before it fails, so the listener is not kept waiting long for a third failure.
+OTHER_VERSIONS = 2
+# Her calls about a piece: one response of hers that plays a piece and makes another of these is about several.
+PIECE_CALLS = {"play_recording", "search_library", "search_online", "transcribe_url", "transcribe_local"}
 # Typed to, she answers as a person texting would: her reply after a moment at least (the dots show meanwhile), and
 # what she plays starts once it is there, a little after it.
 TYPED_REPLY_S, TYPED_PLAY_S = 1.0, 0.8
@@ -84,6 +89,11 @@ When the user wants to hear something:
    them, saying nothing yet (its name in English or Chinese, whichever the request did not use, other spellings,
    the composer's other name; for example 夜曲 -> Chopin Nocturne, 致爱丽丝 -> Für Elise), and play it if it is there.
 {finding}
+Several pieces in one request ("我想听青花瓷和千里之外"; "play Clair de Lune, then Gymnopédie No. 1"): take each as
+above, in the order asked, except that those in the library play first. Call play_recording for each one in the
+library, in that order: the first plays now and the others follow it (Playing Next on the phone shows them). One
+sentence of yours says the whole plan ("好呀，先弹《青花瓷》，再接着弹《千里之外》～"; "Clair de Lune first, then
+Gymnopédie No. 1.").
 If you are not sure which piece the user means (a misspelled or ambiguous name), ask a short question such as
 "Do you mean John Legend's All of Me?". If the request is merely vague ("a Chopin nocturne"), pick a well-known
 piece and say which.
@@ -95,7 +105,8 @@ Playback:
 - To operate the current or pending piece, use control_playback(action). It takes NO recording ID:
   pause: stop playing but keep the position; resume: continue from the saved position;
   restart: play the same piece from zero; retry: repeat the pending playback, preserving its intended position;
-  next / previous: the next or the previous piece in the list that plays (a playlist; a piece you chose plays alone);
+  next / previous: the next or the previous piece in the list that plays (a playlist, or the pieces asked for
+  together; a piece you chose by itself plays alone);
   cancel: explicitly abandon the selected request and reset playback. Use pause, NOT cancel, for temporary
   waiting, "not yet", or "wait until the connection is ready". These preserve the piece and position.
 - A report of disconnection does not erase a piece. If the user reports fixing the connection or asks to try
@@ -145,8 +156,9 @@ FINDING_ONLINE = """2. If it is not there either, write one short, friendly sent
    find one online, AND explicitly asks the listener to wait: the only sentence of yours that does
    ("曲库里没有，我去网上找一版，稍等我一下～"; "It's not in your library, so I'll find one online. Just a moment."). It
    says only what you have not said yet: no piece's name again, no "looking for it" twice; if you said all of it
-   already, write nothing more. Vary the wording without predicting a duration or promising it will be ready
-   immediately. Include the sentence with your search_online call. Search with few words:
+   already, or another piece of this request plays meanwhile, write nothing more. Vary the wording without
+   predicting a duration or promising it will be ready immediately. Include the sentence with your search_online
+   call. Search with few words:
    the singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once ("钢琴" when
    the application state says online_search is Bilibili); more words ("cover", "solo", "piano" again) find less,
    often nothing.
@@ -163,16 +175,18 @@ FINDING_ONLINE = """2. If it is not there either, write one short, friendly sent
    searched (not that nothing was found), and by its reason: unreachable, suggest switching to the other site
    (YouTube or Bilibili, 哔哩哔哩) at the top of Search Online (在线搜索) on the phone; refused, suggest trying again
    shortly, on Bilibili with any proxy (VPN) turned off.
-3. Call transcribe_url with the chosen URL, the piece's names (piece, artist, performer and aliases: each on its
-   own, as the tool describes them) and a few English tags. The piece is prepared in the background and plays by
-   itself once it is ready, unless something else is chosen to play meanwhile, in this request or later (the user
-   is then told it is ready); of several sent at once, only the first ready plays by itself, and the others are
-   said to be ready. Do not call play_recording for it. Your sentence before the search already asked them to wait,
-   so now share the news in a few words: you found it, whose performance it is, and that it will play once it is
-   ready ("找到啦，是 Jason Piano 弹的《黑色幽默》，准备好就弹给你～"; "Found it: Jason Piano's Black Humor. It'll
+3. Call transcribe_url once for the piece: with the chosen URL, the piece's names (piece, artist, performer and
+   aliases: each on its own, as the tool describes them), a few English tags, and in alternatives the next good
+   candidates of the same search, best first, each with its pianist. One version is prepared at a time: if the
+   chosen one cannot be, the next is tried, quietly. The piece is prepared in the background and plays by itself
+   once it is ready (after what this request plays), unless something else is chosen to play meanwhile (the user is
+   then told it is ready). Do not call play_recording for it. Your sentence before the search already asked them to
+   wait, so now share the news in a few words: you found it, whose performance it is, and that it will play once it
+   is ready ("找到啦，是 Jason Piano 弹的《黑色幽默》，准备好就弹给你～"; "Found it: Jason Piano's Black Humor. It'll
    play as soon as it's ready."), without predicting a duration and without saying again that you are getting it
-   ready. If transcribe_url says it is done (it was prepared before),
-   call play_recording with its id instead.
+   ready. Of several pieces in one request, your sentence says what plays now and what follows once ready
+   ("《千里之外》先弹给你，《青花瓷》我这就去准备～"; "Gymnopédie No. 1 first; I'll get Clair de Lune ready to
+   follow."). If transcribe_url says it is done (it was prepared before), call play_recording with its id instead.
 4. If there is no good piano version, say so kindly and do not play something poor.
 If the user pastes a video link, call transcribe_url with it (its names empty unless the user named them) and say
 briefly that you are getting it ready, as above. For a local audio file path use transcribe_local in the same way.
@@ -214,14 +228,22 @@ TOOLS = [
     {"name": "transcribe_url",
      "description": "Download the audio of one video (YouTube, bilibili or another site yt-dlp supports), transcribe "
                     "it to MIDI and add it to the library under its names (left empty, they are taken from the video). "
-                    "In the background, after any pieces before it: it plays by itself once ready.",
+                    "In the background, after any pieces before it: once ready it plays by itself, after what this "
+                    "request plays. One version of a piece at a time: should it not be made, its alternatives are "
+                    "tried in turn.",
      "parameters": {"type": "object", "properties": {
          "url": {"type": "string"}, **NAME_PROPERTIES,
-         "tags": {"type": "string", "description": "comma-separated English tags"}},
+         "tags": {"type": "string", "description": "comma-separated English tags"},
+         "alternatives": {"type": "array", "description": f"up to {OTHER_VERSIONS} other good videos of this piece "
+                                                          "from the same search, best first",
+                          "items": {"type": "object", "properties": {"url": {"type": "string"},
+                                                                     "performer": NAME_PROPERTIES["performer"]},
+                                    "required": ["url", "performer"]}}},
          "required": ["url"]}},
     {"name": "transcribe_local",
      "description": "Transcribe a local audio file (mp3, m4a, wav, flac) to MIDI and add it to the library under its "
-                    "names. In the background, after any pieces before it: it plays by itself once ready.",
+                    "names. In the background, after any pieces before it: once ready it plays by itself, after what "
+                    "this request plays.",
      "parameters": {"type": "object", "properties": {
          "path": {"type": "string"}, **NAME_PROPERTIES,
          "tags": {"type": "string", "description": "comma-separated English tags"}},
@@ -241,6 +263,7 @@ TOOLS = [
          "required": ["about"], "additionalProperties": False}},
     {"name": "play_recording",
      "description": "Select a NEW recording from library_matches, search_library, library_info, a transcription that is done or the pieces prepared lately, and play it from zero. "
+                    "Called again in the same request, for another piece asked for, that one follows the first. "
                     "For continuing, retrying or restarting the existing piece, use control_playback instead.",
      "parameters": {"type": "object", "properties": {"id": {"type": "integer"}},
                     "required": ["id"], "additionalProperties": False}},
@@ -354,6 +377,8 @@ REPLY_LINES = {  # a playback result, its error or status, and her line for it
     "paused": "pause", "stopped": "cancel", "nothing is playing": "nothing_playing", "not_started": "ready",
     "not_ready": "not_ready", "link_not_ready": "link_not_ready", "nothing_next": "nothing_next",
     "conversation_empty": "conversation_empty",
+    "lined_up": "lined_up",  # a piece she prepared, joining the list that plays (_ready); not one a request lines up
+    "coming": "coming",
 }
 
 
@@ -361,8 +386,8 @@ REPLY_LINES = {  # a playback result, its error or status, and her line for it
 class PlaybackRequest:
     """A piece to play, from where. A request with a scope brings its own list (ids) and mode: a playlist, named
     for her line, or this conversation's pieces played again (replay); without one, the piece plays alone (the
-    conversation is not a play queue). moved: a step in the list that plays (next, previous, from_first, restart; her
-    line), which stays as it is."""
+    conversation is not a play queue), or, lined_up, after what its request chose before it. moved: a step in the
+    list that plays (next, previous, from_first, restart; her line), which stays as it is."""
     path: Path
     title: str
     from_s: float = 0.0
@@ -373,6 +398,19 @@ class PlaybackRequest:
     mode: str | None = None
     moved: str = ""
     replay: bool = False
+    lined_up: bool = False
+
+
+@dataclass
+class Lineup:
+    """What one request asked to hear, in the order it plays: the pieces it chose or went on with (ids), and after
+    them, as each is ready, those it sent to be prepared (_ready). listed: the player's list they are in
+    (Playback.listed), once one plays. moves and taps: what plays, as the request left it (_asked), and the phone's
+    player, as it began."""
+    taps: int = 0
+    ids: list[int] = field(default_factory=list)
+    listed: int | None = None
+    moves: int = 0
 
 
 class Assistant:
@@ -401,13 +439,17 @@ class Assistant:
         self.taps = 0  # what was done on the phone's player: counted, so that what she would start gives way to it
         self.taps_asked = 0  # as it was when the request began: used since, nothing she gets ready is started (_start)
         self.taps_before = 0  # as it was when the first start of a typed request began to wait
-        # What plays, changed by her (play, pause, stop), by a request for pieces to be prepared or by one of them
-        # starting: counted, so that a piece she prepared in the background starts only if nothing changed since.
+        # What plays, changed by her (play, pause, stop): counted, so that a piece she prepared in the background
+        # starts by itself, nothing of its request playing, only if nothing changed since (_ready).
         self.moves = 0
-        self.preparing: dict[int, tuple] = {}  # being prepared: job id -> (job, moves, taps) as the request left them
+        self.preparing: dict[int, tuple] = {}  # being prepared: job id -> (job, the Lineup of the request that sent it)
         self.preparing_now: list[int] = []  # the jobs this request has sent to be prepared
+        self.asked_now: Lineup | None = None  # what the request she answers asks to hear (_ready: that of a piece made)
+        self.lineup: Lineup | None = None  # of the latest request that chose pieces or sent any to be prepared
         self.started_now = False  # this request started a piece or went on with one (_play)
-        self.looked_for = ""  # her words said at once as this request searched the library (_named)
+        self.looked_for = ""  # her words said at once as this request searched the library or chose several (_named)
+        self.held = ""  # her words that came with a piece she plays among others asked for, said as it begins (_start)
+        self.line_said = False  # her line, not her own words, said what this request plays
         self.prepared: deque[int] = deque(maxlen=PREPARED_KEPT)  # the ids of the latest she prepared, oldest first
         self.failed: deque[str] = deque(maxlen=PREPARED_KEPT)  # the latest that could not be made, by name or link
         self.may_play = threading.Event()  # cleared unless voice waits for her name: a piece she prepared waits
@@ -509,10 +551,14 @@ class Assistant:
                              "flags": online.describe(r["flags"])} for r in results]}
 
     def transcribe_url(self, url: str, piece: str = "", artist: str = "", performer: str = "", aliases: str = "",
-                       tags: str = "") -> dict:
+                       tags: str = "", alternatives: list | None = None) -> dict:
         if not re.match(r"https?://", url.strip()):
             return {"status": "failed", "error": "url must start with http:// or https://"}
-        return self._transcribe(url, piece=piece, artist=artist, performer=performer, aliases=aliases, tags=tags)
+        versions = [{"url": str(v["url"]).strip(), "performer": str(v.get("performer") or "").strip()}
+                    for v in alternatives or []
+                    if isinstance(v, dict) and re.match(r"https?://", str(v.get("url", "")))]
+        return self._transcribe(url, piece=piece, artist=artist, performer=performer, aliases=aliases, tags=tags,
+                                versions=versions[:OTHER_VERSIONS])
 
     def transcribe_local(self, path: str, piece: str, artist: str = "", performer: str = "", aliases: str = "",
                          tags: str = "") -> dict:
@@ -522,7 +568,8 @@ class Assistant:
 
     def _transcribe(self, source: str, **names) -> dict:
         """Through the same queue as the app's downloads, named the same way. A piece made before is there at once;
-        any other is prepared in the background, and she is free meanwhile (_prepared)."""
+        any other is prepared in the background, and she is free meanwhile (_prepared). Sent, it belongs to what this
+        request asks to hear, and an earlier request's pieces still being made no longer play by themselves."""
         if self.downloads is None:
             from .downloads import Downloads
 
@@ -532,26 +579,21 @@ class Assistant:
             if job.result is None:
                 return {"status": "failed", "error": job.error or job.status}
             return {"status": "done", **_brief(job.result)}
-        if not self.preparing_now:  # what this request asked for, not what an earlier one did, starts once ready
-            self.moves += 1
         self.preparing_now.append(job.id)
-        waited = job.id in self.preparing  # asked for again: one waits for it, as the latest request found things
-        self.preparing[job.id] = (job, self.moves, self.taps_asked)  # moves as the request ends (_asked)
+        waited = job.id in self.preparing  # asked for again: one waits for it, as the latest request asks to hear it
+        self.preparing[job.id] = (job, self.asked_now)
+        self.lineup = self.asked_now
         if not waited:
             threading.Thread(target=self._prepared, args=(job,), daemon=True).start()
         return {"status": "preparing", "title": job.public()["title"],
-                "instruction": "It is being prepared in the background. It plays by itself once ready (of several sent "
-                               "at once, the first ready), unless something else is chosen to play meanwhile; then "
-                               "the user is told it is ready. Do not call play_recording for it. Answer in "
+                "instruction": "It is being prepared in the background. Once ready it plays by itself, after what "
+                               "this request plays, unless something else is chosen to play meanwhile; then the user "
+                               "is told it is ready. Do not call play_recording for it. Answer in "
                                f"{self.answer_in()}."}  # (found and prepared, she was slipping into Chinese)
 
     def _asked(self) -> None:
-        """As a request ends: what it sent to be prepared starts once ready if nothing changes from now on, and not if
-        the request played a piece itself, new or going on (they are said to be ready)."""
-        moves = None if self.started_now else self.moves
-        for job_id in self.preparing_now:
-            job, _, taps = self.preparing[job_id]
-            self.preparing[job_id] = (job, moves, taps)
+        """As a request ends: what it asks to hear, as it leaves what plays (_ready)."""
+        self.asked_now.moves = self.moves
 
     def _prepared(self, job) -> None:
         """A piece prepared in the background, once it is there (or could not be): when she is free (no request she
@@ -564,10 +606,11 @@ class Assistant:
                     return self._ready(job)
 
     def _ready(self, job) -> None:
-        """It plays if nothing has changed since the request that asked for it (_start: nor on the phone), the first of
-        a request's pieces only; else she says it is ready, or that it could not be made. Remembered either way
-        (prepared, failed)."""
-        _, moves, taps = self.preparing.pop(job.id)
+        """Its request still the latest to ask for pieces, it joins the list where its pieces play, after them; or,
+        nothing of it playing, it plays: at the end of their list once it is over, or by itself if nothing has changed
+        since the request (_start: nor on the phone). Else she says it is ready; or that it could not be made, which
+        stops nothing. Remembered either way (prepared, failed)."""
+        _, lineup = self.preparing.pop(job.id)
         rec = self.lib.get(job.result["id"]) if job.result else None
         if rec is None:
             if job.status == "failed":  # not one stopped in the app
@@ -576,18 +619,28 @@ class Assistant:
                 self.piano_news({"error": "not_ready", "title": title} if title else {"error": "link_not_ready"})
             return
         self.prepared.append(rec["id"])
-        if getattr(self.player, "current_id", None) == rec["id"]:
+        player = self._get_player()
+        if player.current_id == rec["id"]:
             return  # chosen meanwhile, by her or on the phone: nothing to say
-        if self.moves != moves:
+        theirs = lineup is self.lineup and lineup.listed == player.listed  # the list its request's pieces are in
+        if theirs and player.line_up(rec["id"], lineup.ids, lineup.listed):
+            lineup.ids.append(rec["id"])
+            self.piano_news({"status": "lined_up", "title": rec["title"]})
+            self.keep("piece", rec["title"], rec["id"])
+            return
+        unchanged = lineup is self.lineup and lineup.listed is None and self.moves == lineup.moves
+        if not (theirs and player.ended or unchanged):
             self.piano_news({"status": "not_started", "title": rec["title"]})
             return
-        self.moves += 1
-        self.taps_asked, self.played_now = taps, []
+        # After their list played to its end, what was done on the phone within it does not hold it back.
+        self.taps_asked, self.played_now, self.asked_now = self.taps if theirs else lineup.taps, [], lineup
         try:
             result = self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=rec["id"]))
         except Exception as exc:  # said, as for a typed request's piece (_started)
             print(f"  (playing failed: {type(exc).__name__}: {exc})", flush=True)
             result = {"error": "failed"}
+        finally:
+            self.asked_now = None
         self.piano_news(result)
         for rec_id, title in self.played_now:
             self.keep("piece", title, rec_id)
@@ -601,7 +654,7 @@ class Assistant:
 
     def play(self, id: int | None = None, from_start: bool = False) -> dict:
         """A new piece (id), the one waiting to be played again (pending), or the one in the player: from where it
-        was, or from the start."""
+        was, or from the start. A new piece after another this request chose follows it (lined_up)."""
         self._touch()
         if id is not None:
             rec = self.lib.get(int(id))
@@ -609,7 +662,9 @@ class Assistant:
                 return {"error": "recording_not_found"}
             if not rec["file_exists"]:
                 return {"error": "recording_unavailable"}
-            return self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=int(id)))
+            lined_up = self.asked_now is not None and bool(self.asked_now.ids or self.after_reply)
+            return self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=int(id),
+                                               lined_up=lined_up))
         if self.pending:
             request = replace(self.pending, from_s=0.0) if from_start else self.pending
             rec = self.lib.get(request.recording_id) if request.recording_id is not None else None
@@ -630,11 +685,12 @@ class Assistant:
 
     def _start(self, request: PlaybackRequest, from_start: bool = False, going_on: bool = False) -> dict:
         """Play the request, saying so first: a piece from its list (a playlist's, or else alone), a step in the
-        list that plays, or the piece in the player again. going_on: it is playing already, only looked at.
-        With the piano away nothing changes, and the request waits to be retried (pending). The phone's player used
-        since the request began (while she found and transcribed a piece, say), the user's choice stands: nothing
-        is started, and she says it is ready (the very piece chosen there, it plays). (Nor, voice, does a piece
-        paused while she listened play on by itself: finish_interaction.)"""
+        list that plays, or the piece in the player again; or line it up after what its request chose before it,
+        saying nothing. going_on: it is playing already, only looked at. With the piano away nothing changes, and
+        the request waits to be retried (pending). The phone's player used since the request began (while she found
+        and transcribed a piece, say), the user's choice stands: nothing is started, and she says it is ready (the
+        very piece chosen there, it plays). (Nor, voice, does a piece paused while she listened play on by itself:
+        finish_interaction.)"""
         player = self.player
         if not going_on and self.phone_used():
             if player is not None and request.recording_id is not None \
@@ -646,6 +702,14 @@ class Assistant:
                     "instruction": "While you were getting it, the user changed what plays on their phone, so it was "
                                    "not started. Do not start it: say in a few words that it is ready whenever they "
                                    f"want it. Answer in {self.answer_in()}."}
+        if request.lined_up:  # it follows the piece this request plays: as that one starts, it joins its list
+            if self.typed:
+                self._when_replied(request, from_start)
+            else:
+                self._play(request, from_start)
+            return {"status": "lined_up", "title": request.title,
+                    "instruction": "It plays after what this request chose before it (Playing Next on the phone shows "
+                                   f"it), not now. Answer in {self.answer_in()}."}
         how = request.moved or ("replay" if request.replay else
                                 ("playlist_shuffled" if request.mode == "shuffle" else "playlist") if request.playlist
                                 else "restart" if from_start else "resume" if request.from_s > 0 else "playing")  # lines.py
@@ -654,19 +718,22 @@ class Assistant:
             player = self._get_player()
             if going_on:
                 player.check_connection()
+                self._chose([player.current_id])
                 return {"status": "playing", "how": "now_playing", "title": request.title,
                         "from": clock(player.position)}
             player.look_for_piano()  # LookupError when it is not there: nothing is said or changed
             if self.speak:  # aloud, what she plays, before it sounds (and while the phone can still ask what plays)
-                if self._named(request):  # her words as she looked for it named it: not twice (SPEC M5.5), and
-                    self.speak("")  # they are heard to the end before it sounds
+                if self.held and self._named(request, self.held):  # her sentence about the pieces asked for, at once
+                    self.tell(self.held)  # in place of her line, heard to the end before it sounds
+                    self.held = ""
+                elif self._named(request, self.looked_for):  # her words as she looked for it named it: not twice
+                    self.speak("")  # (SPEC M5.5), and they are heard to the end before it sounds
                 else:
                     self.tell(line(how, self.chinese(), request.playlist or spoken_title(request.title)))
+                    self.line_said = True
                 announced = True
             if self.typed:  # it starts once her reply is there (ask)
-                if not self.after_reply:
-                    self.taps_before = self.taps
-                self.after_reply.append(lambda: self._started(request, from_start))
+                self._when_replied(request, from_start)
                 return {"status": "playing", "how": how, "title": request.title, "from": clock(request.from_s),
                         "introduction_spoken": False, **({"playlist": request.playlist} if request.playlist else {})}
             self._play(request, from_start)
@@ -677,19 +744,24 @@ class Assistant:
             return self.piano_missing(exc)
         except FileNotFoundError:  # gone since it was looked at
             return {"error": "recording_unavailable"}
-        self.pending = None
-        print(f"  ▶ {player.current[1]}  {clock(player.position)}", flush=True)
         return {"status": "playing", "how": how, "title": player.current[1], "from": clock(player.position),
                 "introduction_spoken": announced, **({"playlist": request.playlist} if request.playlist else {})}
 
     def _play(self, request: PlaybackRequest, from_start: bool) -> None:
-        player = self.player
+        player, lineup = self.player, self.asked_now
+        if request.lined_up:  # after what its request chose before it, in that piece's list
+            if lineup is not None and player.line_up(request.recording_id, lineup.ids, lineup.listed):
+                lineup.ids.append(request.recording_id)
+                self.played_now.append((request.recording_id, request.title))
+                print(f"  ↳ {request.title}, lined up", flush=True)
+            return
         self.started_now = True
         if request.moved:  # a step in the list that plays: the list stays as it is
             was = player.current_id
             player.go_to(request.recording_id)
             if request.recording_id != was:
                 self.played_now.append((request.recording_id, request.title))
+            self._chose([request.recording_id])
         elif request.recording_id is None or (request.recording_id == player.current_id and request.scope is None):
             # the piece already in the player, from its file as the library has it now: on from where it was (a
             # resume, a retry: the same listening), or again from its start
@@ -698,17 +770,34 @@ class Assistant:
             else:
                 player.start([player.current if request.recording_id is not None else (request.path, request.title)],
                              from_s=request.from_s)
-        else:  # a playlist plays on in its order; a piece she chose plays alone (the chat is not a play queue)
-            ids, scope = (list(request.ids), request.scope) if request.scope is not None else (
-                [request.recording_id], {"kind": "conversation", "id": self.conversation_id})
+            self._chose([request.recording_id])
+        else:  # a playlist plays on in its order; a piece she chose plays alone (the chat is not a play queue), or
+            # once the list of its request's pieces is over, at its end
+            if request.scope is not None:
+                ids, scope = list(request.ids), request.scope
+            elif lineup is not None and lineup.listed == player.listed:
+                ids, scope = [*player.ids, request.recording_id], player.scope
+            else:
+                ids, scope = [request.recording_id], {"kind": "conversation", "id": self.conversation_id}
             player.select(request.recording_id, ids, scope, request.from_s, mode=request.mode)
             self.played_now.append((request.recording_id, request.title))
+            self._chose(ids if request.scope is not None else [request.recording_id])
+            if lineup is not None:  # what this request chose: what it prepares follows it, an earlier one's no more
+                self.lineup = lineup
+        self.pending = None
+        print(f"  ▶ {player.current[1]}  {clock(player.position)}", flush=True)
 
-    def _named(self, request: PlaybackRequest) -> bool:
-        """Whether her words as she searched the library named this piece: its name, or one of its other names."""
-        rec = self.lib.get(request.recording_id) if request.recording_id is not None and self.looked_for else None
+    def _chose(self, ids: list[int | None]) -> None:
+        """The pieces this request plays or goes on with, in the list that plays: what it lines up follows them."""
+        if self.asked_now is not None:
+            self.asked_now.ids += [i for i in ids if i is not None and i not in self.asked_now.ids]
+            self.asked_now.listed = self.player.listed
+
+    def _named(self, request: PlaybackRequest, words: str) -> bool:
+        """Whether these words of hers name this piece: its name, or one of its other names."""
+        rec = self.lib.get(request.recording_id) if request.recording_id is not None and words else None
         names = [spoken_title(request.title), *((rec or {}).get("aliases") or "").split(",")]
-        return any(name.strip() and name.strip().casefold() in self.looked_for.casefold() for name in names)
+        return any(name.strip() and name.strip().casefold() in words.casefold() for name in names)
 
     def phone_used(self) -> bool:
         """Whether the phone's player was used since the request began: what it did stands."""
@@ -728,13 +817,17 @@ class Assistant:
             for start in starts:
                 start()
 
+    def _when_replied(self, request: PlaybackRequest, from_start: bool) -> None:
+        """A typed request's piece starts, or is lined up, once her reply is there (ask)."""
+        if not self.after_reply:
+            self.taps_before = self.taps
+        self.after_reply.append(lambda: self._started(request, from_start))
+
     def _started(self, request: PlaybackRequest, from_start: bool) -> None:
         """A typed request's piece, started after her reply: the piano gone meanwhile, the file, or anything else,
         she says so, as a tool's failure would be said."""
         try:
             self._play(request, from_start)
-            self.pending = None
-            print(f"  ▶ {self.player.current[1]}  {clock(self.player.position)}", flush=True)
         except LookupError as exc:
             self.pending = request
             self.piano_news(self.piano_missing(exc))
@@ -908,10 +1001,12 @@ class Assistant:
     def step(self, direction: int) -> dict:
         """下一首 / 上一首, as ⏭ and ⏮ on the phone, in the list that plays: past its last piece, its first again; with
         this piece alone, nothing changes, and she says there is nothing lined up. Said and started as any piece
-        she plays (_start)."""
+        she plays (_start). Nothing after it yet, but a piece of its request still being prepared: she says so."""
         target, how = self.player.landing(direction, around=True) if self.player else (None, "")
         if how == "":
             return {"status": "nothing is playing"}
+        if direction > 0 and how in {"alone", "around"} and (coming := self._coming()):
+            return {"status": "coming", "title": coming}
         if how == "alone":
             return {"status": "nothing_next"}
         self._touch()
@@ -921,6 +1016,15 @@ class Assistant:
         moved = "from_first" if how == "around" else "restart" if target == self.player.current_id \
             else "next" if direction > 0 else "previous"
         return self._start(PlaybackRequest(Path(rec["midi_path"]), rec["title"], recording_id=target, moved=moved))
+
+    def _coming(self) -> str:
+        """The first piece still being prepared for the pieces that play (the latest request's, in their list), by
+        name; or "" (none, or a link not named yet)."""
+        lineup = self.lineup
+        if lineup is None or lineup.listed != self.player.listed:
+            return ""
+        return next((job.public()["title"] for job, of in self.preparing.values()
+                     if of is lineup and not job.finished.is_set() and job.public()["title"]), "")
 
     def pause(self) -> dict:
         self._touch()
@@ -1064,8 +1168,9 @@ class Assistant:
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
                 self.new_conversation(chat)
             self.speak, self.played_now, self.typed, asked = speak, [], typed, time.monotonic()
-            self.preparing_now, self.started_now, self.looked_for = [], False, ""
+            self.preparing_now, self.started_now, self.looked_for, self.held, self.line_said = [], False, "", "", False
             self.taps_asked = self.taps if taps is None else taps
+            self.asked_now = Lineup(self.taps_asked)
             self.keep("user", text)
             if self.on_busy:
                 self.on_busy(True)
@@ -1089,7 +1194,7 @@ class Assistant:
                 return answer
             finally:
                 self._asked()
-                self.speak, self.typed, self.after_reply = None, False, []
+                self.speak, self.typed, self.after_reply, self.asked_now = None, False, [], None
                 self.replied_at = self.clock()
                 if self.on_busy:
                     self.on_busy(False)
@@ -1143,7 +1248,7 @@ class Assistant:
                 rec = self.lib.get(self.player.current_id) if getattr(self.player, "current_id", None) else None
                 if rec:  # its names as the library keeps them: the title need not say who plays it
                     state["current"].update(id=rec["id"], **title_parts(rec["title"], rec["composer"], rec["performer"]))
-            waiting = [job for job, _, _ in self.preparing.values()]  # one finished while she was busy is as it ended
+            waiting = [job for job, _ in self.preparing.values()]  # one finished while she was busy is as it ended
             if making := [_named(job) for job in waiting if not job.finished.is_set()]:
                 state["preparing"] = making
             made = [*self.prepared, *(job.result["id"] for job in waiting if job.finished.is_set() and job.result)]
@@ -1172,8 +1277,6 @@ class Assistant:
                     return False
                 self.tell(words, meanwhile=True)
                 said_ahead, progress_spoken = words, True
-                if tool == "search_library":
-                    self.looked_for += words
                 return True
             chat.before_tool = ahead
             reply = model_reply(chat.send_user, model_text)
@@ -1181,18 +1284,24 @@ class Assistant:
             for _ in range(MAX_TOOL_ROUNDS):
                 if not reply.tool_calls:
                     break
-                # Words that come with an action are not said before it is done: her reply follows it. Nor are
-                # those that come with looking online too soon, which she does not do. Nor again what she said
-                # already, as the model went on to its tools.
+                # Words that come with an action are not said before it is done: her reply follows it, or, with a
+                # piece she plays among others asked for, they are her sentence about them all, said as it begins
+                # (_start). Nor are those that come with looking online too soon, which she does not do. Nor again
+                # what she said already, as the model went on to its tools. What she says as she looks in the library,
+                # or of several pieces, may name the piece she then plays (_named).
+                calls = reply.tool_calls
                 words = reply.text.strip()
-                if said_ahead and words.startswith(said_ahead):
-                    words = words[len(said_ahead):].strip()
-                said_ahead = ""
-                if words and not any(c.name in ACTIONS or refused(c) for c in reply.tool_calls):
+                said = said_ahead if said_ahead and words.startswith(said_ahead) else ""
+                words, said_ahead = words[len(said):].strip(), ""
+                several = any(c.name == "play_recording" for c in calls) \
+                    and sum(c.name in PIECE_CALLS for c in calls) > 1
+                if words and not any(c.name in ACTIONS or refused(c) for c in calls):
                     self.tell(words, meanwhile=True)
-                    progress_spoken = True
-                    if any(c.name == "search_library" for c in reply.tool_calls):
-                        self.looked_for += words
+                    progress_spoken, said = True, said + words
+                elif several:
+                    self.held = words
+                if several or any(c.name == "search_library" for c in calls):
+                    self.looked_for += said
                 results = []
                 for call in reply.tool_calls:
                     if refused(call):
@@ -1207,16 +1316,22 @@ class Assistant:
                     library_searched = library_searched or call.name == "search_library"
                     results.append((call, raw))
                     if call.name in PLAYS:
-                        playback_result = json.loads(raw)
-                        if playback_result.get("error") in {"playback_connection_unavailable", "recording_unavailable", "recording_not_found"}:
+                        played = json.loads(raw)
+                        if played.get("status") != "lined_up":  # her line, if any, is for the piece that plays
+                            playback_result = played
+                        if played.get("introduction_spoken"):
+                            progress_spoken = playback_announced = True
+                        if played.get("error") in {"playback_connection_unavailable", "recording_unavailable", "recording_not_found"}:
                             chat.discard_turn()  # the unfinished tool exchange; earlier turns and the pending piece stay
-                            return self.playback_reply(playback_result)
-                if playback_result and playback_result.get("introduction_spoken"):
-                    progress_spoken = playback_announced = True
+                            return self.playback_reply(played)
+                self.held = ""
                 reply = model_reply(chat.send_tool_results, results)
             if reply.tool_calls:  # still calling tools after MAX_TOOL_ROUNDS: give this request up
                 chat.discard_turn()
-            if playback_announced and not confirms:  # her line said it all as it began to play
+            # Her words said it all as it began to play, and so did her line about a piece asked for alone; after her
+            # line about the first of several (lined up after it, or sent to be prepared), her reply says the rest.
+            if playback_announced and not confirms and not (self.line_said and (len(self.played_now) > 1
+                                                                                or self.preparing_now)):
                 return ""
             words = reply.text.strip()
             if said_ahead and words.startswith(said_ahead):  # given up with words said already, as it went on

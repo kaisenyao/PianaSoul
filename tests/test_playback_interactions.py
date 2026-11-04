@@ -16,8 +16,9 @@ import mido
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import online
 from pianasoul.chat import MAX_TOOL_ROUNDS, NEW_CONVERSATION_AFTER_S, Assistant, TOOLS, instructions
+from pianasoul.downloads import Job
 from pianasoul.library import Library
-from pianasoul.lines import LINES, line, recorded
+from pianasoul.lines import LINES, every, line, recorded
 from pianasoul.play import Output, Player
 from pianasoul.playback import Playback
 from pianasoul.playback_commands import match_command
@@ -111,6 +112,13 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(set(tools['play_recording']['parameters']['properties']), {'id'})
         self.assertEqual(set(tools['control_playback']['parameters']['properties']), {'action'})
         self.assertFalse(tools['control_playback']['parameters']['additionalProperties'])
+
+    def test_a_piece_is_prepared_from_one_version_with_the_next_good_ones_as_alternatives(self):
+        url = {t['name']: t for t in TOOLS}['transcribe_url']['parameters']['properties']
+        self.assertEqual(set(url['alternatives']['items']['properties']), {'url', 'performer'})
+        said = instructions()
+        self.assertIn('Call transcribe_url once for the piece', said)
+        self.assertNotIn('several sent at once', said)
 
     def test_she_writes_chinese_in_simplified_characters_whatever_the_user_writes(self):
         self.assertIn('Write Chinese in\nsimplified characters, always.', instructions())
@@ -573,6 +581,47 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(len(self.spoken), 1)
         self.assertTrue("从头" in self.spoken[0] or "开始" in self.spoken[0])
         self.assertEqual(self.player._from, 0)
+
+    def plan(self, words, *calls):
+        """A spoken request for several pieces, her words about them all coming with the first piece she plays."""
+        chat = ScriptedChat([call('search_library', query='月光')], (words, list(calls)), '都安排好啦。')
+        return self.ask(chat, '弹贝加尔湖畔，然后再弹一首')
+
+    def test_spoken_her_sentence_about_several_pieces_comes_in_place_of_her_line_and_nothing_after(self):
+        baikal, moon = (r['id'] for r in self.records)
+        plan = '好呀，先弹《贝加尔湖畔》，再接着弹《月光》～'
+        answer = self.plan(plan, call('play_recording', id=baikal), call('play_recording', id=moon))
+        self.assertEqual((self.spoken, answer), ([plan], ''), 'Said once, before the first sounds')
+        self.assertEqual((self.player.current[1], self.player.ids), ('贝加尔湖畔', [baikal, moon]))
+
+    def test_spoken_her_sentence_about_one_piece_now_and_one_to_prepare_is_all_she_says(self):
+        job = Job(1, 'https://www.youtube.com/watch?v=abcdefghijk', piece='夜曲')  # prepared meanwhile, not made
+        self.a.downloads = Mock(add=Mock(return_value=job))
+        self.addCleanup(job.finished.set)
+        plan = '《贝加尔湖畔》先弹给你，《夜曲》我这就去准备～'
+        answer = self.plan(plan, call('play_recording', id=self.records[0]['id']),
+                           call('transcribe_url', url='https://youtu.be/abcdefghijk', piece='夜曲'))
+        self.assertEqual((self.spoken, answer), ([plan], ''))
+        self.assertEqual((self.player.current[1], self.player.state), ('贝加尔湖畔', 'playing'))
+
+    def test_spoken_without_her_sentence_her_line_says_the_first_of_several_and_her_reply_the_rest(self):
+        baikal, moon = (r['id'] for r in self.records)
+        chat = ScriptedChat([call('search_library', query='月光')],
+                            [call('play_recording', id=baikal), call('play_recording', id=moon)], '弹完接着是《月光》～')
+        answer = self.ask(chat, '弹贝加尔湖畔，然后弹月光')
+        self.assertEqual(len(self.spoken), 1)
+        self.assertIn(self.spoken[0], every('playing', True, '贝加尔湖畔'))
+        self.assertEqual(answer, '弹完接着是《月光》～')
+        self.assertEqual(chat.results[-1]['status'], 'lined_up')
+
+    def test_spoken_her_words_with_a_piece_asked_for_alone_leave_it_to_her_line(self):
+        baikal = self.records[0]['id']
+        chat = ScriptedChat([call('search_library', query='李健')],
+                            ('好的，给你弹《贝加尔湖畔》。', [call('play_recording', id=baikal)]), '好。')
+        answer = self.ask(chat, '弹一首李健的歌')
+        self.assertEqual(answer, '')
+        self.assertEqual(len(self.spoken), 1)
+        self.assertIn(self.spoken[0], every('playing', True, '贝加尔湖畔'))
 
     def test_model_pause_uses_one_fallback_only_if_final_reply_is_empty(self):
         for final_reply in ('', "好呀，我先停一下。"):

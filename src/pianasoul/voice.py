@@ -137,7 +137,9 @@ search_library or library_info, it says only what you are looking for. When libr
 call play_recording at once with no words before it, and for pause, resume, retry, restart, next, previous or cancel
 call control_playback at once. Spoken, a piece that begins to play (play_recording, play_playlist, replay_conversation;
 resume, retry, restart, next, previous) is introduced by the application's own line before it sounds, so add nothing
-about it; pause and cancel, you confirm yourself. A short request alone (暂停, 下一首, 大声一点) the application does
+about it; pause and cancel, you confirm yourself. Of several pieces in one request, write your one sentence about
+them all in the response that calls play_recording for the first: it is said before the first sounds, in place of
+that line, and needs nothing after it. A short request alone (暂停, 下一首, 大声一点) the application does
 and answers without you. After the tools, say only what is new, and never a piece's name twice."""
 
 
