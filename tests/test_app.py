@@ -938,6 +938,15 @@ class AssistantTests(Base):
         self.assertIn('as "在线搜索与转谱" when you answer in Chinese and "Online Search & Transcription" otherwise',
                       ' '.join(instructions(False).split()), 'The setting she names, as the Mac names it')
 
+    def test_online_she_searches_the_library_and_online_in_one_response_that_begins_with_her_sentence(self):
+        from pianasoul.chat import instructions
+        online, offline = (' '.join(instructions(on).split()) for on in (True, False))
+        self.assertIn('call search_library with them, saying nothing yet (', offline, 'Without online search, as before')
+        self.assertIn('call search_library with them (', online)
+        self.assertIn('In the same response as that search_library call, search online for it too', online)
+        self.assertIn('Begin that response with one short, friendly sentence that says what you will do', online)
+        self.assertNotIn('{', online + offline, 'Nothing left to fill in')
+
     def test_spoken_a_piece_that_begins_to_play_is_said_with_her_line_and_pause_and_cancel_in_her_words(self):
         """As VOICE_NOTE tells her: through the model, resume, retry, restart, next and previous are introduced by
         her line before the piece sounds, and her words after them are not said; pause and cancel are said in hers."""

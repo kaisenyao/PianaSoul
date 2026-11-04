@@ -112,7 +112,7 @@ When the user wants to hear something:
    If a recording clearly matches (same piece; same pianist if one was named), call play_recording with its id and
    say in a few words what you are playing; of several that match equally, play the first. If none does, the piece
    may still be there under its other names, as titles are often in another language: call search_library with
-   them, saying nothing yet (its name in English or Chinese, whichever the request did not use, other spellings,
+   them{quiet} (its name in English or Chinese, whichever the request did not use, other spellings,
    the composer's other name; for example 夜曲 -> Chopin Nocturne, 致爱丽丝 -> Für Elise), and play it if it is there.
 {finding}
 Several pieces in one request ("我想听青花瓷和千里之外"; "play Clair de Lune, then Gymnopédie No. 1"): take each as
@@ -178,14 +178,14 @@ Never invent results: report only what the tools returned."""
 
 # What she does with a piece the library has not got: find it online and transcribe it, or, with online search and
 # transcription off (PIANASOUL_TRANSCRIBE=0, the Mac app's checkbox unticked), say so.
-FINDING_ONLINE = """2. In the same response as that search_library call, search online for it too (search_online), in case it is
-   not there: what is found online is for a piece the library has under none of its names, and one it has plays
-   from there (1.), never prepared again. With these calls, write one short, friendly sentence that says what you
-   will do: find a version of it ("好呀，我去找一版《搁浅》～"; "Sure, I'll find a version of it."). It neither asks
-   the listener to wait nor says how long it takes, and it is your only sentence before your news (3.): if you said
-   one already in this request, or another piece of this request plays meanwhile, write nothing more. Search with
-   few words: the singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once;
-   more words ("cover", "solo", "piano" again) find less, often nothing.
+FINDING_ONLINE = """2. In the same response as that search_library call, search online for it too (search_online), in case it is not
+   there: what is found online is for a piece the library has under none of its names, and one it has plays from
+   there (1.), never prepared again. Begin that response with one short, friendly sentence that says what you will
+   do: find a version of it ("好呀，我去找一版《搁浅》～"; "Sure, I'll find a version of it."). It neither asks the listener to
+   wait nor says how long it takes, and it is your only sentence before your news (3.): if you said one already in
+   this request, or another piece of this request plays meanwhile, write nothing more. Search with few words: the
+   singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once; more words
+   ("cover", "solo", "piano" again) find less, often nothing.
    If it is not in the library, choose the best candidate yourself:
    - prefer recordings where the piano carries the music: solo piano first, piano with voice second, never a band
      mix or a remix; a real human performance by a named pianist, a good recording, and a duration that fits;
@@ -227,8 +227,11 @@ ONLINE_TOOLS = {"search_online", *PREPARES}
 
 
 def instructions(online: bool = True) -> str:
-    """Her instructions, with online search and transcription or without."""
-    return INSTRUCTIONS.replace("{finding}", FINDING_ONLINE if online else FINDING_LIBRARY)
+    """Her instructions, with online search and transcription or without. With it, she searches online in the same
+    response as the library under the piece's other names, and that response has her sentence for going online
+    (FINDING_ONLINE); without it, she searches the library saying nothing yet."""
+    return INSTRUCTIONS.replace("{quiet}", "" if online else ", saying nothing yet").replace(
+        "{finding}", FINDING_ONLINE if online else FINDING_LIBRARY)
 
 
 def tools(online: bool = True) -> list[dict]:
