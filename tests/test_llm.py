@@ -50,6 +50,20 @@ class OpenAIChatTests(unittest.TestCase):
     def test_each_reply_says_the_tokens_read_of_them_cached_and_written(self):
         self.assertEqual(self.chat(stream=events("好呀。")).send_user("你好").tokens, (5149, 5120, 47))
 
+    def test_a_reply_held_back_is_asked_for_again_from_where_it_was_with_the_applications_word(self):
+        chat = self.chat()
+        chat.client.responses.create.side_effect = [iter(events("好呀。")), iter(events("这就取消～")),
+                                                    iter(events(call=("control_playback", '{"action": "cancel"}')))]
+        held = "Your reply was held back."
+        chat.send_user("你好")
+        chat.send_user("取消吧")
+        reply = chat.ask_again(held)
+        sent = chat.client.responses.create.call_args.kwargs
+        self.assertEqual((sent["input"], sent["previous_response_id"]),
+                         ([{"role": "user", "content": "取消吧"}, {"role": "developer", "content": held}], "r1"),
+                         'Not after the reply held back: it is never in the conversation')
+        self.assertEqual([c.name for c in reply.tool_calls], ["control_playback"])
+
     def test_nothing_is_handed_over_without_words_or_without_a_tool_call(self):
         for stream in (events(call=("play_recording", '{"id": 3}')), events("好呀，", "想听什么？")):
             chat = self.chat(stream=stream)
@@ -109,6 +123,20 @@ class OpenAIChatTests(unittest.TestCase):
             chat.send_user("你好")
         self.assertEqual((type(raised.exception), str(raised.exception)), (RuntimeError, "the model failed: try again"),
                          'Any other failure as before')
+
+
+class AnthropicChatTests(unittest.TestCase):
+    def test_a_reply_held_back_is_asked_for_again_with_the_applications_word_in_its_request(self):
+        with patch.dict(os.environ, ANTHROPIC_API_KEY="not a key"):
+            chat = llm.AnthropicChat("claude-haiku-5-5", "instructions", [])
+        usage = NS(input_tokens=10, cache_read_input_tokens=5000, cache_creation_input_tokens=0, output_tokens=7)
+        chat.client = Mock()
+        chat.client.messages.create.return_value = NS(content=[NS(type="text", text="好。")], usage=usage)
+        chat.send_user("取消吧")
+        self.assertEqual(chat.ask_again("Your reply was held back.").tokens, (5010, 5000, 7))
+        self.assertEqual(chat.messages[0], {"role": "user", "content": [
+            {"type": "text", "text": "取消吧"}, {"type": "text", "text": "Your reply was held back."}]})
+        self.assertEqual([m["role"] for m in chat.messages], ["user", "assistant"], 'The reply held back is gone')
 
 
 # The variables that choose her model line, and where it is asked.

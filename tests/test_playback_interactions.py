@@ -32,7 +32,7 @@ class ScriptedChat:
     """Only supplies model outputs; real Assistant dispatch and Player state are exercised."""
     def __init__(self, *steps):
         self.steps = iter(steps)
-        self.messages, self.results = [], []
+        self.messages, self.results, self.notes = [], [], []
         self.resets = self.discards = 0
 
     def next(self):  # a step: her words, her calls, or both as (words, calls)
@@ -46,6 +46,10 @@ class ScriptedChat:
 
     def send_tool_results(self, results):
         self.results.extend(json.loads(raw) for _, raw in results)
+        return self.next()
+
+    def ask_again(self, note):
+        self.notes.append(note)
         return self.next()
 
     def reset(self):
@@ -231,6 +235,73 @@ class PlaybackTests(unittest.TestCase):
         with patch.object(self.a, 'run_tool', side_effect=run_tool):
             self.a.ask(chat, '我想听红豆', speak=lambda text, meanwhile=False: said.append((text, meanwhile)))
         self.assertEqual(said, [('我去找找看，稍等我一下～', True)])
+
+    def test_words_that_say_what_no_tool_did_are_held_back_and_she_is_asked_once_more(self):
+        self.prime()
+        chat = ScriptedChat('好的，这就把《贝加尔湖畔》的播放取消掉～', [call('control_playback', action='cancel')],
+                            '已经停下来了，想听别的随时叫我～')
+        answer = self.ask(chat, '不用重试了，取消刚才的播放吧。')
+        self.assertEqual((self.player.state, answer), ('stopped', '已经停下来了，想听别的随时叫我～'))
+        self.assertEqual(len(chat.notes), 1)
+        self.assertIn('no tool did it', chat.notes[0])
+        self.assertIn('Answer in Chinese', chat.notes[0], 'Not in the language of the note')
+        kept = [m['text'] for m in self.a.conversations.messages(self.a.conversation_id)]
+        self.assertNotIn('好的，这就把《贝加尔湖畔》的播放取消掉～', [*self.spoken, *kept], 'Never said, never kept')
+
+    def test_the_conversations_notes_written_as_words_are_held_back_too(self):
+        renamed = SimpleNamespace(name='rename_playlist', arguments={'name': '睡前', 'new_name': '晚安曲'})
+        chat = ScriptedChat('[renamed: 睡前 -> 晚安曲]', [renamed],
+                            '改好啦，现在叫「晚安曲」～')
+        self.lib.new_playlist('睡前', [self.records[1]['id']])
+        self.assertEqual(self.ask(chat, '把歌单「睡前」改名叫「晚安曲」'), '改好啦，现在叫「晚安曲」～')
+        self.assertEqual([p['name'] for p in self.lib.playlists()], ['晚安曲'])
+
+    def test_she_is_asked_once_more_only_once(self):
+        chat = ScriptedChat('Of course, retrying now.', 'Retrying now, so it picks up where it stopped.')
+        self.assertEqual(self.ask(chat, 'The connection is fixed. Can you give it another try?'),
+                         'Retrying now, so it picks up where it stopped.', 'Never a third time')
+        self.assertEqual(len(chat.notes), 1)
+        self.assertIn('the language of the request, which is not Chinese', chat.notes[0])
+
+    def test_what_she_says_after_an_action_or_in_conversation_is_never_held_back(self):
+        self.prime()
+        for steps, request in ((([call('control_playback', action='pause')], '已经暂停啦，你慢慢说～'), '先停一下'),
+                               (('累了就歇一歇，我陪你～要不要我接着把它弹完？',), '今天有点累，陪我聊聊天吧'),
+                               (('好，先停在这儿，你慢慢说～',), '这首先停一下，我想说句话'),  # paused, as it is
+                               (([call('library_info', about='recently_played')], '最近弹过的是《贝加尔湖畔》。'),
+                                '我最近都听了些什么呀？')):
+            with self.subTest(request=request):
+                chat = ScriptedChat(*steps)
+                self.ask(chat, request)
+                self.assertEqual(chat.notes, [])
+
+    def test_saying_the_piece_is_paused_is_held_back_while_it_plays(self):
+        self.a.play(self.records[0]['id']); self.player._thread.join()
+        chat = ScriptedChat('好，先停在这儿，你慢慢说～', [call('control_playback', action='pause')], '')
+        self.ask(chat, '这首先停一下，我想说句话')
+        self.assertEqual((len(chat.notes), self.player.state), (1, 'paused'))
+
+    def test_words_said_before_a_tool_stay_said_and_what_follows_the_note_comes_after_them(self):
+        canon = self.records[1]['id']
+        chat = ScriptedChat(('我去库里翻一翻～', [call('search_library', query='Clair de Lune')]), '找到啦，这就给你弹～',
+                            [call('play_recording', id=canon)], '')
+        with patch.object(self.a, 'search_library', return_value={'results': [self.lib.get(canon)]}):
+            self.ask(chat, '弹一下德彪西的月光')
+        self.assertEqual(self.player.current[1], '月光')
+        self.assertEqual(self.spoken[0], '我去库里翻一翻～', 'Said once, at once')
+        self.assertEqual(len(self.spoken), 2, 'Then her line as it plays; the words held back never')
+        self.assertIn('no tool did it', chat.notes[0])
+
+    def test_asking_which_piece_before_looking_is_held_back_and_she_looks_first(self):
+        chat = ScriptedChat('“月光”是指贝多芬的《月光奏鸣曲》，还是德彪西的《月光》呀？',
+                            [call('search_library', query='Clair de Lune Debussy')],
+                            [call('play_recording', id=self.records[1]['id'])])
+        self.ask(chat, '弹一下月光吧')
+        self.assertIn('before you looked', chat.notes[0])
+        self.assertEqual(self.player.current[1], '月光')
+        chat = ScriptedChat('你更喜欢肖邦还是李斯特呀？')
+        self.ask(chat, '跟我聊聊浪漫派吧')
+        self.assertEqual(chat.notes, [], 'A question in conversation, nothing asked for to hear')
 
     def test_she_knows_who_plays_the_piece_playing(self):
         self.lib.update(self.records[0]['id'], performer='赵海洋')  # kept beside the title, not in it

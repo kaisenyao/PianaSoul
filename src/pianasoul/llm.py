@@ -39,6 +39,9 @@ PROVIDERS = {
 # Model Studio's models that think whatever they are told, and the least they take: told none, GLM says it "does
 # not support 'reasoning.effort' to be 'none'" (2026-11-04).
 LEAST_THINKING = {"glm-5.3": {"reasoning": {"effort": "low"}}}
+# How the application's word on a reply held back is given (OpenAIChat.ask_again): as instructions, not as the
+# user's words.
+NOTE_ROLE = "developer"
 # Model Studio's address in each region; a key works only in the region it was made in.
 DASHSCOPE_HOSTS = {"beijing": "dashscope.aliyuncs.com", "singapore": "dashscope-intl.aliyuncs.com"}
 # Model Studio's code for words that did not pass its content inspection, those asked or those written.
@@ -162,6 +165,7 @@ class OpenAIChat:
                        "parameters": t["parameters"]} for t in tools]
         self.previous = self.turn_start = None
         self.earlier: list[dict] = []  # a conversation picked up again, sent before the first request
+        self.asked: tuple[str | None, list] = (None, [])  # the latest response asked for: after which, and with what
         # Called with (the words written, the tool's name) as the model, having written words, starts on its first
         # tool call: what it says it will do may be said while it does it. True: they were said.
         self.before_tool = None
@@ -172,6 +176,7 @@ class OpenAIChat:
         that comes whole, unless its words were handed over already: they are never said twice."""
         from openai import APIConnectionError
 
+        self.asked = self.previous, items
         kwargs = {"previous_response_id": self.previous} if self.previous else {}
         if THINKS.match(self.model):
             kwargs["reasoning"] = REASONING
@@ -224,6 +229,12 @@ class OpenAIChat:
     def send_tool_results(self, results: list[tuple[ToolCall, str]]) -> Reply:
         return self._call([{"type": "function_call_output", "call_id": c.id, "output": out} for c, out in results])
 
+    def ask_again(self, note: str) -> Reply:
+        """The latest response asked for once more, with the application's word on it (note): from where it was
+        asked, so that the reply held back is not in the conversation, and words said before it stay there."""
+        self.previous, items = self.asked
+        return self._call([*items, {"role": NOTE_ROLE, "content": note}])
+
     def discard_turn(self) -> None:
         """Forget the latest request and what followed it; the conversation before it stays."""
         self.previous = self.turn_start
@@ -267,6 +278,15 @@ class AnthropicChat:
     def send_tool_results(self, results: list[tuple[ToolCall, str]]) -> Reply:
         self.messages.append({"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": c.id, "content": out} for c, out in results]})
+        return self._call()
+
+    def ask_again(self, note: str) -> Reply:
+        """As OpenAIChat's: the note joins what the latest response answered (the Messages API has no other turn
+        for it)."""
+        self.messages.pop()
+        asked = self.messages[-1]["content"]
+        self.messages[-1] = {"role": "user", "content": [
+            *(asked if isinstance(asked, list) else [{"type": "text", "text": asked}]), {"type": "text", "text": note}]}
         return self._call()
 
     def discard_turn(self) -> None:
