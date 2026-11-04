@@ -450,6 +450,7 @@ class Assistant:
         self.conversation_id: int | None = None  # the conversation she remembers; None until something is said
         self.played_now: list[tuple[int, str]] = []  # the pieces chosen in this request, kept after its reply
         self.typed = False  # answering a typed request: what she plays waits for her reply (after_reply)
+        self.paused_for_her = False  # answering a request the piece playing was paused for: it plays on after (ask)
         self.after_reply: list = []  # what she starts playing, typed to, once her reply is there
         self.taps = 0  # what was done on the phone's player: counted, so that what she would start gives way to it
         self.taps_asked = 0  # as it was when the request began: used since, nothing she gets ready is started (_start)
@@ -1182,15 +1183,19 @@ class Assistant:
         return key, result.get("playlist") or spoken_title(result.get("title", ""))
 
     # ---- conversation ------------------------------------------------------------------------
-    def ask(self, chat, text: str, speak=None, typed: bool = False, taps: int | None = None) -> str:
+    def ask(self, chat, text: str, speak=None, typed: bool = False, taps: int | None = None,
+            paused_for_her: bool = False) -> str:
         """Answer one request and keep it, her lines and the pieces she played in the conversation. speak says
         her lines aloud as they come (voice); typed marks a request typed in the app, answered on screen. taps: the
-        phone's player as it was when the request was made, if it waited its turn (Core.type)."""
+        phone's player as it was when the request was made, if it waited its turn (Core.type). paused_for_her: the
+        piece playing was paused for her to listen (voice), and plays on after her reply unless she pauses or
+        cancels it."""
         with self._turn:
             # Each request resends the whole conversation: after a long quiet spell, start afresh.
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
                 self.new_conversation(chat)
             self.speak, self.played_now, self.typed, asked = speak, [], typed, time.monotonic()
+            self.paused_for_her = paused_for_her
             self.preparing_now, self.started_now, self.looked_for, self.held, self.line_said = [], False, "", "", False
             self.taps_asked = self.taps if taps is None else taps
             self.asked_now = Lineup(self.taps_asked)
@@ -1217,7 +1222,8 @@ class Assistant:
                 return answer
             finally:
                 self._asked()
-                self.speak, self.typed, self.after_reply, self.asked_now = None, False, [], None
+                self.speak, self.typed, self.paused_for_her = None, False, False
+                self.after_reply, self.asked_now = [], None
                 self.replied_at = self.clock()
                 if self.on_busy:
                     self.on_busy(False)
@@ -1225,10 +1231,10 @@ class Assistant:
     def unfounded(self, words: str, called: set[str]) -> str:
         """What the model is told of its reply to the request (HELD_BACK), when the reply is not to be said: it says
         that something is done or being done, or that she goes to look, with no tool doing it (claims; that the piece
-        is paused, it may say when it is); or, a piece asked for and nothing looked at, it asks which piece is meant.
-        "" for any other reply. called: the tools called for the request."""
+        is paused, it may say when it is, not only while she listens); or, a piece asked for and nothing looked at, it
+        asks which piece is meant. "" for any other reply. called: the tools called for the request."""
         said = claims(words)
-        if self.player and self.player.state == "paused":
+        if self.player and self.player.state == "paused" and not self.paused_for_her:
             said.discard("paused")
         if said and not called - LOOKS:
             held = "claims"
@@ -1292,6 +1298,9 @@ class Assistant:
             if self.player and self.player.current:
                 state["current"] = {"title": self.player.current[1], "state": self.player.state,
                                     "position_s": self.player.position}
+                if self.paused_for_her and self.player.state == "paused":  # then plays on (voice.finish_interaction)
+                    state["current"]["state"] = ("paused only while you listen: it plays on after your reply unless "
+                                                 "you pause or cancel it with control_playback")
                 rec = self.lib.get(self.player.current_id) if getattr(self.player, "current_id", None) else None
                 if rec:  # its names as the library keeps them: the title need not say who plays it
                     state["current"].update(id=rec["id"], **title_parts(rec["title"], rec["composer"], rec["performer"]))

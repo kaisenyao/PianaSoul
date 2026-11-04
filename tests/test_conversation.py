@@ -128,7 +128,8 @@ class ConversationTests(unittest.TestCase):
         live.queued = [('speech', ''), ('text', '小茗同学，换一首李斯特的爱之梦。')]
         self.assistant.ask.return_value = ''
         self.frames(1)
-        self.assistant.ask.assert_called_once_with(self.chat, '小茗同学，换一首李斯特的爱之梦。', speak=self.c.say)
+        self.assistant.ask.assert_called_once_with(self.chat, '小茗同学，换一首李斯特的爱之梦。', speak=self.c.say,
+                                                   paused_for_her=False)
         self.parts.stt.assert_not_called()
         self.assertTrue(live.closed)
 
@@ -231,7 +232,7 @@ class ConversationTests(unittest.TestCase):
     def test_a_request_goes_to_the_shared_assistant_and_her_answer_is_spoken(self):
         self.assistant.ask.return_value = 'Hello'
         self.c.respond('play moonlight')
-        self.assistant.ask.assert_called_once_with(self.chat, 'play moonlight', speak=self.c.say)
+        self.assistant.ask.assert_called_once_with(self.chat, 'play moonlight', speak=self.c.say, paused_for_her=False)
         self.parts.speaker.stream.assert_called_once_with('Hello')
         self.assertEqual(self.out.events[-1], ('turn_end', False))
         self.c.frame(self.pcm)
@@ -536,7 +537,7 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(self.c.state, 'listening')
 
     def test_a_request_answered_while_hushed_ends_quietly(self):
-        self.assistant.ask.side_effect = lambda chat, text, speak: (self.c.hushed.set(), 'Hello')[1]
+        self.assistant.ask.side_effect = lambda chat, text, speak, paused_for_her: (self.c.hushed.set(), 'Hello')[1]
         self.c.respond('play moonlight')
         self.assertEqual(self.out.spoken, [])
         self.assertEqual(self.c.state, 'waiting')
@@ -580,7 +581,7 @@ class ConversationTests(unittest.TestCase):
     def test_back_while_she_is_still_answering_she_says_it(self):
         self.c.hushed.set()  # the phone went (the screen locked) while she worked on the request
 
-        def ask(chat, text, speak):
+        def ask(chat, text, speak, paused_for_her):
             self.c.hushed.clear()  # a phone is back with her before she has the answer
             return 'Hello'
         self.assistant.ask.side_effect = ask
@@ -601,6 +602,18 @@ class ConversationTests(unittest.TestCase):
         self.c.resume()
         self.c.begin()
         self.assertTrue(self.c.was_playing)
+
+    def test_she_is_told_the_piece_playing_was_paused_for_her_to_listen(self):
+        self.assistant.player = Mock(state='playing', completed=None, lost=None)
+        self.assistant.ask.return_value = ''
+        self.c.begin()
+        self.assistant.player.state = 'paused'
+        self.c.respond('这首先停一下，我想说句话')
+        self.assertTrue(self.assistant.ask.call_args.kwargs['paused_for_her'], 'It plays on after her reply')
+        self.assistant.player.go_on.assert_called_once()
+        self.c.begin()  # paused since: only paused
+        self.c.respond('继续吧')
+        self.assertFalse(self.assistant.ask.call_args.kwargs['paused_for_her'])
 
     def test_mac_speakers_drop_her_own_voice_then_listen_on(self):
         mic = Mock()

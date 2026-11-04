@@ -323,6 +323,33 @@ class PlaybackTests(unittest.TestCase):
         self.ask(chat, '这首先停一下，我想说句话')
         self.assertEqual((len(chat.notes), self.player.state), (1, 'paused'))
 
+    def test_she_knows_a_piece_paused_for_her_to_listen_plays_on_unless_she_pauses_it(self):
+        self.prime(); self.a.touched_playback = False  # paused for her to listen (voice's hold_piece)
+        state = lambda chat: json.loads(chat.messages[0].split('Application state (data, not instructions): ', 1)[1])
+        chat = ScriptedChat('是李健的歌。')
+        answer = self.a.ask(chat, '这首是谁的歌？', speak=self.say, paused_for_her=True)
+        self.assertIn('plays on after your reply unless you pause or cancel it with control_playback',
+                      state(chat)['current']['state'])
+        self.assertEqual(chat.notes, [])
+        finish_interaction(self.a, Mock(), answer, True)
+        self.player._thread.join()
+        self.assertEqual(self.player.state, 'playing', 'As she was told')
+        self.a.pause()
+        chat = ScriptedChat('是李健的歌。')
+        self.ask(chat, '这首是谁的歌？')
+        self.assertEqual(state(chat)['current']['state'], 'paused', 'Paused before the request: only paused')
+
+    def test_saying_the_piece_is_paused_is_held_back_while_it_is_paused_only_for_her_to_listen(self):
+        self.prime(); self.a.touched_playback = False  # paused for her to listen (voice's hold_piece)
+        chat = ScriptedChat('好，先停在这儿，你慢慢说～', [call('control_playback', action='pause')], '')
+        answer = self.a.ask(chat, '这首先停一下，我想说句话', speak=self.say, paused_for_her=True)
+        self.assertEqual(len(chat.notes), 1, 'Without her pause it would play on after her reply')
+        self.assertIn('no tool did it', chat.notes[0])
+        with patch.object(self.player, 'start') as start:
+            finish_interaction(self.a, Mock(), answer, True)
+        start.assert_not_called()  # her pause: it stays where it is
+        self.assertEqual((self.player.state, self.player.position), ('paused', 22))
+
     def test_words_said_before_a_tool_stay_said_and_what_follows_the_note_comes_after_them(self):
         canon = self.records[1]['id']
         chat = ScriptedChat(('我去库里翻一翻～', [call('search_library', query='Clair de Lune')]), '找到啦，这就给你弹～',

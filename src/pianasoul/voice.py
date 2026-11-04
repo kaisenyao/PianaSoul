@@ -1207,7 +1207,7 @@ class Conversation:
         self.status("thinking")
         answer, started = "", time.monotonic()
         try:
-            answer = self.assistant.ask(self.chat, text, speak=self.say)
+            answer = self.assistant.ask(self.chat, text, speak=self.say, paused_for_her=self.was_playing)
             log.debug("answered in %.1f s", time.monotonic() - started)
         except Exception as exc:  # that request is dropped, and she says so; a paused piece plays on
             print(f"  (model error: {exc}; that request is dropped)", flush=True)
