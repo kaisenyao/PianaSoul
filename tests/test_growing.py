@@ -410,7 +410,7 @@ class MadeAsItPlaysTests(unittest.TestCase):
         call = SimpleNamespace(name='transcribe_url', arguments={
             'url': 'https://youtu.be/ggggggggggg', 'piece': '晴天', 'artist': '周杰伦', 'performer': 'A',
             'alternatives': [{'url': 'https://youtu.be/hhhhhhhhhhh', 'performer': 'B'}]})
-        her.ask(Scripted([call], '找到啦，准备好就弹给你～'), '我想听晴天')
+        her.ask(Scripted([call], '找到啦，是 A 弹的《晴天》～'), '我想听晴天')
         [job] = core.downloads.jobs
         steps.next(), steps.next()
         self.assertTrue(self.eventually(lambda: job.recording and core.playback.current_id == job.recording))

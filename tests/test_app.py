@@ -65,13 +65,18 @@ def piece_made(downloads: Downloads, source: str, **details) -> dict:
 
 
 class Scripted:
-    """A chat model that answers from a script."""
+    """A chat model that answers from a script: each step its words, its tool calls, or both (words, calls), whose
+    words go to before_tool as it starts on its first call, as a streamed model's do."""
     def __init__(self, *steps):
         self.steps, self.loaded, self.resets = iter(steps), None, 0
+        self.before_tool = None
 
     def send_user(self, text):
         step = next(self.steps, '好。')
-        return SimpleNamespace(text=step if isinstance(step, str) else '', tool_calls=[] if isinstance(step, str) else step)
+        words, calls = step if isinstance(step, tuple) else (step, []) if isinstance(step, str) else ('', step)
+        if words and calls and self.before_tool:
+            self.before_tool(words, calls[0].name)
+        return SimpleNamespace(text=words, tool_calls=calls)
 
     send_tool_results = lambda self, results: self.send_user('')
 
@@ -896,13 +901,17 @@ class AssistantTests(Base):
         for text in [*LINES['ready']['en'], *LINES['playlist_ready']['en']]:
             self.assertIn("didn't want to interrupt", text)
 
-    def test_her_instructions_ask_her_to_wait_once_speak_as_herself_and_give_both_languages(self):
+    def test_her_instructions_never_ask_to_wait_speak_as_herself_and_give_both_languages(self):
         from pianasoul import voice
         from pianasoul.chat import INSTRUCTIONS, instructions
         told = instructions(True) + voice.VOICE_NOTE
-        self.assertIn('the only sentence of yours that does', told)
-        self.assertIn('Only the sentence before search_online asks the listener to wait', voice.VOICE_NOTE)
-        self.assertNotIn('takes a moment', voice.VOICE_NOTE)
+        flat = ' '.join(told.split())
+        self.assertIn('It neither asks the listener to wait nor says how long it takes, and it is your only sentence '
+                      'before your news', flat)
+        self.assertIn('It never asks the listener to wait or says how long it takes', flat)
+        self.assertIn("Spoken, it is said right before the piece's first note", flat, 'Her news, as it is said')
+        for waiting in ('稍等', '准备好就', 'moment', "as soon as it's ready"):
+            self.assertNotIn(waiting, told)
         for text in LINES['searching']['zh']:
             self.assertNotIn(text.split('，')[-1], told, "Her line before looking online does not end as the model's")
         for text in LINES['searching']['en']:
@@ -1138,6 +1147,89 @@ class PreparedTests(Base):
         time.sleep(0.1)
         self.assertEqual(len(self.kept), told, 'Nothing more to say')
         self.assertIn(rec_id, self.a.prepared)
+
+    def ask_aloud(self, *steps, text='弹一首晴天'):
+        """A spoken request: what she says as she goes is kept in said; her reply, which voice then says, returned."""
+        self.said = []
+        return self.a.ask(Scripted(*steps), text, speak=lambda words, meanwhile=False: self.said.append(words))
+
+    def plays_in(self, seconds, piece='qingtian', title='周杰伦 - 晴天 (Jason Piano)'):
+        """Enough of the piece there to play as it is made (playing), this long after she sends it to be prepared."""
+        def then():
+            self.eventually(lambda: f'https://youtu.be/{piece}' in self.queue.jobs)
+            time.sleep(seconds)
+            self.playing(piece, title)
+        thread = threading.Thread(target=then)
+        thread.start()
+        self.addCleanup(thread.join)
+
+    def test_spoken_a_piece_found_online_has_two_sentences_of_hers_and_her_news_comes_right_before_its_first_note(self):
+        news = '找到啦，是 Jason Piano 弹的《晴天》～'
+        self.plays_in(0.3)
+        started = time.monotonic()
+        with patch.object(self.a, 'search_online', return_value={'results': []}):
+            answer = self.ask_aloud(('我找找《晴天》～', [self.call('search_library', query='Sunny Day')]),
+                                    ('好呀，我去找一版《晴天》～', [self.call('search_online', query='周杰伦 晴天 piano')]),
+                                    (news, [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')]),
+                                    '')
+        self.assertGreaterEqual(time.monotonic() - started, 0.3, 'Her news waits for the piece')
+        self.assertEqual(self.said, ['我找找《晴天》～'], 'One sentence before her news: the first she said')
+        self.assertEqual(answer, news, 'Her reply, which voice says right before the first note')
+        rec_id = self.queue.jobs['https://youtu.be/qingtian'].recording
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+        self.assertEqual(self.p.current_id, rec_id, 'It follows her news at once')
+        self.assertEqual([m['text'] for m in self.kept if m['role'] == 'assistant'], ['我找找《晴天》～', news],
+                         'Her news is its line: no other comes')
+        self.made('qingtian', rec_id)
+
+    def test_spoken_her_news_is_said_once_the_piece_is_a_while_away_and_nothing_follows_when_it_starts(self):
+        from pianasoul.voice import finish_interaction
+        news = '找到啦，是 Jason Piano 弹的《晴天》～'
+        self.p.select(self.ids[1], [self.ids[1]], {'kind': 'library'})
+        self.p.pause()  # paused while she listens (voice's hold_piece)
+        with patch.object(chat_module, 'NEWS_WAIT_S', 0.2):
+            started = time.monotonic()
+            answer = self.ask_aloud([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')], news)
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual((answer, self.p.current_id), (news, self.ids[1]), 'Said without the piece, not there yet')
+        self.assertTrue(self.a.piece_to_start(), 'Voice waits for her name after it, so that it starts once it can')
+        speaker = Mock()
+        finish_interaction(self.a, speaker, answer, True)
+        speaker.say.assert_called_once_with(news)
+        self.assertEqual(self.p.state, 'paused', 'The piece paused for her does not play on before the new one')
+        rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+        self.assertEqual((self.p.current_id, self.p.state), (rec_id, 'playing'))
+        self.assertEqual([m['text'] for m in self.kept if m['role'] == 'assistant'], [news], 'Nothing more is said')
+        self.assertFalse(self.a.piece_to_start())
+        self.made('qingtian', rec_id)
+
+    def test_typed_her_news_shows_at_once_and_the_piece_has_her_line_as_it_starts(self):
+        news = '找到啦，是 Jason Piano 弹的《晴天》～'
+        with patch.object(chat_module, 'NEWS_WAIT_S', 30), patch.object(chat_module, 'TYPED_REPLY_S', 0):
+            started = time.monotonic()
+            self.a.ask(Scripted([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')], news),
+                       '弹一首晴天', typed=True)
+        self.assertLess(time.monotonic() - started, 2, 'Nothing waits')
+        self.assertEqual(self.kept[-1]['text'], news)
+        rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+        self.assertEqual(self.p.current_id, rec_id)
+        self.assertIn(self.kept[-2]['text'], every('playing', True, '晴天'), 'As before: her line, then its card')
+        self.made('qingtian', rec_id)
+
+    def test_a_piece_she_prepares_is_to_start_by_itself_only_while_nothing_has_changed(self):
+        self.prepare('qingtian')
+        self.assertTrue(self.a.piece_to_start())
+        self.a.taps += 1
+        self.assertFalse(self.a.piece_to_start(), 'The phone used since: it is only said to be ready')
+        self.fresh()
+        self.prepare('qingtian')
+        self.a.ask(Scripted([self.call('play_recording', id=self.ids[1])], '好。'), '先弹搁浅')
+        self.assertFalse(self.a.piece_to_start(), 'Another piece chosen since')
+        self.fresh()
+        self.play_and_prepare()
+        self.assertFalse(self.a.piece_to_start(), 'It follows the piece its request plays')
 
     def test_one_that_played_as_it_was_made_and_was_not_made_after_all_is_said(self):
         self.prepare('qingtian')

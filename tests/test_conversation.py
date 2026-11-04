@@ -83,7 +83,7 @@ class ConversationTests(unittest.TestCase):
         self.parts.wake.heard.return_value = None
         self.parts.stt.listen.return_value = None  # heard whole, unless a test hears it as it is said (FakeLive)
         self.parts.speaker.stream.side_effect = lambda text: iter([np.zeros(240, dtype=np.int16)])
-        self.assistant = Mock(player=None, touched_playback=False, taps=0)
+        self.assistant = Mock(player=None, touched_playback=False, taps=0, **{'piece_to_start.return_value': False})
         self.chat = Mock()
         self.c = voice.Conversation(self.assistant, self.chat, self.parts, self.out)
         self.pcm = np.full(voice.FRAME, 1200, dtype='<i2')
@@ -277,6 +277,14 @@ class ConversationTests(unittest.TestCase):
         self.frames(30, speaking=True)  # the piano, taken for speech
         self.assertEqual(self.c.state, 'waiting')
         self.parts.stt.assert_not_called()
+
+    def test_with_a_piece_of_hers_about_to_start_only_her_name_is_listened_for(self):
+        # Her news of a piece she found, and it follows: listening on, she would keep it waiting (may_play).
+        self.assistant.ask.return_value = '找到啦，是 Jason Piano 弹的《晴天》～'
+        self.assistant.piece_to_start.return_value = True
+        self.c.respond('弹晴天')
+        self.parts.speaker.stream.assert_called_once_with('找到啦，是 Jason Piano 弹的《晴天》～')
+        self.assertEqual(self.out.events[-1], ('turn_end', True), 'No name-free follow-up')
 
     def test_followup_ends_after_its_window(self):
         self.c.resume()
@@ -551,7 +559,7 @@ class ConversationTests(unittest.TestCase):
             self.out.events.append(('heard',))
         self.out.speak = speak
         started = time.monotonic()
-        self.c.say('我去找找看，稍等我一下～', meanwhile=True)
+        self.c.say('好呀，我去找一版《红豆》～', meanwhile=True)
         self.assertLess(time.monotonic() - started, 0.5, 'Back at once, to do what she said')
         self.assertNotIn(('heard',), self.out.events)
         heard.set()

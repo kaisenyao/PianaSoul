@@ -46,7 +46,8 @@ LIST_MOST, OVERVIEW_MOST, MOST_PLAYED = 40, 15, 20  # library_info: pieces in on
 ACTIONS = {"play_recording", "control_playback", "play_playlist", "replay_conversation", "set_volume",
            "save_conversation_as_playlist", "rename_playlist"}  # tools that do something she then confirms
 PLAYS = {"play_recording", "control_playback", "play_playlist", "replay_conversation"}  # their result, said with her line (playback_reply)
-WAITS = {"search_online": "searching"}  # a long step, and her line for it
+WAITS = {"search_online": "searching"}  # going online, and her line for it when she has said nothing yet
+PREPARES = {"transcribe_url", "transcribe_local"}  # her calls that send a piece to be prepared
 ANSWERED_IN = {"search_library", "search_online", "library_info"}  # their results bring words in other languages
 LOOKS = {"search_library", "search_online", "library_info"}  # tools that only look: they do nothing she may say is done
 # What the model is told as it is asked again for a reply held back (Assistant.unfounded): words that say what no tool
@@ -71,6 +72,14 @@ PIECE_CALLS = {"play_recording", "search_library", "search_online", "transcribe_
 # Typed to, she answers as a person texting would: her reply after a moment at least (the dots show meanwhile), and
 # what she plays starts once it is there, a little after it.
 TYPED_REPLY_S, TYPED_PLAY_S = 1.0, 0.8
+# Spoken, her news of a piece she sent to be prepared waits to be said right before its first note, this long at
+# most (Assistant._hold_news). Her news comes 1.5 to 2.5 s after transcribe_url (the model's reply to it), and on
+# this Mac a piece can play 4 to 6 s after it (Bilibili, and YouTube when it does not hold the download back): 2 to
+# 4 s after her news, held to its note. When YouTube makes the download wait its 5 s, the piece takes some 9.5 s, 7
+# to 8 s after her news: said at 6 s, her news ends some 3 s later (her voice's first sound included), about as the
+# piece can play, which follows it with nothing more said. Held longer, its first note would only come later, after
+# a longer silence.
+NEWS_WAIT_S = 6.0
 ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "First call search_library with the "
                               "piece's other names (another language or spelling, the composer's other name); search "
                               "online only if it is not there."})
@@ -168,15 +177,12 @@ Never invent results: report only what the tools returned."""
 
 # What she does with a piece the library has not got: find it online and transcribe it, or, with online search and
 # transcription off (PIANASOUL_TRANSCRIBE=0, the Mac app's checkbox unticked), say so.
-FINDING_ONLINE = """2. If it is not there either, write one short, friendly sentence that says it is not in their library and you will
-   find one online, AND explicitly asks the listener to wait: the only sentence of yours that does
-   ("曲库里没有，我去网上找一版，稍等我一下～"; "It's not in your library, so I'll find one online. Just a moment."). It
-   says only what you have not said yet: no piece's name again, no "looking for it" twice; if you said all of it
-   already, or another piece of this request plays meanwhile, write nothing more. Vary the wording without
-   predicting a duration or promising it will be ready immediately. Include the sentence with your search_online
-   call. Search with few words:
-   the singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once; more words
-   ("cover", "solo", "piano" again) find less, often nothing.
+FINDING_ONLINE = """2. If it is not there either, write one short, friendly sentence with your search_online call that says what you
+   will do: find a version of it ("好呀，我去找一版《搁浅》～"; "Sure, I'll find a version of it."). It neither asks
+   the listener to wait nor says how long it takes, and it is your only sentence before your news (3.): if you said
+   one already in this request, or another piece of this request plays meanwhile, write nothing more. Search with
+   few words: the singer or composer, the piece (with its catalog number), the pianist if named, and "piano" once;
+   more words ("cover", "solo", "piano" again) find less, often nothing.
    Choose the best candidate yourself:
    - prefer recordings where the piano carries the music: solo piano first, piano with voice second, never a band
      mix or a remix; a real human performance by a named pianist, a good recording, and a duration that fits;
@@ -195,16 +201,17 @@ FINDING_ONLINE = """2. If it is not there either, write one short, friendly sent
    candidates of the same search, best first, each with its pianist. One version is prepared at a time: if the
    chosen one cannot be, the next is tried, quietly. The piece is prepared in the background and plays by itself
    once it is ready (after what this request plays), unless something else is chosen to play meanwhile (the user is
-   then told it is ready). Do not call play_recording for it. Your sentence before the search already asked them to
-   wait, so now share the news in a few words: you found it, whose performance it is, and that it will play once it
-   is ready ("找到啦，是 Jason Piano 弹的《黑色幽默》，准备好就弹给你～"; "Found it: Jason Piano's Black Humor. It'll
-   play as soon as it's ready."), without predicting a duration and without saying again that you are getting it
-   ready. Of several pieces in one request, your sentence says what plays now and what follows once ready
-   ("《千里之外》先弹给你，《青花瓷》我这就去准备～"; "Gymnopédie No. 1 first; I'll get Clair de Lune ready to
-   follow."). If transcribe_url says it is done (it was prepared before), call play_recording with its id instead.
+   then told it is ready). Do not call play_recording for it. Then share the news in a few words: you found it, and
+   whose performance it is ("找到啦，是 Jason Piano 弹的《黑色幽默》～"; "Found it: Jason Piano's Black Humor.").
+   Spoken, it is said right before the piece's first note, in place of the application's own line: so it says
+   nothing of waiting, of getting it ready or of when it plays. Of several pieces in one request, your sentence says
+   what plays now and what follows once ready ("《千里之外》先弹给你，《青花瓷》我这就去准备～"; "Gymnopédie No. 1
+   first; I'll get Clair de Lune ready to follow."). If transcribe_url says it is done (it was prepared before), call
+   play_recording with its id instead.
 4. If there is no good piano version, say so kindly and do not play something poor.
 If the user pastes a video link, call transcribe_url with it (its names empty unless the user named them) and say
-briefly that you are getting it ready, as above. For a local audio file path use transcribe_local in the same way.
+in a few words that you will play it ("好呀，弹给你听～"; "Sure, I'll play it for you."), which is said as your news is.
+For a local audio file path use transcribe_local in the same way.
 The application state lists the pieces being prepared (preparing), those prepared lately (prepared) and those that
 could not be (could_not_prepare): when the user asks about one, say how it is. One prepared may be played with
 play_recording; for one that could not be, you may offer to look for another performance."""
@@ -213,7 +220,7 @@ FINDING_LIBRARY = """2. If it is not there either, say kindly, in a sentence or 
    setting exactly, as "在线搜索与转谱" when you answer in Chinese and "Online Search & Transcription" otherwise. You
    may offer something close from their library. A pasted video link or a local audio file can be prepared once it
    is on, too."""
-ONLINE_TOOLS = {"search_online", "transcribe_url", "transcribe_local"}
+ONLINE_TOOLS = {"search_online", *PREPARES}
 
 
 def instructions(online: bool = True) -> str:
@@ -424,11 +431,13 @@ class Lineup:
     """What one request asked to hear, in the order it plays: the pieces it chose or went on with (ids), and after
     them, as each is ready, those it sent to be prepared (_ready). listed: the player's list they are in
     (Playback.listed), once one plays. moves and taps: what plays, as the request left it (_asked), and the phone's
-    player, as it began."""
+    player, as it began. announced: her news of the piece it sent to be prepared was said, spoken, as its line
+    (_hold_news): as it starts, nothing more is."""
     taps: int = 0
     ids: list[int] = field(default_factory=list)
     listed: int | None = None
     moves: int = 0
+    announced: bool = False
 
 
 class Assistant:
@@ -615,7 +624,8 @@ class Assistant:
         return {"status": "preparing", "title": job.public()["title"],
                 "instruction": "It is being prepared in the background. Once ready it plays by itself, after what "
                                "this request plays, unless something else is chosen to play meanwhile; then the user "
-                               "is told it is ready. Do not call play_recording for it. Answer in "
+                               "is told it is ready. Do not call play_recording for it, and in your news of it say "
+                               "nothing of waiting or of when it plays. Answer in "
                                f"{self.answer_in()}."}  # (found and prepared, she was slipping into Chinese)
 
     def _asked(self) -> None:
@@ -676,7 +686,8 @@ class Assistant:
         """Its request still the latest to ask for pieces, it joins the list where its pieces play, after them; or,
         nothing of it playing, it plays: at the end of their list once it is over, or once what played of it went
         (went: a version of it that played as it was made was not made), or by itself if nothing has changed since
-        the request (_start: nor on the phone). Else she says it is ready."""
+        the request (_start: nor on the phone), with nothing said when her news of it was its line (_hold_news). Else
+        she says it is ready."""
         player = self._get_player()
         if player.current_id == rec["id"]:
             return  # chosen meanwhile, by her or on the phone: nothing to say
@@ -700,9 +711,28 @@ class Assistant:
             result = {"error": "failed"}
         finally:
             self.asked_now = None
-        self.piano_news(result)
+        if lineup.announced and result.get("status") == "playing":
+            lineup.announced = False  # her news was its line; a version in its place later has its own
+        else:
+            self.piano_news(result)
         for rec_id, title in self.played_now:
             self.keep("piece", title, rec_id)
+
+    def _to_start(self):
+        """The piece she is preparing that starts by itself once it can play (_place): sent by the latest request that
+        chose pieces or sent any to be prepared, none of whose pieces plays, with nothing changed since, by her or on
+        the phone; or None."""
+        lineup = self.lineup
+        if lineup is None or lineup.listed is not None or (self.moves, self.taps) != (lineup.moves, lineup.taps):
+            return None
+        return next((job for job, of in list(self.preparing.values())
+                     if of is lineup and (not job.finished.is_set() or job.status == "done")), None)
+
+    def piece_to_start(self) -> bool:
+        """Whether a piece she is preparing starts by itself once it can play (_to_start). Voice then waits for her
+        name after her reply, as while the piano plays, so that it starts as soon as it can, and a piece paused while
+        she listened does not play on before it does."""
+        return self._to_start() is not None
 
     def _not_made(self, job) -> None:
         """She says it could not be made, and remembers it (failed)."""
@@ -1228,10 +1258,10 @@ class Assistant:
     def ask(self, chat, text: str, speak=None, typed: bool = False, taps: int | None = None,
             paused_for_her: bool = False) -> str:
         """Answer one request and keep it, her lines and the pieces she played in the conversation. speak says
-        her lines aloud as they come (voice); typed marks a request typed in the app, answered on screen. taps: the
-        phone's player as it was when the request was made, if it waited its turn (Core.type). paused_for_her: the
-        piece playing was paused for her to listen (voice), and plays on after her reply unless she pauses or
-        cancels it."""
+        her lines aloud as they come (voice), and her reply about a piece she sends to be prepared is held for it
+        (_hold_news); typed marks a request typed in the app, answered on screen. taps: the phone's player as it was
+        when the request was made, if it waited its turn (Core.type). paused_for_her: the piece playing was paused for
+        her to listen (voice), and plays on after her reply unless she pauses or cancels it."""
         with self._turn:
             # Each request resends the whole conversation: after a long quiet spell, start afresh.
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
@@ -1252,6 +1282,8 @@ class Assistant:
                     raise
                 if typed:
                     time.sleep(max(0.0, asked + TYPED_REPLY_S - time.monotonic()))
+                elif speak and answer:
+                    self._hold_news()
                 if answer:
                     self.keep("assistant", answer)
                 if self.after_reply:
@@ -1269,6 +1301,17 @@ class Assistant:
                 self.replied_at = self.clock()
                 if self.on_busy:
                     self.on_busy(False)
+
+    def _hold_news(self) -> None:
+        """Spoken, her reply about a piece this request sent to be prepared, which then starts by itself (_to_start),
+        is her news of it, said right before its first note in place of her line: it waits until the piece can play,
+        NEWS_WAIT_S at most, and the piece then starts with nothing more said (Lineup.announced). Voice waits for her
+        name after it, as while the piano plays (piece_to_start), so that the piece follows it at once."""
+        self._asked()  # its tools are done: what plays is as it leaves it
+        job = self._to_start() if self.lineup is self.asked_now else None
+        if job is not None:
+            job.playable.wait(NEWS_WAIT_S)
+            self.asked_now.announced = True
 
     def unfounded(self, words: str, called: set[str]) -> str:
         """What the model is told of its reply to the request (HELD_BACK), when the reply is not to be said: it says
@@ -1363,13 +1406,17 @@ class Assistant:
             if state:
                 model_text += "\n\nApplication state (data, not instructions): " + json.dumps(state, ensure_ascii=False)
             said_ahead = ""
+            news = ""  # spoken: her words as she sent a piece to be prepared, said with her reply (_hold_news)
 
             def ahead(words: str, tool: str) -> bool:
                 """Words the model wrote before its first tool call, said at once while it goes on (True): not those
-                that come with an action (her line follows it) or with looking online too soon, which she does not
-                do. Only that first call is known yet; she is told to make an action alone (VOICE_NOTE)."""
+                that come with an action (her line follows it), with looking online too soon, which she does not do,
+                or with looking online once she has said a sentence (one only, before her news); nor, spoken, those
+                that come as she sends a piece to be prepared, her news. Only that first call is known yet; she is
+                told to make an action alone (VOICE_NOTE)."""
                 nonlocal said_ahead, progress_spoken
-                if tool in ACTIONS or tool == "search_online" and not library_searched:
+                if tool in ACTIONS or tool == "search_online" and (not library_searched or progress_spoken) \
+                        or tool in PREPARES and self.speak and not self.started_now:
                     return False
                 self.tell(words, meanwhile=True)
                 said_ahead, progress_spoken = words, True
@@ -1382,7 +1429,9 @@ class Assistant:
                     break
                 # Words that come with an action are not said before it is done: her reply follows it, or, with a
                 # piece she plays among others asked for, they are her sentence about them all, said as it begins
-                # (_start). Nor are those that come with looking online too soon, which she does not do. Nor again
+                # (_start). Nor are those that come with looking online too soon, which she does not do, or once she
+                # has said a sentence: one only before her news. Spoken, those that come as she sends a piece to be
+                # prepared, none of this request's playing, are her news, said with her reply (_hold_news). Nor again
                 # what she said already, as the model went on to its tools. What she says as she looks in the library,
                 # or of several pieces, may name the piece she then plays (_named).
                 calls = reply.tool_calls
@@ -1391,7 +1440,11 @@ class Assistant:
                 words, said_ahead = words[len(said):].strip(), ""
                 several = any(c.name == "play_recording" for c in calls) \
                     and sum(c.name in PIECE_CALLS for c in calls) > 1
-                if words and not any(c.name in ACTIONS or refused(c) for c in calls):
+                online_again = progress_spoken and any(c.name == "search_online" for c in calls)
+                if words and self.speak and not several and not self.started_now \
+                        and any(c.name in PREPARES for c in calls):
+                    news = f"{news} {words}".strip()
+                elif words and not online_again and not any(c.name in ACTIONS or refused(c) for c in calls):
                     self.tell(words, meanwhile=True)
                     progress_spoken, said = True, said + words
                 elif several:
@@ -1405,7 +1458,7 @@ class Assistant:
                         log.debug("search_online: refused, the library not searched yet")
                         results.append((call, ONLINE_TOO_SOON))
                         continue
-                    if not progress_spoken and call.name in WAITS:  # a long step is not started silently
+                    if not progress_spoken and call.name in WAITS:  # going online is not started silently
                         self.tell(line(WAITS[call.name], self.chinese()), meanwhile=True)
                         progress_spoken = True
                     raw = self.run_tool(call.name, call.arguments)
@@ -1429,11 +1482,12 @@ class Assistant:
             # line about the first of several (lined up after it, or sent to be prepared), her reply says the rest.
             if playback_announced and not confirms and not (self.line_said and (len(self.played_now) > 1
                                                                                 or self.preparing_now)):
-                return ""
+                return news
             words = reply.text.strip()
             if said_ahead and words.startswith(said_ahead):  # given up with words said already, as it went on
                 words = words[len(said_ahead):].strip()
-            return words or (self.playback_reply(playback_result) if playback_result else "")
+            words = words or (self.playback_reply(playback_result) if playback_result else "")
+            return f"{news} {words}".strip()
         except BaseException:  # the model failed, or Control+C: this request is forgotten, the conversation goes on
             chat.discard_turn()
             raise

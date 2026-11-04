@@ -257,7 +257,7 @@ class PlaybackTests(unittest.TestCase):
         self.assertIn("own words only", matches['matched_on'], 'Said to be only for the words used')
 
     def test_she_searches_the_library_under_other_names_before_looking_online(self):
-        line = '我去网上找找，稍等我一下～'
+        line = '好呀，我去网上找一版《夜曲》～'
         chat = ScriptedChat((line, [call('search_online', query='Chopin Nocturne piano')]),
                             [call('search_library', query='Chopin Nocturne')],
                             (line, [call('search_online', query='Chopin Nocturne piano')]), '没找到呢。')
@@ -271,12 +271,12 @@ class PlaybackTests(unittest.TestCase):
     def test_a_line_about_what_she_will_do_is_said_while_she_does_it(self):
         said = []
         chat = ScriptedChat([call('search_library', query='Red Bean')],
-                            ('我去找找看，稍等我一下～', [call('search_online', query='红豆 piano')]), '没找到呢。')
+                            ('好呀，我去找一版《红豆》～', [call('search_online', query='红豆 piano')]), '没找到呢。')
         def run_tool(name, arguments):
             return '{}'
         with patch.object(self.a, 'run_tool', side_effect=run_tool):
             self.a.ask(chat, '我想听红豆', speak=lambda text, meanwhile=False: said.append((text, meanwhile)))
-        self.assertEqual(said, [('我去找找看，稍等我一下～', True)])
+        self.assertEqual(said, [('好呀，我去找一版《红豆》～', True)])
 
     def test_words_that_say_what_no_tool_did_are_held_back_and_she_is_asked_once_more(self):
         self.prime()

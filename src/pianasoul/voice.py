@@ -132,15 +132,16 @@ library_info), begin that response with one short sentence in the listener's lan
 calls in the same response: it is said at once while you look, and it comes instead of "saying nothing yet" above.
 It answers what they just said, naming the piece or the thing as they said it, and says what you are about to do,
 never that it is done, worked or failed. No question and no empty filler. Keep it short (about twelve Chinese
-characters, or eight English words). Only the sentence before search_online asks the listener to wait; before
-search_library or library_info, it says only what you are looking for. When library_matches already has the piece,
-call play_recording at once with no words before it, and for pause, resume, retry, restart, next, previous or cancel
-call control_playback at once. Spoken, a piece that begins to play (play_recording, play_playlist, replay_conversation;
-resume, retry, restart, next, previous) is introduced by the application's own line before it sounds, so add nothing
-about it; pause and cancel, you confirm yourself. Of several pieces in one request, write your one sentence about
-them all in the response that calls play_recording for the first: it is said before the first sounds, in place of
-that line, and needs nothing after it. A short request alone (暂停, 下一首, 大声一点) the application does
-and answers without you. After the tools, say only what is new, and never a piece's name twice."""
+characters, or eight English words). It never asks the listener to wait or says how long it takes: before
+search_library or library_info, it says only what you are looking for; before search_online, what you will do, and
+only if you have said nothing yet. When library_matches already has the piece, call play_recording at once with no
+words before it, and for pause, resume, retry, restart, next, previous or cancel call control_playback at once.
+Spoken, a piece that begins to play (play_recording, play_playlist, replay_conversation; resume, retry, restart, next,
+previous) is introduced by the application's own line before it sounds, so add nothing about it; pause and cancel,
+you confirm yourself. Of several pieces in one request, write your one sentence about them all in the response that
+calls play_recording for the first: it is said before the first sounds, in place of that line, and needs nothing
+after it. A short request alone (暂停, 下一首, 大声一点) the application does and answers without you. After the tools,
+say only what is new, and never a piece's name twice."""
 
 
 def speakable(text: str) -> str:
@@ -821,7 +822,8 @@ def finished_remark(player, chinese: bool, since: float = 0.0) -> str | None:
 
 def finish_interaction(assistant, speaker, answer: str, was_playing: bool, taps_held: int | None = None) -> None:
     """Check automatic resumption before speaking a final reply, so a fault is reported once. taps_held: the phone's
-    player as it was when the piece was paused for her to listen; used since, what it did stands."""
+    player as it was when the piece was paused for her to listen; used since, what it did stands. Nor does it play on
+    when a piece she is preparing is to start by itself, in its place (Assistant.piece_to_start)."""
     def say(text):
         if text:
             print(f"assistant> {text}\n", flush=True)
@@ -829,7 +831,8 @@ def finish_interaction(assistant, speaker, answer: str, was_playing: bool, taps_
 
     player = assistant.player
     if was_playing and player is not None and player.state == "paused":
-        if assistant.touched_playback or taps_held is not None and assistant.taps != taps_held:  # she or the phone
+        if assistant.touched_playback or taps_held is not None and assistant.taps != taps_held \
+                or assistant.piece_to_start():  # she, the phone, or a piece of hers about to take its place
             say(answer)
             print(f"  ⏸ {player.current[1]}  {clock(player.position)}", flush=True)
             return
@@ -999,8 +1002,9 @@ class Conversation:
             self.assistant.player.lost = None
 
     def end_turn(self, sleep: bool | None = None) -> None:
-        """Her reply is out. Listen on without her name, but not while the piano plays: its sound would be
-        taken for speech."""
+        """Her reply is out. Listen on without her name, but not while the piano plays, nor when a piece she is
+        preparing is to start by itself (Assistant.piece_to_start), which would wait while she listens (status): its
+        sound would be taken for speech."""
         self.said()
         if self.hushed.is_set():
             log.debug("her turn is over, no one is with her: she waits for her name")
@@ -1008,7 +1012,7 @@ class Conversation:
             return
         if sleep is None:
             player = self.assistant.player
-            sleep = player is not None and player.state == "playing"
+            sleep = player is not None and player.state == "playing" or self.assistant.piece_to_start()
         log.debug("her turn is over: %s", "she waits for her name" if sleep else "she listens on, without it")
         if self.state != "speaking":
             self.status("speaking")

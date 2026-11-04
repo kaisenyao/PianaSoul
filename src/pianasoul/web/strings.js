@@ -81,7 +81,7 @@ const zh = {
       ['第一句话', '轻点中间的球，允许使用麦克风，然后直接说“弹一下晴天”。'],
     ]},
     {id: 'talk', icon: 'mic', title: '和小茗同学说话', items: [
-      ['开始和停止', '轻点球使其亮起，第一句直接说，不用叫她（钢琴正在弹时，曲目会先暂停，和叫她时一样）；之后说新的请求，要先叫“小茗同学”（她回答完6秒内、钢琴没在弹时，可以直接接着说）。球亮着时屏幕不会自动熄灭；再轻点一下，球变灰，她不听也不说，屏幕照常熄灭，钢琴照常弹。离开球的界面时她也安静，回来后接着听。'],
+      ['开始和停止', '轻点球使其亮起，第一句直接说，不用叫她（钢琴正在弹时，曲目会先暂停，和叫她时一样）；之后说新的请求，要先叫“小茗同学”（她回答完6秒内，钢琴没在弹、也没有曲目马上要弹时，可以直接接着说）。球亮着时屏幕不会自动熄灭；再轻点一下，球变灰，她不听也不说，屏幕照常熄灭，钢琴照常弹。离开球的界面时她也安静，回来后接着听。'],
       ['她的名字', '叫“小茗同学”或者“Hey Jasmine”都可以。'],
       ['能说什么', '弹哪首或哪几首（按说的顺序弹）、放哪个歌单、暂停、继续、从头弹、下一首、上一首、大声一点、小声一点、换个版本、这是谁弹的；也可以让她把当前对话中的曲目按顺序从头再弹一遍，或整理成歌单。'],
       ['她弹哪个版本', '指定了演奏者时弹他的版本；曲库中有多个版本时，先弹收藏的，其次是最近弹过的，然后是最新添加的。'],
@@ -259,7 +259,7 @@ const en = {
       ['First words', 'Tap the orb, allow the microphone, and just say “play Clair de Lune”.'],
     ]},
     {id: 'talk', icon: 'mic', title: 'Talking to Jasmine', items: [
-      ['Start and stop', 'Tap the orb and say what you’d like: the first time, you don’t need her name (a piece that’s playing pauses, as it does for her name). After that, say “Hey Jasmine” before a new request (within six seconds of her reply, while the piano isn’t playing, you can just go on). The screen stays on while the orb is in color; tap it again and it turns gray: she isn’t listening or speaking, the screen sleeps as usual, and the piano plays on. Away from the orb she keeps quiet too, and listens again when you come back.'],
+      ['Start and stop', 'Tap the orb and say what you’d like: the first time, you don’t need her name (a piece that’s playing pauses, as it does for her name). After that, say “Hey Jasmine” before a new request (within six seconds of her reply, while the piano isn’t playing or about to, you can just go on). The screen stays on while the orb is in color; tap it again and it turns gray: she isn’t listening or speaking, the screen sleeps as usual, and the piano plays on. Away from the orb she keeps quiet too, and listens again when you come back.'],
       ['Her name', 'Say “Hey Jasmine” or “小茗同学”.'],
       ['What to say', 'A piece or a few in a row, or a playlist of yours to play, pause, continue, from the beginning, next or previous, louder or softer, another version, who is playing this. She can also play the current conversation’s pieces again, in order from the first, or make them into a playlist.'],
       ['Which version', 'The pianist you name, if you name one; of several versions in the library, a favorite first, then the one played last, then the newest.'],
