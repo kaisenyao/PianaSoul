@@ -911,13 +911,15 @@ class Conversation:
         self.news_is_old()
 
     def status(self, state: str) -> None:
-        self.state = state
+        was_with_you, self.state = self.state != "waiting", state
         # A piece she prepared starts only while she waits for her name: listening on, its sound would be taken for
         # speech (end_turn), and it would cut into what she is saying or hearing.
         if state == "waiting":
             self.assistant.may_play.set()
         else:
             self.assistant.may_play.clear()
+        if (state != "waiting") != was_with_you:  # the service is busy from her name until she waits for it again
+            self.assistant.with_you(state != "waiting")
         self.out.status(state)
 
     def speak(self, pieces) -> None:

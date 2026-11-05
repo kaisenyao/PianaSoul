@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import threading
 import time
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 import urllib.error
 import wave
 
@@ -256,6 +256,19 @@ class ConversationTests(unittest.TestCase):
         self.assertTrue(may_play.is_set(), 'She waits for her name again')
         self.c.piano_unavailable()  # a remark of hers, and the phone has yet to say it was heard
         self.assertFalse(may_play.is_set())
+
+    def test_the_service_is_busy_from_her_name_until_she_waits_for_it_again(self):
+        # Listening, answering, speaking and listening on for more: a restart meanwhile would cut her off.
+        self.frames(1, speaking=True, name='小明同学')
+        self.assistant.with_you.assert_called_once_with(True)
+        self.assistant.ask.return_value = 'Hello'
+        self.c.respond('play moonlight')
+        self.c.resume()  # her reply heard: her orb lit, she listens on without her name
+        self.frames(2, speaking=True)  # and is asked again
+        self.assertEqual(self.c.state, 'listening')
+        self.assistant.with_you.assert_called_once_with(True)
+        self.c.sleep()
+        self.assertEqual(self.assistant.with_you.call_args_list, [call(True), call(False)])
 
     def test_nothing_to_answer_stays_silent_and_waits_for_her_name(self):
         for heard in ('', '嗯。'):

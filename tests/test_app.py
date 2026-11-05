@@ -1076,6 +1076,15 @@ class AssistantTests(Base):
         self.a.ask(Scripted(), '你好')
         self.assertEqual(busy, [True, False])
 
+    def test_busy_with_you_in_voice_through_her_answer_and_after_it(self):
+        busy = []
+        self.a.on_busy = busy.append
+        self.a.with_you(True)  # her name heard
+        self.a.ask(Scripted(), '你好')
+        self.assertEqual(busy, [True, True, True], 'Her reply ready, she is still with you: speaking, listening on')
+        self.a.with_you(False)  # she waits for her name again
+        self.assertEqual(busy[-1], False)
+
     def test_the_phone_is_not_kept_waiting_while_she_speaks(self):
         waited = []
 

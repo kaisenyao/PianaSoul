@@ -48,7 +48,7 @@ class Core:
         self.playback.growing = self.downloads.growing  # a piece plays as it is made
         self.downloads.unmade.append(self._unmade)
         self.listeners: list = []  # called with each event, on whichever thread it happens
-        self.busy = None  # the conversation she is answering in, while she answers
+        self.busy = None  # the conversation she is busy in: answering a request, or with you in voice (with_you)
         self.assistant = self.chat = None
         self.label = ""
         if assistant:
