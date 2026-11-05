@@ -1536,7 +1536,7 @@ class Assistant:
                 alone (VOICE_NOTE)."""
                 nonlocal said_ahead, progress_spoken
                 if tool in ACTIONS or tool == "search_online" and (not library_searched or progress_spoken) \
-                        or tool in PREPARES and not self.started_now:
+                        or tool in PREPARES and not (self.started_now or self.after_reply):
                     return False
                 self.tell(words, meanwhile=True)
                 said_ahead, progress_spoken = words, True
@@ -1565,7 +1565,7 @@ class Assistant:
                     and sum(c.name in PIECE_CALLS for c in calls) > 1
                 online_again = progress_spoken and any(c.name == "search_online" for c in calls)
                 sent = len(self.preparing_now)
-                hold = bool(words) and not several and not self.started_now \
+                hold = bool(words) and not several and not (self.started_now or self.after_reply) \
                     and any(c.name in PREPARES for c in calls)  # her news, if a piece is sent (below)
                 if not hold and words and not online_again \
                         and not any(c.name in ACTIONS or refused(c) for c in calls):

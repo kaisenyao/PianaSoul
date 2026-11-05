@@ -1452,6 +1452,23 @@ class PreparedTests(Base):
                 else:
                     self.assertEqual(self.hers(), [news], 'Her news was its line: nothing more as it starts')
 
+    def test_her_words_as_she_sends_a_piece_after_one_she_plays_are_said_at_once_typed_or_spoken(self):
+        # Not her news: the piece follows the one this request plays (typed, once her reply is there).
+        words, reply = '找到啦，是 Jason Piano 弹的《晴天》～', '《搁浅》之后就是它～'
+        for typed in (False, True):
+            with self.subTest(typed=typed):
+                self.fresh()
+                steps = ([self.call('play_recording', id=self.ids[1])],
+                         (words, [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')]), reply)
+                with patch.object(chat_module, 'TYPED_REPLY_S', 0), patch.object(chat_module, 'TYPED_PLAY_S', 0):
+                    if typed:
+                        answer = self.a.ask(Scripted(*steps), '弹搁浅，再帮我找晴天', typed=True)
+                    else:
+                        answer = self.ask_aloud(*steps, text='弹搁浅，再帮我找晴天')
+                self.assertEqual(answer, reply)
+                self.assertEqual([t for t in self.hers() if t not in every('playing', True, '搁浅')], [words, reply])
+                self.assertEqual(self.p.current_id, self.ids[1])
+
     def test_spoken_her_news_is_said_before_the_piece_can_play_and_nothing_follows_when_it_starts(self):
         from pianasoul.voice import finish_interaction
         news = '找到啦，是 Jason Piano 弹的《晴天》～'
