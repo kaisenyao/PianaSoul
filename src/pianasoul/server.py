@@ -774,7 +774,6 @@ def online_search(q: str, source: str = ''):
     points to, on its own site. What fails answers 502 with why (error: unreachable, refused or failed, as
     online.OnlineError says) and where (source: the site, or empty for another)."""
     from . import online
-    from .download import video_details, video_info
     from .downloads import clean_url
     q = q.strip()
     link = q.lower().startswith(('http://', 'https://'))  # as the phone's isLink: an iPhone may type Https://
@@ -784,8 +783,7 @@ def online_search(q: str, source: str = ''):
         if link:
             source = online.site_of(q)
             url = clean_url(online.resolved(q))
-            found = online.details([url]).get(url) if online.video_id(url) else None
-            results = [{'url': url, **(found or video_details(video_info(url))), 'site': source}]
+            results = [{'url': url, **online.details(url), 'site': source}]
         else:
             results = online.piano_versions(q, source)
     except Exception as exc:  # the site out of reach or saying no, or a link yt-dlp cannot read

@@ -33,6 +33,29 @@ def signed_in(client):
     return client
 
 
+def page_read(answer):
+    """yt-dlp reading one video's page (test_online.Site): it answers this, or raises it; what it read, and the
+    options it read with, are kept."""
+    from test_online import Site
+    site = Site()
+
+    def extract_info(url, download, process):
+        site.requests.append(url)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    site.extract_info = extract_info
+    return site
+
+
+def cut_off():
+    """yt-dlp's error for a page that did not answer in time."""
+    from yt_dlp.networking.exceptions import TransportError
+    from yt_dlp.utils import DownloadError, ExtractorError
+    return DownloadError('ERROR: timed out', exc_info=(None, ExtractorError(
+        'timed out', cause=TransportError(cause=TimeoutError('timed out'))), None))
+
+
 class AppTests(unittest.TestCase):
     """A real Core on a library of its own, with a scripted chat model and no MIDI going out."""
 
@@ -267,7 +290,7 @@ class AppTests(unittest.TestCase):
     def test_a_link_typed_with_a_capital_first_letter_is_a_link_as_the_phone_takes_it(self):
         from pianasoul import online
         url = 'https://www.youtube.com/watch?v=abcdefghijk'
-        with patch.object(online, 'details', return_value={url: {'video_title': '晴天'}}):
+        with patch.object(online, 'details', return_value={'video_title': '晴天'}):
             found = signed_in(self.client).get('/api/online', params={'q': 'Https://youtu.be/abcdefghijk'})
         self.assertEqual((found.status_code, [r['url'] for r in found.json()]), (200, [url]), 'As an iPhone may type it')
 
@@ -285,18 +308,43 @@ class AppTests(unittest.TestCase):
         from pianasoul import online
         info = {'title': '晴天 钢琴', 'uploader': '钢琴小站', 'duration': 268.2, 'thumbnail': 'http://i0.hdslb.com/a.jpg'}
         shared = 'https://m.bilibili.com/video/BV1We4y1g7sj?p=1&share_source=copy_web'
-        with patch.object(online, 'resolved', return_value=shared) as followed, \
-                patch('pianasoul.download.video_info', return_value=info) as read:
+        site = page_read(info)
+        with patch.object(online, 'resolved', return_value=shared) as followed, patch('yt_dlp.YoutubeDL', site):
             found = signed_in(self.client).get('/api/online', params={'q': 'https://b23.tv/AbCdEfG'}).json()
         followed.assert_called_once_with('https://b23.tv/AbCdEfG')
-        read.assert_called_once_with('https://www.bilibili.com/video/BV1We4y1g7sj')
+        self.assertEqual(site.requests, ['https://www.bilibili.com/video/BV1We4y1g7sj'])
+        self.assertEqual((site.options[0]['noplaylist'], site.options[0]['socket_timeout'],
+                          site.options[0]['extractor_retries']), (True, 20, 1),
+                         'Its own part of a video in parts; a page that fails is tried again once')
         self.assertEqual([(r['url'], r['channel'], r['duration_s'], r['thumbnail'], r['site']) for r in found],
                          [('https://www.bilibili.com/video/BV1We4y1g7sj', '钢琴小站', 268.2, 'https://i0.hdslb.com/a.jpg',
                            'bilibili')], 'Read on its own site, whatever is chosen')
 
+    def test_a_pasted_link_that_cannot_be_read_is_read_once(self):
+        site = page_read(cut_off())
+        with patch('yt_dlp.YoutubeDL', site):
+            found = signed_in(self.client).get('/api/online', params={'q': 'https://youtu.be/abcdefghijk'})
+        self.assertEqual((found.status_code, found.json()), (502, {'error': 'unreachable', 'source': 'youtube'}))
+        self.assertEqual(site.requests, ['https://www.youtube.com/watch?v=abcdefghijk'], 'Not read again another way')
+
+    def test_pieces_downloaded_before_their_videos_details_were_kept_get_them_one_at_a_time(self):
+        from pianasoul import online
+        lib = self.core.lib
+        gone, there = 'https://www.youtube.com/watch?v=aaaaaaaaaaa', 'https://www.youtube.com/watch?v=bbbbbbbbbbb'
+        for rec_id, url in zip(self.ids, (gone, there)):
+            lib.execute('UPDATE recordings SET source_url = ? WHERE id = ?', (url, rec_id))
+
+        def details(url):
+            if url == gone:
+                raise online.OnlineError('Video unavailable', 'failed', 'youtube')
+            return {'video_title': '搁浅 钢琴版', 'channel': 'MappleZS'}
+        with patch.object(online, 'details', side_effect=details) as read:
+            self.core._fill_in_videos()
+        self.assertEqual(sorted(c.args[0] for c in read.call_args_list), [gone, there])
+        self.assertEqual([lib.get(i)['video_title'] for i in self.ids], ['', '搁浅 钢琴版'],
+                         'One that cannot be read is left as it is')
+
     def test_a_search_that_fails_says_why_and_where_not_that_nothing_was_found(self):
-        from yt_dlp.networking.exceptions import TransportError
-        from yt_dlp.utils import DownloadError, ExtractorError
         from pianasoul import online
         signed_in(self.client)
         for error in (online.OnlineError('timed out', 'unreachable', 'youtube'),
@@ -307,12 +355,10 @@ class AppTests(unittest.TestCase):
         for site in ({'source': 'vimeo'}, {}):
             self.assertEqual(self.client.get('/api/online', params={'q': '晴天', **site}).status_code, 400,
                              'By name, on one site online search knows')
-        cut_off = DownloadError('ERROR: timed out', exc_info=(None, ExtractorError(
-            'timed out', cause=TransportError(cause=TimeoutError('timed out'))), None))
-        with patch('pianasoul.download.video_info', side_effect=cut_off):
+        with patch('yt_dlp.YoutubeDL', page_read(cut_off())):
             found = self.client.get('/api/online', params={'q': 'https://www.bilibili.com/video/BV1We4y1g7sj'})
         self.assertEqual(found.json(), {'error': 'unreachable', 'source': 'bilibili'}, "A link: its own site's")
-        with patch('pianasoul.download.video_info', side_effect=ValueError('provide a single video URL')):
+        with patch('yt_dlp.YoutubeDL', page_read({'_type': 'playlist', 'entries': []})):
             found = self.client.get('/api/online', params={'q': 'https://example.com/a', 'source': 'bilibili'})
         self.assertEqual(found.json(), {'error': 'failed', 'source': ''}, 'Another site')
 

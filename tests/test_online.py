@@ -90,7 +90,7 @@ class SearchTests(unittest.TestCase):
         self.assertEqual((found[0]['url'], found[0]['site']), ('https://www.youtube.com/watch?v=aaaaaaaaaaa', 'youtube'))
         site = Site(entries=[])
         with patch('yt_dlp.YoutubeDL', site):
-            online.details(['https://www.youtube.com/watch?v=aaaaaaaaaaa'])
+            online.details('https://www.youtube.com/watch?v=aaaaaaaaaaa')
         self.assertEqual((site.options[0]['socket_timeout'], site.options[0]['extractor_retries']), (20, 1),
                          "A video's page keeps its time")
 
@@ -258,9 +258,9 @@ class SitesTests(unittest.TestCase):
         self.assertEqual((sites.asked, [v['site'] for v in found]), ([('晴天 钢琴', 8, 'bilibili')], ['bilibili'] * 3),
                          'Only the sites chosen')
 
-    def test_as_many_videos_as_her_model_asks_for_in_any_form_and_at_least_one(self):
-        for asked_for, many in (('8', 8), (8.0, 8), (3, 3), (0, 1), (-1, 1)):
-            sites = Sites(youtube=(0, 8), bilibili=(0, 8))
+    def test_as_many_videos_as_her_model_asks_for_in_any_form_at_least_one_and_at_most_15(self):
+        for asked_for, many in (('8', 8), (8.0, 8), (3, 3), (0, 1), (-1, 1), (20, 15), ('30', 15)):
+            sites = Sites(youtube=(0, 20), bilibili=(0, 20))
             with patch.object(online, 'search', sites):
                 found, _ = online.search_sites('晴天', asked_for, ['youtube', 'bilibili'])
             self.assertEqual((len(found), {n for _, n, _ in sites.asked}), (many, {many}), repr(asked_for))
@@ -317,6 +317,7 @@ class FailureTests(unittest.TestCase):
                 (DownloadError('ERROR: [BiliBili] 1GJ411x7h7: You have exceeded the rate limit. Try again later'),
                  'refused'),  # yt-dlp's words for Bilibili's risk-control page instead of the video's
                 (HTTPError(answered(404)), 'failed'),
+                (HTTPError(answered(567)), 'failed'),  # Bilibili's download servers' answer, not a refusal to search
                 (ExtractorError('Video unavailable'), 'failed'),
                 (ValueError('provide a single video URL, not a playlist or channel'), 'failed')):
             self.assertEqual(online.reason_of(error), reason, error)

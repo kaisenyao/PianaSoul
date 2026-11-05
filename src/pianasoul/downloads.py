@@ -82,10 +82,10 @@ def bv_of(av: int) -> str:
 
 
 def _video_page(url: str) -> dict:
-    """For a YouTube video, what its page says, with the channel's picture (online search); for a Bilibili one a
-    search found, its UP主's picture, which no page yt-dlp reads gives; else nothing."""
+    """For a YouTube video, what its page says, with the channel's picture (online.details: OnlineError when it cannot
+    be read); for a Bilibili one a search found, its UP主's picture, which no page yt-dlp reads gives; else nothing."""
     if online.video_id(url):
-        return online.details([url]).get(url, {})
+        return online.details(url)
     avatar = online.avatar_found(url)
     return {"channel_avatar": avatar} if avatar else {}
 
@@ -138,7 +138,7 @@ class Downloads:
         self.lib = lib
         self.jobs: list[Job] = []  # queued and running, in order
         self.listeners: list = []  # called after every change, on the downloads' thread or the caller's
-        self.unmade: list = []  # called with a record's id when its piece played as it was made, and was not made
+        self.unmade: list = []  # called with a record's id once its piece (playing as it is made, or filed) is not made
         self.growing: dict[Path, Growing] = {}  # the pieces being made that can play, by the file each will have
         self.name_piece = name_piece  # (query, video, artists) -> {piece, artist, performer, aliases}, or None: the video's
         self._speed = SECONDS_PER_SECOND
@@ -200,7 +200,7 @@ class Downloads:
 
     def stop(self, job_id: int) -> None:
         """Stop a piece: it leaves the queue at once, and nothing it made stays (a transcription under way ends at
-        once, with its process)."""
+        once, with its process; one stopped as it was filed goes from the library again: _work)."""
         with self._cond:
             job = next((j for j in self.jobs if j.id == job_id), None)
             if job is None:
@@ -239,6 +239,12 @@ class Downloads:
                     continue  # first in the queue still: made next
                 if job in self.jobs:
                     self.jobs.remove(job)
+                # Stopped as it was filed, it is not kept; a stop from now on finds it out of the queue, as it ended.
+                filed = job.recording if job.status == "done" and job.stopped.is_set() else None
+                if filed is not None:
+                    job.status, job.error, job.result, job.recording = "stopped", "stopped", None, None
+            if filed is not None:
+                self._unmake(filed)
             self._ended(job)
             job.finished.set()
             job.playable.set()  # (or not: it ended)
@@ -302,20 +308,27 @@ class Downloads:
         return rec
 
     def _file(self, job: Job, audio: Path, details: dict, apart) -> dict:
-        """The transcription starts at once; meanwhile the video's page is read (a YouTube video: its channel's
-        picture and the rest, a second or two) and the piece named from what is known of it (the model, a second
-        or two), and once both are done it is filed under its names."""
+        """The transcription starts at once; meanwhile the piece is named from what is known of it (the model, a
+        second or two), and then the video's page is read (a YouTube video: its channel's picture and the rest, a
+        second or two), which only its filing needs; once both are done it is filed under its names. A recording
+        downloaded before and kept without its video's title (download_audio gives its file's name for it) is named
+        from its page."""
         details = dict(details)
         named = threading.Event()  # its names are there: given (she gives them), or found
         if job.piece:
             named.set()
+        untitled = details.get("video_title") == audio.stem and not job.video.get("video_title")
 
-        def meanwhile():
+        def read_page():
             try:
                 details.update(_video_page(job.source))
             except Exception as exc:  # the piece is made all the same, with what the download said of the video
                 log.debug("the video's page not read: %s", exc)
+
+        def meanwhile():
             try:
+                if untitled:
+                    read_page()
                 if not job.piece:
                     started = time.monotonic()
                     self._name(job, details)
@@ -323,6 +336,8 @@ class Downloads:
                     self.changed()  # the phone shows its name from now on
             finally:
                 named.set()
+            if not untitled:
+                read_page()
         side = threading.Thread(target=meanwhile, name="naming", daemon=True)
         side.start()
         self._check(job)
@@ -367,7 +382,7 @@ class Downloads:
 
         def part(midi, until, length):  # as it is made (on this thread)
             nonlocal playing
-            growing.add(midi, until, length)
+            growing.add(midi, until)
             if anew and job.recording is None and not growing.whole and growing.plays():
                 named.wait()
                 self._check(job)
@@ -407,14 +422,18 @@ class Downloads:
                 job.playable.clear()  # until its next version can play, if it has one, or it ends
                 gone, job.recording = job.recording, None
                 growing.fail()
-                self.lib.delete(gone)
-                for listener in list(self.unmade):
-                    listener(gone)
+                self._unmake(gone)
             raise
         finally:
             ticking.set()
             if playing is not None:  # made, its file plays from now on (a player already on it goes on as it was)
                 del self.growing[playing]
+
+    def _unmake(self, rec_id: int) -> None:
+        """A piece not made after all: its record goes from the library, and those it played for are told (unmade)."""
+        self.lib.delete(rec_id)
+        for listener in list(self.unmade):
+            listener(rec_id)
 
     @staticmethod
     def _check(job: Job) -> None:

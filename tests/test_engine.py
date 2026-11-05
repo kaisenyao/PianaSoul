@@ -283,13 +283,17 @@ class ApartTests(unittest.TestCase):
 
     @WITH_MODEL
     def test_the_real_model_in_its_own_process(self):
-        audio, piece = self.tone('a.wav', 20), Growing()
-        info = self.convert(audio, self.root / 'out', piece.add, output_name='piece')
+        audio, piece, lengths = self.tone('a.wav', 20), Growing(), []
+
+        def part(midi, until, length):  # as the downloads take each part
+            piece.add(midi, until)
+            lengths.append(length)
+        info = self.convert(audio, self.root / 'out', part, output_name='piece')
         self.assertTrue(Path(info['files']['midi']).is_file())
         self.assertEqual(Path(info['files']['midi']).name, 'piece.mid')
         self.assertAlmostEqual(info['audio_duration_s'], 20.0, delta=0.1)
         self.assertTrue(piece.whole)
-        self.assertAlmostEqual(piece.length, 20.0, delta=0.1)
+        self.assertAlmostEqual(lengths[-1], 20.0, delta=0.1, msg="Each part with its recording's length")
         file = [m for m in mido.MidiFile(info['files']['midi']) if not m.is_meta and m.type != 'program_change']
         made = list(piece.messages(threading.Event()))
         self.assertEqual(made, file, 'Its parts, as they came, are its file, message for message')

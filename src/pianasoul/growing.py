@@ -31,12 +31,11 @@ class Growing:
         self._ready = 0  # how many of them may be played: those before any a part to come can bring
         self._notes: list[list] = []  # [start, length, pitch, velocity], for the piece's picture
         self.until = 0.0  # every note that starts before this is there; math.inf once all of it is
-        self.length = 0.0  # how long its recording is, in seconds
         self.failed = False
         self.listeners: list = []  # called when more of it is there, or it failed (on the thread that said so)
         self._cond = threading.Condition()
 
-    def add(self, midi: pretty_midi.PrettyMIDI, until: float, length: float) -> None:
+    def add(self, midi: pretty_midi.PrettyMIDI, until: float) -> None:
         """A part: its notes and controls (the pedal), every note that starts before until."""
         tick, made, notes = self._clock.time_to_tick, [], []
         for piano in midi.instruments:
@@ -52,7 +51,7 @@ class Growing:
             self._notes.extend(notes)
             self._messages.extend(made)
             self._messages.sort(key=lambda m: m[:2])
-            self.until, self.length = until, length
+            self.until = until
             last = math.inf if until == math.inf else tick(until)  # a part to come may bring this tick's own
             self._ready = bisect.bisect_left(self._messages, last, key=lambda m: m[0])
             self._cond.notify_all()

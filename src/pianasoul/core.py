@@ -119,10 +119,12 @@ class Core:
         for r in [r for r in self.lib.all() if not r["video_title"] and online.video_id(r["source_url"])]:
             if self._closed:
                 return
-            found = online.details([r["source_url"]]).get(r["source_url"])
-            if found:
-                self.lib.set_video(r["id"], found)
-                self.library_changed()
+            try:
+                found = online.details(r["source_url"])
+            except online.OnlineError:  # removed, private, or out of reach: left as it is
+                continue
+            self.lib.set_video(r["id"], found)
+            self.library_changed()
 
     # ---- the piano -----------------------------------------------------------------------------------
     def _piano_now(self) -> dict:

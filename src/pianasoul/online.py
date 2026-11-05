@@ -76,7 +76,7 @@ OPTIONS = {"quiet": True, "no_warnings": True, "logger": _Silent(), "socket_time
 # A search, which someone waits for, gives up within seconds where its site cannot be reached (YouTube from mainland
 # China), and is not tried again, so that the app soon says why; reading a video's page, and its download, keep theirs.
 SEARCH_OPTIONS = {"socket_timeout": 8, "extractor_retries": 0}
-REFUSED_STATUS = {412, 429, 567}  # Bilibili's risk control, too many requests, Bilibili's servers saying no
+REFUSED_STATUS = {412, 429}  # Bilibili's risk control, too many requests
 
 
 def reason_of(exc: BaseException) -> str:
@@ -101,9 +101,9 @@ def reason_of(exc: BaseException) -> str:
 
 
 def _extract(url: str, listed: bool = False, **options) -> dict:
-    """What yt-dlp makes of a YouTube address or search, without downloading anything; OnlineError, saying why, when
-    it cannot. listed: its entries are read here too (a search's pages are fetched only as they are read), so that
-    their failure says why."""
+    """What yt-dlp makes of a video's or a channel's address, or of a YouTube search, without downloading anything;
+    OnlineError, saying why, when it cannot. listed: its entries are read here too (a search's pages are fetched only
+    as they are read), so that their failure says why."""
     from yt_dlp import YoutubeDL
     from yt_dlp.utils import YoutubeDLError
 
@@ -114,7 +114,8 @@ def _extract(url: str, listed: bool = False, **options) -> dict:
                 info["entries"] = list(info.get("entries") or [])
             return info
     except YoutubeDLError as exc:  # DownloadError and ExtractorError alike
-        raise OnlineError(str(exc).removeprefix("ERROR: "), reason_of(exc), "youtube") from None
+        site = "youtube" if url.startswith("ytsearch") else site_of(url)  # YouTube's search, or the address's site
+        raise OnlineError(str(exc).removeprefix("ERROR: "), reason_of(exc), site) from None
 
 
 def flags_for(title: str, channel: str, description: str, seconds: int, query: str = "",
@@ -138,6 +139,7 @@ PIANO_WORDS = ("piano", "钢琴", "鋼琴")
 PIANO_WORD = {"youtube": "piano", "bilibili": "钢琴"}
 ENOUGH = 5  # piano versions enough for a search's offer: with fewer, the other videos follow them
 MOST = {"youtube": 15, "bilibili": 20}  # the most a search gives: on Bilibili, its one page (one request)
+MOST_MERGED = 15  # the most a search of several sites gives, merged (search_sites): her search_online's 1-15
 LATE_S = 2.0  # a site still searching this long after another gave videos is not waited for (search_sites)
 
 
@@ -219,11 +221,12 @@ def search(query: str, max_results: int = 8, source: str = "youtube") -> list[di
 
 def search_sites(query: str, max_results: int, sources: list[str]) -> tuple[list[dict], list[OnlineError]]:
     """Videos for query on each of sources (SOURCES), all searched at once, each in a thread of its own, by its own
-    rules and asked for piano in its own word (for_site); merged, at most max_results. With them, why each site that
-    could not be searched could not, in SOURCES' order. A site still searching LATE_S after another gave videos is
-    not waited for, and counts as out of reach: where YouTube is (mainland China), its 8 s would hold the videos
-    there are."""
-    max_results = max(1, int(max_results))  # as her model sends it ("8", 8.0 too), for each site and the merge
+    rules and asked for piano in its own word (for_site); merged, at most max_results (1 to MOST_MERGED). With them,
+    why each site that could not be searched could not, in SOURCES' order. A site still searching LATE_S after
+    another gave videos is not waited for, and counts as out of reach: where YouTube is (mainland China), its 8 s
+    would hold the videos there are."""
+    # As her model sends it ("8", 8.0 too), for each site and the merge.
+    max_results = max(1, min(int(max_results), MOST_MERGED))
     answers = queue.Queue()
 
     def ask(source: str) -> None:
@@ -409,24 +412,20 @@ def https_url(url) -> str:
     return "https:" + url if url.startswith("//") else re.sub(r"^http://", "https://", url)
 
 
-def details(urls: list[str]) -> dict[str, dict]:
-    """What the pages of these YouTube videos say (by url), as the library keeps it, with each channel's picture:
-    one video at a time (a second or two each). A video yt-dlp cannot read (removed, private) is left out."""
+def details(url: str) -> dict:
+    """What one video's page says, on any site, as the library keeps it (a second or two); a YouTube video's with its
+    channel's picture, from its channel's page (half a second more). OnlineError, saying why, when it cannot be read
+    (removed, private, out of reach) or is not one video."""
     from .download import video_details
 
-    found, avatars = {}, {}
-    for url in dict.fromkeys(u for u in urls if video_id(u)):
-        try:
-            info = _extract(url)
-        except OnlineError:
-            continue
-        channel = str(info.get("channel_url") or "")
-        if channel not in avatars:
-            avatars[channel] = channel_avatar(channel)
-        video = video_details(info)  # unprocessed, its thumbnails are only listed
-        found[url] = {**video, "thumbnail": video["thumbnail"] or _largest(info.get("thumbnails")),
-                      "channel_avatar": avatars[channel]}
-    return found
+    info = _extract(url, noplaylist=True)  # a video in parts (Bilibili's): its own part, not all of them
+    if not info or info.get("_type", "video") != "video":
+        raise OnlineError("provide a single video URL, not a playlist or channel", "failed", site_of(url))
+    video = video_details(info)  # unprocessed, its thumbnails are only listed
+    video["thumbnail"] = video["thumbnail"] or _largest(info.get("thumbnails"))
+    if site_of(url) == "youtube":
+        video["channel_avatar"] = channel_avatar(str(info.get("channel_url") or ""))
+    return video
 
 
 def channel_avatar(url: str) -> str:
