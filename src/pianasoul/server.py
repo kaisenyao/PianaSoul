@@ -44,8 +44,7 @@ PORT = 8765
 CERT_PORT = 8764  # the certificate's page, over plain HTTP: it holds no secret
 COOKIE = 'pianasoul'
 TYPED_NOTE = """
-Requests typed in the app (typed is true in the application state) are answered on screen, not aloud; keep them
-just as short."""
+Requests typed in the app (typed is true in the application state) are answered on screen, not aloud."""
 NEEDS = {'/api/messages': 'assistant', '/api/conversations': 'assistant', '/api/search': 'assistant',
          '/api/dictation': 'assistant', '/api/online': 'transcribe', '/api/downloads': 'transcribe'}
 UPLOAD_LIMITS = {'midi': 10 << 20, 'audio': 500 << 20}  # bytes

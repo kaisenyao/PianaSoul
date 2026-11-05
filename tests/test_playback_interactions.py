@@ -643,7 +643,7 @@ class PlaybackTests(unittest.TestCase):
         self.assertFalse([t for t in recorded() if '{' in t], 'A piece\'s name is said as it is made')
 
     def test_no_two_of_her_moments_end_with_the_same_sentence(self):
-        # "Never repeat a sentence" (INSTRUCTIONS) holds for her own lines too: 下一首 with nothing after it, then 播放,
+        # Never repeating a sentence (INSTRUCTIONS) holds for her own lines too: 下一首 with nothing after it, then 播放,
         # say two different things.
         for language in ('zh', 'en'):
             endings = {}

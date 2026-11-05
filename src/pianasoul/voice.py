@@ -123,8 +123,8 @@ NO_WORDS = "ASR_RESPONSE_HAVE_NO_WORDS"  # Model Studio's answer (HTTP 400) to a
 VOICE_NOTE = """
 
 People say one of your names to wake you. Spoken requests are answered aloud by a young, cheerful voice, so sound
-natural and a little playful. Use one short sentence when you can and no lists. If the user asks for a link or a file
-path, say it is on the screen and include it; it is shown but not read aloud.
+natural and a little playful. If the user asks for a link or a file path, say it is on the screen and include it; it
+is shown but not read aloud.
 
 Speaking first: a spoken request (typed is not true) is answered aloud while the listener waits in silence. When you
 must look something up before you can answer (search_library with the piece's other names, search_online,

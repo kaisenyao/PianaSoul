@@ -963,12 +963,25 @@ class AssistantTests(Base):
         for given in (instructions(True), instructions(False), told):  # ./run.sh chat, online or not; voice, the app
             self.assertEqual(given.count('Your names are 小茗同学 in Chinese and Jasmine in English'), 1)
             self.assertEqual(given.count('never in the third person'), 1)
-        self.assertIn('without Markdown or emoji', INSTRUCTIONS)
+        style = next(part for part in INSTRUCTIONS.split('\n\n') if part.startswith('Style:'))
+        for left_out in ('Markdown', 'emoji', 'lists'):  # plain text, as it is said and shown
+            self.assertIn(left_out, style)
         for english in ('"play this\nchat\'s songs again from the start"', '"save these songs as a playlist"',
                         'Rename it anytime."'):
             self.assertIn(english, INSTRUCTIONS)
         self.assertIn('as "在线搜索与转谱" when you answer in Chinese and "Online Search & Transcription" otherwise',
                       ' '.join(instructions(False).split()), 'The setting she names, as the Mac names it')
+
+    def test_her_instructions_give_each_rule_once(self):
+        """A rule given twice, in her instructions, her notes or her tools' descriptions, drifts apart: each is given
+        once, where it is read when it matters (what a piece sent to be prepared does, as she sends it)."""
+        from pianasoul import voice
+        from pianasoul.chat import TOOLS, instructions
+        from pianasoul.server import TYPED_NOTE
+        given = ' '.join((instructions(True) + voice.VOICE_NOTE + TYPED_NOTE + json.dumps(TOOLS)).split())
+        for rule in ('whole plan', 'Markdown', 'about 10', 'Vary your wording', 'library_info first'):
+            self.assertEqual(given.count(rule), 1, rule)
+        self.assertNotIn('plays by itself', given, 'Told as she sends it (PreparedTests)')
 
     def test_online_she_searches_the_library_and_online_in_one_response_that_begins_with_her_sentence(self):
         from pianasoul.chat import instructions
@@ -1182,6 +1195,18 @@ class PreparedTests(Base):
                             [self.call('play_recording', id=self.ids[1]),
                              self.call('transcribe_url', url='https://youtu.be/qingtian', piece='qingtian')], '好。'),
                    '弹搁浅，再帮我找晴天')
+
+    def test_she_is_told_as_she_sends_a_piece_that_it_plays_by_itself_once_ready(self):
+        told = []
+
+        class Told(Scripted):
+            def send_tool_results(self, results):
+                told.extend(json.loads(raw) for _, raw in results)
+                return super().send_tool_results(results)
+        self.a.ask(Told([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='qingtian')]), '弹一首晴天')
+        self.assertEqual(told[0]['status'], 'preparing')
+        for rule in ('plays by itself', 'Do not call play_recording', 'nothing of waiting'):
+            self.assertIn(rule, told[0]['instruction'])
 
     def test_it_plays_once_ready_if_nothing_changed_meanwhile(self):
         self.prepare('qingtian')
