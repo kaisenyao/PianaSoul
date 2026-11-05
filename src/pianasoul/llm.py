@@ -182,6 +182,13 @@ def _parse_args(raw) -> dict:
         return {}
 
 
+def _with_tools(words: str) -> str:
+    """Her words in a response that calls tools: one line before or with the call, so its first paragraph. What
+    comes after a blank line there is the model talking to itself (seen on gpt-6-luna, 2026-11-05: 「好呀，我来找找辛晓琪
+    的歌～」, a blank line, then 「/no tool? Need tool calls library artist search…」), not said nor kept."""
+    return words.strip().split("\n\n", 1)[0].strip()
+
+
 class OpenAIChat:
     def __init__(self, model: str, instructions: str, tools: list[dict], provider: str = "openai"):
         self.client, self.model, self.instructions = openai_client(provider), model, instructions
@@ -226,7 +233,7 @@ class OpenAIChat:
                   used.output_tokens) if used else (0, 0, 0)
         message = next((o for o in resp.output if getattr(o, "type", "") == "message"), None)
         text = "".join(c.text for c in message.content if c.type == "output_text") if message else ""
-        return Reply(text, calls, tokens)
+        return Reply(_with_tools(text) if calls else text, calls, tokens)
 
     def _read(self, events, handed: list):
         """One streamed response, whole once it is over; handed gets the words before_tool said."""
@@ -239,8 +246,9 @@ class OpenAIChat:
                 message = event.item.id
             elif event.type == "response.output_item.added" and event.item.type == "function_call" and not told:
                 told = True
-                if words.strip() and self.before_tool and self.before_tool(words.strip(), event.item.name):
-                    handed.append(words.strip())
+                said = _with_tools(words)
+                if said and self.before_tool and self.before_tool(said, event.item.name):
+                    handed.append(said)
             elif event.type in {"response.completed", "response.incomplete"}:
                 resp = event.response
             elif event.type in {"response.failed", "error"} or getattr(event, "code", None):  # Model Studio's: no type

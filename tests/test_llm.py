@@ -70,6 +70,16 @@ class OpenAIChatTests(unittest.TestCase):
         self.assertEqual((handed, reply.text), (["好呀，我来找找《戒烟》的钢琴版～"], "好呀，我来找找《戒烟》的钢琴版～"))
         self.assertEqual([c.name for c in reply.tool_calls], ["search_library"])
 
+    def test_with_a_tool_call_her_words_are_their_first_paragraph_the_model_talking_to_itself_after_it_is_not(self):
+        chat = self.chat(stream=events("好呀，我来找找辛晓琪的歌～", "\n\n/no tool? Need tool calls library artist search.",
+                                       call=("search_library", '{"query": "辛晓琪"}')))
+        handed = []
+        chat.before_tool = lambda words, tool: handed.append(words)
+        reply = chat.send_user("我想听辛晓琪的歌")
+        self.assertEqual((handed, reply.text), (["好呀，我来找找辛晓琪的歌～"], "好呀，我来找找辛晓琪的歌～"))
+        self.assertEqual(self.chat(stream=events("第一段。", "\n\n第二段。")).send_user("你好").text, "第一段。\n\n第二段。",
+                         "With no tool called, her reply is all of it")
+
     def test_each_reply_says_the_tokens_read_of_them_cached_and_written(self):
         self.assertEqual(self.chat(stream=events("好呀。")).send_user("你好").tokens, (5149, 5120, 47))
 
