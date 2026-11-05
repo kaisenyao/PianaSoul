@@ -423,14 +423,15 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; d
 .sources button[aria-pressed=true] { background: color-mix(in srgb, var(--accent) 22%, var(--sheet)); color: var(--accent); }
 .sources button:active { opacity: .7; }
 
-/* Videos from the online search, each with its site; a cover opens the video there. Above them, quietly: a site still
-   on its way (a small spinner), or why one could not be searched. A search no site answered says why, and may offer
-   a site turned off. */
+/* Videos from the online search, each with its site; a cover opens the video there, and the title, the row's full
+   height between the cover and the control at its end, acts on its piece. Above them, quietly: a site still on its way
+   (a small spinner), or why one could not be searched. A search no site answered says why, and may offer a site
+   turned off. */
 .note { display: flex; justify-content: center; align-items: center; min-height: 28px; margin: 0 16px 4px; color: var(--text2); font-size: 13px; line-height: 1.35; text-align: center; text-wrap: balance; }
 .note .ring { width: 18px; height: 18px; }
-.cand { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 16px; }
-.cand > a { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
-.cand > a:active { opacity: .7; }
+.cand { display: flex; align-items: center; width: 100%; padding: 0 16px; }
+.cand > a { flex: none; display: flex; padding: 9px 0; color: inherit; text-decoration: none; }
+.cand > a:active, .ctext:active { opacity: .7; }
 .thumb {
   position: relative; flex: none; width: 120px; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden;
   background: linear-gradient(135deg, hsl(var(--h) 45% 30%), hsl(calc(var(--h) + 50) 45% 12%));
@@ -438,11 +439,13 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; d
 .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .dur, .thumb .site { position: absolute; z-index: 1; right: 4px; bottom: 4px; padding: 1px 4px; border-radius: 4px; background: rgba(0, 0, 0, .78); color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; }
 .thumb .site { right: auto; left: 4px; }
-.ctext { flex: 1; min-width: 0; }
+.ctext { flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; }
 .ct1 { font-size: 15px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ct2 { display: block; font-size: 12.5px; color: var(--text2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .addbtn { width: 34px; height: 34px; flex: none; display: grid; place-items: center; color: var(--accent); }
 .addbtn svg { width: 28px; height: 28px; }
+.cand .addbtn { position: relative; }
+.cand .addbtn::after { content: ""; position: absolute; inset: -5px; }  /* 44 pt to tap */
 .empty p { margin: 0; }
 .empty p + p { margin-top: 8px; }
 .offer { display: block; min-height: 44px; margin: 4px auto 0; padding: 0 16px; color: var(--accent); font-size: 15px; text-align: center; }
@@ -685,7 +688,7 @@ button.grow:active { background: var(--press); }
   position: relative; height: 100%; display: flex; flex-direction: column; container-type: size;
   padding: calc(var(--safe-top) + var(--bar) + 52px) 28px calc(var(--safe-bottom) + 6px);
 }
-/* ✕ stops the piece and closes the player; share sends its MIDI */
+/* ✕ stops the piece and closes the player; the other shares or downloads its MIDI, gray until its file is made */
 .pcorner { position: absolute; top: calc(var(--safe-top) + var(--bar) + 2px); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--p-icon); }
 .pcorner:active { background: var(--p-press); }
 .pcorner:disabled { opacity: .35; }
@@ -831,7 +834,6 @@ button.grow:active { background: var(--press); }
   position: absolute; z-index: 38; left: 0; right: 0; top: var(--safe-top); height: var(--bar);  /* above the pages, under #dim */
   display: flex; align-items: center; background: var(--card); color: var(--text); font-size: 14px; font-weight: 500;
 }
-#piano-bar[hidden] { display: none; }
 #piano-how { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding-left: 44px; }
 #piano-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #piano-bar .pdot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); flex: none; }

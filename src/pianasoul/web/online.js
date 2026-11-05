@@ -30,12 +30,22 @@ export function merged(lists) {
   return together;
 }
 
+// What a video found is in the library, by any copy of it (urls): a piece made ({made}, its recording), one being
+// prepared ({job}), or neither ({}). Its row acts on that piece, from its title and from the control at its end: both
+// download it, and once it is made both play it; while it is prepared the title plays it as soon as it can, and the
+// control, its ring, stops it. Its cover opens the video on its site, whatever the piece is.
+export function pieceOf(video, recordings, jobs) {
+  const made = recordings.find(r => video.urls.includes(r.source_url));
+  const job = jobs.find(j => video.urls.includes(j.source));
+  return made ? {made} : job ? {job} : {};
+}
+
 // What is shown (state): the query; found, the videos so far, merged; failed, why each site that could not be
 // searched could not; answered, the sites that were; waiting, those still on their way; and offer, the sites turned
 // off, to turn on when none could be searched because one is out of reach.
 export function onlineSearch(get, onChange) {
   const state = {query: '', found: [], failed: [], answered: [], waiting: [], offer: []};
-  let run = 0, chosen = [], asked = {};  // asked: each site asked (a link: ''), by name, with its answer once it comes
+  let chosen = [], asked = {};  // asked: each site asked (a link: ''), by name, with its answer once it comes
 
   function show() {
     const sites = isLink(state.query) ? [''] : SOURCES.filter(site => site in asked);
@@ -50,7 +60,7 @@ export function onlineSearch(get, onChange) {
   }
 
   async function ask(site) {
-    const answer = asked[site] = {found: null, failed: null}, mine = run;
+    const answer = asked[site] = {found: null, failed: null};
     try {
       answer.found = await get(`/api/online?q=${encodeURIComponent(state.query)}${site ? `&source=${site}` : ''}`);
     } catch (error) {  // what the Mac said, or failed: the Mac itself not answering
@@ -58,14 +68,13 @@ export function onlineSearch(get, onChange) {
       answer.failed = {reason: ['unreachable', 'refused'].includes(said.error) ? said.error : 'failed',
                        source: 'source' in said ? said.source : site};
     }
-    if (mine === run && asked[site] === answer) show();
+    if (asked[site] === answer) show();  // one no longer asked for has nothing new to show
   }
 
   // A search on the sites chosen (a link: on its own site).
   function find(query, sites) {
     query = linkIn(query) || query;
-    run++;
-    Object.assign(state, {query});
+    state.query = query;
     chosen = [...sites];
     asked = {};
     for (const site of isLink(query) ? [''] : chosen) ask(site);
@@ -84,9 +93,9 @@ export function onlineSearch(get, onChange) {
 
   // No search shown.
   function forget() {
-    run++;
     asked = {};
-    Object.assign(state, {query: '', found: [], failed: [], answered: [], waiting: [], offer: []});
+    state.query = '';
+    show();
   }
 
   return {find, follow, forget, state};

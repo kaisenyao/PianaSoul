@@ -14,7 +14,10 @@ export function pieceNotes(ask) {
         let lo = 60, hi = 72;
         for (const n of notes) { lo = Math.min(lo, n[2]); hi = Math.max(hi, n[2]); }
         rolls.set(key, {notes, lo: lo - 3, hi: hi + 3, ready});
-      }).catch(() => setTimeout(() => rolls.delete(key), 10000));  // asked again in a while, not every frame
+      }).catch(() => setTimeout(() => {  // asked again in a while, not every frame; what it has stays meanwhile
+        if (roll) roll.asking = false;
+        else rolls.delete(key);
+      }, 10000));
     }
     return rolls.get(key);
   };

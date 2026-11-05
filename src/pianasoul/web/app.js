@@ -5,7 +5,7 @@
 import {LANGUAGES} from './strings.js';
 import {addOrb, animateOrb, homeColor, sameLook} from './orb.js';
 import {createCues} from './cues.js';
-import {SOURCES, onlineSearch} from './online.js';
+import {SOURCES, onlineSearch, pieceOf} from './online.js';
 import {tapPreparing} from './preparing.js';
 import {pieceNotes} from './rolls.js';
 import {uploader} from './upload.js';
@@ -102,6 +102,7 @@ function applySettings() {
   $('#search-input').placeholder = herOn() ? T.searchAll : T.searchPieces;
   voice?.render();
   renderRecent();  // the sidebar's chats are drawn as they change, and their days are words: drawn again here
+  if (openSheet === $('#sheet-add')) online.follow(data.settings.search_sources);  // the sites chosen, here or elsewhere
   refresh();
 }
 dark.addEventListener('change', () => { if (data.settings.appearance === 'system') applySettings(); });
@@ -174,12 +175,7 @@ function listen() {
     else if (e.type === 'conversations') conversations();
     else if (e.type === 'message') onMessage(e.message);
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
-    else if (e.type === 'settings') {
-      delete e.type;
-      data.settings = e;
-      applySettings();
-      if (openSheet === $('#sheet-add')) online.follow(e.search_sources);  // the sites chosen elsewhere
-    }
+    else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
     else if (e.type === 'playlists') { if (!changing) setPlaylists(e.playlists); }  // changing: as it is here, until answered
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
@@ -214,7 +210,6 @@ async function load() {
   try { localStorage.setItem('features', JSON.stringify(data.features)); } catch {}
   applyFeatures(transcribed);
   applySettings();
-  if (openSheet === $('#sheet-add')) online.follow(data.settings.search_sources);  // chosen while the Mac was away
   renderRecent();
   sent.length = 0;  // what waited for her while the Mac was away: kept by now, and read again below, or gone with it
   followCurrent();
@@ -725,9 +720,9 @@ function onJobs(jobs) {
   for (const j of jobs) document.querySelectorAll(`[data-ring="${j.id}"] .arc`).forEach(a => a.setAttribute('stroke-dashoffset', RING * (1 - j.progress)));
 }
 const stopJob = id => api(`/api/downloads/${id}`, 'DELETE').catch(() => {});
-// A piece being prepared, tapped in the library or in Add Pieces: once it can play, as it is made, it plays in the
-// library's list (tapPreparing), Add Pieces closing as for a piece made there; before, a word says it is still being
-// prepared. Gone meanwhile (made, or stopped), its row is about to go: nothing.
+// A piece being prepared, tapped in the library or by its video's title in Search Online: once it can play, as it is
+// made, it plays in the library's list (tapPreparing), Search Online closing as for a piece made there; before, a word
+// says it is still being prepared. Gone meanwhile (made, or stopped), its row is about to change: nothing.
 function playPreparing(job, from) {
   if (!job) return;
   const tapped = tapPreparing(job, listIds($('#library-list')));
@@ -1543,9 +1538,10 @@ function renderProgress() {
   document.querySelectorAll(`.card[data-piece="${p.id}"] .cfill`).forEach(el => { el.style.width = f * 100 + '%'; });
 }
 
-// The artwork is the piece itself: its notes (web/rolls.js), of one being made as much as is there.
+// The artwork is the piece itself: its notes (web/rolls.js), of one being made as much as is there. Drawn only for
+// the piece playing (playClock), whose playback says how much that is.
 const rollOf = pieceNotes(id => api(`/api/recordings/${id}/notes`));
-const notesFor = p => rollOf(p, pb().id === p.id && pb().ready != null ? pb().ready : Infinity);
+const notesFor = p => rollOf(p, pb().ready ?? Infinity);
 function drawRoll(canvas, p, pos, small) {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (!w || !h) return;
@@ -1906,15 +1902,15 @@ dragToReorder($('#queue-list'), () => pb().ids, (id, at, ids) => {
 
 // ---------- Adding pieces ----------
 // Search online for piano versions, on the sites chosen (YouTube, Bilibili: each a capsule below the field, one
-// always on), or paste a link; watch one there, download it (the same queue she uses by voice), then play it:
-// download, the ring while it is made, play. Each site's videos show as they come, merged as hers are.
+// always on), or paste a link. A video's cover opens it on its site; its title and the control at its end act on its
+// piece (pieceOf): download it (the same queue she uses by voice), then play it; while it is made, the title plays it
+// as soon as it can, and the ring stops it. Each site's videos show as they come, merged as hers are.
 const online = onlineSearch(api, () => renderCands());
-const jobFor = c => data.jobs.find(j => c.urls.includes(j.source));  // of any copy of it (merged)
 // Why a site could not be searched, as the site's: it cannot be reached, or will not search for now; or else that it
 // failed. In full when none could be, in short (cause) above the videos of those that could.
 const failure = ({reason, source}) => reason === 'unreachable' && T.sites[source] ? T.unreachable(T.sites[source])
   : reason === 'refused' && T.refused[source] || T.searchFailed;
-const cause = ({reason, source}) => (T.cause[reason] || T.cause.failed)(T.sites[source]);
+const cause = ({reason, source}) => T.cause[reason](T.sites[source]);
 $('#sources').innerHTML = SOURCES.map(s => `<button data-source="${s}"></button>`).join('');
 function renderCands() {
   for (const b of document.querySelectorAll('#sources button')) {
@@ -1934,16 +1930,19 @@ function renderCands() {
     : failed.length ? `<p class="note">${esc(T.partly(failed.map(cause), answered.map(s => T.sites[s])))}</p>` : '';
   if (!found.length) { body.innerHTML = `${note}<div class="empty">${esc(T.nothing)}</div>`; return; }
   body.innerHTML = note + found.map((c, i) => {
-    const rec = data.recordings.find(r => c.urls.includes(r.source_url)), job = jobFor(c);
-    const btn = rec ? `<button class="addbtn" data-play="${rec.id}" aria-label="${esc(T.playNow)}">${ICON_PLAY_CIRCLE}</button>`
+    const {made, job} = pieceOf(c, data.recordings, data.jobs);
+    const btn = made ? `<button class="addbtn" data-play="${made.id}" aria-label="${esc(T.playNow)}">${ICON_PLAY_CIRCLE}</button>`
               : job ? ringButton(job)
               : `<button class="addbtn" data-add="${i}" aria-label="${esc(T.download)}">${ICON_DOWNLOAD}</button>`;
+    const act = made ? `data-play="${made.id}"` : job ? `data-preparing="${job.id}"` : `data-add="${i}"`;
     const seen = [c.channel, c.views != null ? T.views(c.views) : ''].filter(Boolean).join(' · ');
     return `<div class="cand">
-        <a href="${esc(c.url)}" target="_blank" rel="noopener">
+        <a href="${esc(c.url)}" target="_blank" rel="noopener" aria-label="${esc(T.watchVideo)}">
           <span class="thumb" style="--h:${hueOfName(c.url)}">${c.thumbnail ? `<img src="${esc(c.thumbnail)}" alt="" referrerpolicy="no-referrer">` : ''}${T.sites[c.site] ? `<span class="site">${esc(T.sites[c.site])}</span>` : ''}<span class="dur">${mmss(c.duration_s)}</span></span>
-          <span class="ctext"><span class="ct1">${esc(c.video_title)}</span><span class="ct2">${esc(seen)}</span></span>
         </a>
+        <button class="ctext" ${act} aria-label="${esc(T.actionOn(made || job ? T.playNow : T.download, c.video_title))}">
+          <span class="ct1">${esc(c.video_title)}</span><span class="ct2">${esc(seen)}</span>
+        </button>
         ${btn}
       </div>`;
   }).join('');
@@ -1968,7 +1967,7 @@ function openAdd(how, q = '') {
   $('#add-input').value = q;
   uploads.tidy();
   if (search && q) searchOnline(q);
-  else { online.forget(); renderCands(); }
+  else online.forget();
   showSheet($('#sheet-add'));
   $('#add-scroll').scrollTop = 0;
   if (!search) $('#upload-files').click();
@@ -1992,7 +1991,6 @@ function chooseSources(sources) {
   data.settings.search_sources = SOURCES.filter(s => sources.includes(s));
   applySettings();
   api('/api/settings', 'PATCH', {search_sources: data.settings.search_sources}).catch(() => {});
-  online.follow(data.settings.search_sources);
 }
 $('#sources').addEventListener('click', e => {
   const site = e.target.closest('[data-source]')?.dataset.source, on = data.settings.search_sources;
@@ -2026,10 +2024,12 @@ function renderUploads(items) {
   }).join('');
 }
 $('#add-body').addEventListener('click', e => {
+  // Download, from the button or the title: the button turns to a spinner and the title rests, until the job shows.
   const add = e.target.closest('[data-add]');
   if (add) {
-    const c = online.state.found[+add.dataset.add], {query} = online.state;
-    add.outerHTML = SPINNER;
+    const row = add.closest('.cand'), c = online.state.found[+add.dataset.add], {query} = online.state;
+    row.querySelector('.ctext').removeAttribute('data-add');
+    row.querySelector('.addbtn').outerHTML = SPINNER;
     api('/api/downloads', 'POST', {url: c.url, query: /^https?:/i.test(query) ? '' : query, video: c}).catch(() => renderCands());
     return;
   }
@@ -2037,21 +2037,17 @@ $('#add-body').addEventListener('click', e => {
   if (turnOn) { chooseSources([...data.settings.search_sources, turnOn.dataset.turnOn]); return; }
   const stop = e.target.closest('[data-stop]');
   if (stop) { stopJob(+stop.dataset.stop); return; }
-  // A piece made: it plays from the library, in the player; closing the player is back on the library.
+  const preparing = e.target.closest('[data-preparing]');  // its title, as its row in the library
+  if (preparing) { playPreparing(data.jobs.find(j => j.id === +preparing.dataset.preparing), preparing); return; }
+  // A piece made, from ▶ or its title: it plays from the library, in the player; closing the player is back on the
+  // library.
   const made = e.target.closest('[data-play]');
   if (made) {
     closeOverlays();
     play(+made.dataset.play, listIds($('#library-list')), {kind: 'library'}, made);
     return;
   }
-  const video = e.target.closest('.cand > a'), c = video && online.state.found.find(f => f.url === video.getAttribute('href'));
-  const job = c && jobFor(c);
-  if (job) {  // one being prepared plays, as in the library, rather than its video
-    e.preventDefault();
-    playPreparing(job, video);
-    return;
-  }
-  if (video) pausePiano();  // the video plays on its site, the piano waits
+  if (e.target.closest('.cand > a')) pausePiano();  // the video plays on its site, the piano waits
 });
 
 // ---------- Talking in a conversation ----------
