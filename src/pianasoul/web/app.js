@@ -1537,9 +1537,10 @@ function renderProgress() {
   document.querySelectorAll(`.card[data-piece="${p.id}"] .cfill`).forEach(el => { el.style.width = f * 100 + '%'; });
 }
 
-// The artwork is the piece itself: its notes (web/rolls.js), of one being made as much as is there.
+// The artwork is the piece itself: its notes (web/rolls.js), of one being made as much as is there. Drawn only for
+// the piece playing (playClock), whose playback says how much that is.
 const rollOf = pieceNotes(id => api(`/api/recordings/${id}/notes`));
-const notesFor = p => rollOf(p, pb().id === p.id && pb().ready != null ? pb().ready : Infinity);
+const notesFor = p => rollOf(p, pb().ready ?? Infinity);
 function drawRoll(canvas, p, pos, small) {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (!w || !h) return;
@@ -1908,7 +1909,7 @@ const jobFor = c => data.jobs.find(j => c.urls.includes(j.source));  // of any c
 // failed. In full when none could be, in short (cause) above the videos of those that could.
 const failure = ({reason, source}) => reason === 'unreachable' && T.sites[source] ? T.unreachable(T.sites[source])
   : reason === 'refused' && T.refused[source] || T.searchFailed;
-const cause = ({reason, source}) => (T.cause[reason] || T.cause.failed)(T.sites[source]);
+const cause = ({reason, source}) => T.cause[reason](T.sites[source]);
 $('#sources').innerHTML = SOURCES.map(s => `<button data-source="${s}"></button>`).join('');
 function renderCands() {
   for (const b of document.querySelectorAll('#sources button')) {
