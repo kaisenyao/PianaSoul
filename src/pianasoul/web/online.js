@@ -35,7 +35,7 @@ export function merged(lists) {
 // off, to turn on when none could be searched because one is out of reach.
 export function onlineSearch(get, onChange) {
   const state = {query: '', found: [], failed: [], answered: [], waiting: [], offer: []};
-  let run = 0, chosen = [], asked = {};  // asked: each site asked (a link: ''), by name, with its answer once it comes
+  let chosen = [], asked = {};  // asked: each site asked (a link: ''), by name, with its answer once it comes
 
   function show() {
     const sites = isLink(state.query) ? [''] : SOURCES.filter(site => site in asked);
@@ -50,7 +50,7 @@ export function onlineSearch(get, onChange) {
   }
 
   async function ask(site) {
-    const answer = asked[site] = {found: null, failed: null}, mine = run;
+    const answer = asked[site] = {found: null, failed: null};
     try {
       answer.found = await get(`/api/online?q=${encodeURIComponent(state.query)}${site ? `&source=${site}` : ''}`);
     } catch (error) {  // what the Mac said, or failed: the Mac itself not answering
@@ -58,14 +58,13 @@ export function onlineSearch(get, onChange) {
       answer.failed = {reason: ['unreachable', 'refused'].includes(said.error) ? said.error : 'failed',
                        source: 'source' in said ? said.source : site};
     }
-    if (mine === run && asked[site] === answer) show();
+    if (asked[site] === answer) show();  // one no longer asked for has nothing new to show
   }
 
   // A search on the sites chosen (a link: on its own site).
   function find(query, sites) {
     query = linkIn(query) || query;
-    run++;
-    Object.assign(state, {query});
+    state.query = query;
     chosen = [...sites];
     asked = {};
     for (const site of isLink(query) ? [''] : chosen) ask(site);
@@ -84,9 +83,9 @@ export function onlineSearch(get, onChange) {
 
   // No search shown.
   function forget() {
-    run++;
     asked = {};
-    Object.assign(state, {query: '', found: [], failed: [], answered: [], waiting: [], offer: []});
+    state.query = '';
+    show();
   }
 
   return {find, follow, forget, state};

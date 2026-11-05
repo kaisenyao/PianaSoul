@@ -1967,7 +1967,7 @@ function openAdd(how, q = '') {
   $('#add-input').value = q;
   uploads.tidy();
   if (search && q) searchOnline(q);
-  else { online.forget(); renderCands(); }
+  else online.forget();
   showSheet($('#sheet-add'));
   $('#add-scroll').scrollTop = 0;
   if (!search) $('#upload-files').click();
