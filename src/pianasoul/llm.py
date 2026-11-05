@@ -197,9 +197,9 @@ class OpenAIChat:
 
     def _call(self, items: list) -> Reply:
         """The model's response, streamed (it is done sooner so): its words before a tool call go to before_tool as
-        soon as it starts on the call. A stream that breaks off, or is quiet for CHAT_READ_S, is asked for again, as
-        the SDK does with a response that comes whole, unless its words were handed over already: they are never said
-        twice."""
+        soon as it starts on the call. Her words are its first message's: text in any other output item is not hers,
+        not said nor kept. A stream that breaks off, or is quiet for CHAT_READ_S, is asked for again, as the SDK does
+        with a response that comes whole, unless its words were handed over already: they are never said twice."""
         from openai import APIConnectionError
 
         self.asked = self.previous, items
@@ -224,14 +224,19 @@ class OpenAIChat:
         used = resp.usage  # as billed; the cached part is cheaper (Model Studio's implicit cache)
         tokens = (used.input_tokens, getattr(used.input_tokens_details, "cached_tokens", 0) or 0,
                   used.output_tokens) if used else (0, 0, 0)
-        return Reply(resp.output_text or "", calls, tokens)
+        message = next((o for o in resp.output if getattr(o, "type", "") == "message"), None)
+        text = "".join(c.text for c in message.content if c.type == "output_text") if message else ""
+        return Reply(text, calls, tokens)
 
     def _read(self, events, handed: list):
         """One streamed response, whole once it is over; handed gets the words before_tool said."""
-        resp, words, told = None, "", False
+        resp, words, told, message = None, "", False, None  # message: the id of the first message item
         for event in events:
             if event.type == "response.output_text.delta":
-                words += event.delta
+                if getattr(event, "item_id", None) == message:
+                    words += event.delta
+            elif event.type == "response.output_item.added" and event.item.type == "message" and message is None:
+                message = event.item.id
             elif event.type == "response.output_item.added" and event.item.type == "function_call" and not told:
                 told = True
                 if words.strip() and self.before_tool and self.before_tool(words.strip(), event.item.name):

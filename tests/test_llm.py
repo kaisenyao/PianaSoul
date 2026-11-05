@@ -21,7 +21,7 @@ from pianasoul import llm
 def events(*words, call=None, end="response.completed"):
     """A streamed response: its words, then a function call (name, arguments), then its end."""
     out = [NS(type="response.output_text.delta", delta=w) for w in words]
-    output = []
+    output = [NS(type="message", content=[NS(type="output_text", text="".join(words))])] if words else []
     if call:
         out.append(NS(type="response.output_item.added", item=NS(type="function_call", name=call[0])))
         output.append(NS(type="function_call", call_id="c1", name=call[0], arguments=call[1]))
@@ -50,6 +50,25 @@ class OpenAIChatTests(unittest.TestCase):
         self.assertEqual(chat.previous, "r1")
         sent = chat.client.responses.create.call_args.kwargs
         self.assertEqual((sent["stream"], sent["reasoning"]), (True, {"effort": "low"}))
+
+    def test_her_words_are_the_first_messages_text_in_another_output_item_is_not_hers(self):
+        def message(item_id, *words):
+            text = "".join(words)
+            return ([NS(type="response.output_item.added", item=NS(type="message", id=item_id, phase="commentary"))]
+                    + [NS(type="response.output_text.delta", item_id=item_id, delta=w) for w in words],
+                    NS(type="message", id=item_id, content=[NS(type="output_text", text=text)]))
+        hers, her_item = message("m1", "好呀，我来找找", "《戒烟》的钢琴版～")
+        slip, slip_item = message("m2", "\n\n龚assistant to=multi_tool_use.parallel ", '{"tool_uses": []}')
+        call = NS(type="function_call", call_id="c1", name="search_library", arguments='{"query": "戒烟"}')
+        response = NS(id="r1", output=[her_item, slip_item, call], usage=None,
+                      output_text=her_item.content[0].text + slip_item.content[0].text)  # as the SDK joins them
+        chat = self.chat(stream=[*hers, *slip, NS(type="response.output_item.added", item=call),
+                                 NS(type="response.completed", response=response)])
+        handed = []
+        chat.before_tool = lambda words, tool: handed.append(words)
+        reply = chat.send_user("我想听戒烟")
+        self.assertEqual((handed, reply.text), (["好呀，我来找找《戒烟》的钢琴版～"], "好呀，我来找找《戒烟》的钢琴版～"))
+        self.assertEqual([c.name for c in reply.tool_calls], ["search_library"])
 
     def test_each_reply_says_the_tokens_read_of_them_cached_and_written(self):
         self.assertEqual(self.chat(stream=events("好呀。")).send_user("你好").tokens, (5149, 5120, 47))
