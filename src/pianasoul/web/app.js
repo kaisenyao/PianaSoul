@@ -102,6 +102,7 @@ function applySettings() {
   $('#search-input').placeholder = herOn() ? T.searchAll : T.searchPieces;
   voice?.render();
   renderRecent();  // the sidebar's chats are drawn as they change, and their days are words: drawn again here
+  if (openSheet === $('#sheet-add')) online.follow(data.settings.search_sources);  // the sites chosen, here or elsewhere
   refresh();
 }
 dark.addEventListener('change', () => { if (data.settings.appearance === 'system') applySettings(); });
@@ -174,12 +175,7 @@ function listen() {
     else if (e.type === 'conversations') conversations();
     else if (e.type === 'message') onMessage(e.message);
     else if (e.type === 'busy') { data.busy = e.conversation; renderTyping(); }
-    else if (e.type === 'settings') {
-      delete e.type;
-      data.settings = e;
-      applySettings();
-      if (openSheet === $('#sheet-add')) online.follow(e.search_sources);  // the sites chosen elsewhere
-    }
+    else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
     else if (e.type === 'playlists') { if (!changing) setPlaylists(e.playlists); }  // changing: as it is here, until answered
     else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
@@ -214,7 +210,6 @@ async function load() {
   try { localStorage.setItem('features', JSON.stringify(data.features)); } catch {}
   applyFeatures(transcribed);
   applySettings();
-  if (openSheet === $('#sheet-add')) online.follow(data.settings.search_sources);  // chosen while the Mac was away
   renderRecent();
   sent.length = 0;  // what waited for her while the Mac was away: kept by now, and read again below, or gone with it
   followCurrent();
@@ -1991,7 +1986,6 @@ function chooseSources(sources) {
   data.settings.search_sources = SOURCES.filter(s => sources.includes(s));
   applySettings();
   api('/api/settings', 'PATCH', {search_sources: data.settings.search_sources}).catch(() => {});
-  online.follow(data.settings.search_sources);
 }
 $('#sources').addEventListener('click', e => {
   const site = e.target.closest('[data-source]')?.dataset.source, on = data.settings.search_sources;
