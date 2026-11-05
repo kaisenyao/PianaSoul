@@ -52,6 +52,9 @@ LINES = {
     "playlist_ready": {"zh": ["怕打断你，歌单《{piece}》就先没弹，想听随时告诉我～"],
                        "en": ["I didn't want to interrupt, so your playlist {piece} can wait. Just say when you'd "
                               "like it."]},
+    # Her pause or stop, given way to the phone's player used while she answered: what the user did there stands
+    "phone_stands": {"zh": ["你刚在手机上动过了，那就按你的来～"],
+                     "en": ["You just changed it on your phone, so I'll leave it as is."]},
     # 下一首 with nothing after this one yet, but a piece asked for with it still being prepared
     "coming": {"zh": ["《{piece}》还在准备，好了马上接着弹～"],
                "en": ["{piece} is still being prepared. It'll play next, once it's ready."]},

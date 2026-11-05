@@ -432,7 +432,7 @@ REPLY_LINES = {  # a playback result, its error or status, and her line for it
     "not_ready": "not_ready", "link_not_ready": "link_not_ready", "nothing_next": "nothing_next",
     "conversation_empty": "conversation_empty",
     "lined_up": "lined_up",  # a piece she prepared, joining the list that plays (_ready); not one a request lines up
-    "coming": "coming",
+    "coming": "coming", "changed_on_phone": "phone_stands",
 }
 
 
@@ -1155,6 +1155,13 @@ class Assistant:
         return self.play(id=id)
 
     def control_playback(self, action: str) -> dict:
+        # Her pause or stop, the phone's player used since the request began: what was done there stands, as it does
+        # over what she would start (_start).
+        if action in {"pause", "cancel"} and self.phone_used():
+            return {"status": "changed_on_phone",
+                    "instruction": "While you were answering, the user changed what plays on their phone, so it was "
+                                   "left as they set it: nothing was paused or stopped. Do not try again: say in a few "
+                                   f"words that what they did on their phone stands. Answer in {self.answer_in()}."}
         if action == "pause":
             return self.pause()
         if action == "cancel":

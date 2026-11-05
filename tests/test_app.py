@@ -629,6 +629,41 @@ class AssistantTests(Base):
                             '好呀。'), '现在弹晴天吧')
         self.assertEqual(self.p.current_id, self.ids[0], 'Asked again, it plays')
 
+    def test_her_pause_or_cancel_gives_way_to_the_phone_used_while_she_thought(self):
+        # A piece is chosen on the phone while her model is slow; then it pauses or cancels: the phone's choice stands,
+        # and her words say so. And a short request typed before the phone was used, which waited its turn.
+        test, results = self, []
+
+        class Slow(Scripted):
+            def send_user(self, text):
+                if text:  # her first response: meanwhile, 夜曲 on the phone
+                    test.a.taps += 1
+                    test.p.select(test.ids[2], [test.ids[2]], {'kind': 'library'})
+                return super().send_user(text)
+
+            def send_tool_results(self, given):
+                results.extend(json.loads(raw) for _, raw in given)
+                return super().send_tool_results(given)
+        for action in ('pause', 'cancel'):
+            for typed in (True, False):
+                with self.subTest(action=action, typed=typed):
+                    self.p.select(self.ids[1], [self.ids[1]], {'kind': 'library'})
+                    answer = self.a.ask(Slow([self.call('control_playback', action=action)], ''), '先停一下吧，等会儿再说',
+                                        typed=typed, speak=None if typed else lambda words, meanwhile=False: None)
+                    self.assertEqual((self.p.current_id, self.p.state), (self.ids[2], 'playing'),
+                                     'What the phone chose plays on')
+                    self.assertEqual(results[-1]['status'], 'changed_on_phone')
+                    self.assertIn('what they did on their phone stands', results[-1]['instruction'])
+                    self.assertIn(answer, every('phone_stands', True), 'She wrote nothing: her line says it')
+        self.p.select(self.ids[1], [self.ids[1]], {'kind': 'library'})
+        sent = self.a.taps
+        self.a.taps += 1  # 夜曲 on the phone, after 暂停 was typed
+        self.p.select(self.ids[2], [self.ids[2]], {'kind': 'library'})
+        self.assertIn(self.a.ask(Scripted(), '暂停', typed=True, taps=sent), every('phone_stands', True))
+        self.assertEqual((self.p.current_id, self.p.state), (self.ids[2], 'playing'))
+        self.assertIn(self.a.ask(Scripted(), '暂停', typed=True), LINES['pause']['zh'], 'Typed after it, it pauses')
+        self.assertEqual(self.p.state, 'paused')
+
     def test_giving_way_she_says_it_is_ready_unless_it_is_that_very_piece(self):
         # Not started: her line, when she has no words of her own, says it is ready. The very piece chosen on the
         # phone meanwhile: it plays, and she says so.
