@@ -725,14 +725,13 @@ function onJobs(jobs) {
   for (const j of jobs) document.querySelectorAll(`[data-ring="${j.id}"] .arc`).forEach(a => a.setAttribute('stroke-dashoffset', RING * (1 - j.progress)));
 }
 const stopJob = id => api(`/api/downloads/${id}`, 'DELETE').catch(() => {});
-// A piece being prepared, tapped in the library or in Add Pieces: once it can play, as it is made, it plays in the
-// library's list (tapPreparing), Add Pieces closing as for a piece made there; before, a word says it is still being
-// prepared. Gone meanwhile (made, or stopped), its row is about to go: nothing.
+// A piece being prepared, tapped in the library: once it can play, as it is made, it plays in the library's list
+// (tapPreparing); before, a word says it is still being prepared. Gone meanwhile (made, or stopped), its row is about
+// to go: nothing.
 function playPreparing(job, from) {
   if (!job) return;
   const tapped = tapPreparing(job, listIds($('#library-list')));
   if (!tapped) return hud(T.stillPreparing);
-  if (openSheet === $('#sheet-add')) closeOverlays();
   play(tapped.id, tapped.ids, {kind: 'library'}, from);
 }
 
@@ -2044,14 +2043,7 @@ $('#add-body').addEventListener('click', e => {
     play(+made.dataset.play, listIds($('#library-list')), {kind: 'library'}, made);
     return;
   }
-  const video = e.target.closest('.cand > a'), c = video && online.state.found.find(f => f.url === video.getAttribute('href'));
-  const job = c && jobFor(c);
-  if (job) {  // one being prepared plays, as in the library, rather than its video
-    e.preventDefault();
-    playPreparing(job, video);
-    return;
-  }
-  if (video) pausePiano();  // the video plays on its site, the piano waits
+  if (e.target.closest('.cand > a')) pausePiano();  // the video plays on its site, the piano waits
 });
 
 // ---------- Talking in a conversation ----------
