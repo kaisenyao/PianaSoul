@@ -664,6 +664,36 @@ class AssistantTests(Base):
         self.assertIn(self.a.ask(Scripted(), '暂停', typed=True), LINES['pause']['zh'], 'Typed after it, it pauses')
         self.assertEqual(self.p.state, 'paused')
 
+    def test_her_piece_gives_way_to_the_phone_used_while_she_says_her_line(self):
+        # Spoken, she says what she plays before it sounds. A piece chosen on the phone in those seconds stands:
+        # hers is not started, then or later, and she says it is ready; the very piece chosen there plays on.
+        for tapped in (self.ids[2], self.ids[0]):
+            with self.subTest(tapped=tapped):
+                self.p.stop()
+                results, lines = [], []
+
+                class Told(Scripted):
+                    def send_tool_results(self, given):
+                        results.extend(json.loads(raw) for _, raw in given)
+                        return super().send_tool_results(given)
+
+                def speak(words, meanwhile=False):  # her line is heard to its end; the phone is used meanwhile
+                    lines.append(words)
+                    phone = threading.Thread(target=lambda: (setattr(self.a, 'taps', self.a.taps + 1),
+                                                             self.p.select(tapped, [tapped], {'kind': 'library'})))
+                    phone.start()
+                    phone.join()
+                self.a.ask(Told([self.call('play_recording', id=self.ids[0])], '准备好了，想听时告诉我。'),
+                           '弹一下晴天', speak=speak)
+                self.assertEqual(len(lines), 1, 'Her line was said')
+                self.assertEqual((self.p.current_id, self.p.state), (tapped, 'playing'), 'What the phone chose plays')
+                if tapped == self.ids[0]:
+                    self.assertEqual(results[-1]['how'], 'now_playing')
+                    continue
+                self.assertEqual(results[-1]['status'], 'not_started')
+                self.assertEqual((self.a.after_reply, self.a.pending), ([], None), 'Nothing waits to start')
+                self.assertEqual(self.p.ids, [tapped], 'Hers is not lined up either')
+
     def test_giving_way_she_says_it_is_ready_unless_it_is_that_very_piece(self):
         # Not started: her line, when she has no words of her own, says it is ready. The very piece chosen on the
         # phone meanwhile: it plays, and she says so.

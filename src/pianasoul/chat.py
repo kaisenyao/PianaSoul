@@ -819,20 +819,11 @@ class Assistant:
         list that plays, or the piece in the player again; or line it up after what its request chose before it,
         saying nothing. going_on: it is playing already, only looked at. With the piano away nothing changes, and
         the request waits to be retried (pending). The phone's player used since the request began (while she found
-        and transcribed a piece, say), the user's choice stands: nothing is started, and she says it is ready (the
-        very piece chosen there, it plays). (Nor, voice, does a piece paused while she listened play on by itself:
-        finish_interaction.)"""
-        player = self.player
+        and transcribed a piece, say, or said her line about it), the user's choice stands: nothing is started, and
+        she says it is ready (the very piece chosen there, it plays). (Nor, voice, does a piece paused while she
+        listened play on by itself: finish_interaction.)"""
         if not going_on and self.phone_used():
-            if player is not None and request.recording_id is not None \
-                    and player.current_id == request.recording_id and player.state == "playing":
-                return {"status": "playing", "how": "now_playing", "title": request.title,
-                        "from": clock(player.position)}
-            return {"status": "not_started", "title": request.title,
-                    **({"playlist": request.playlist} if request.playlist else {}),
-                    "instruction": "While you were getting it, the user changed what plays on their phone, so it was "
-                                   "not started. Do not start it: say in a few words that it is ready whenever they "
-                                   f"want it. Answer in {self.answer_in()}."}
+            return self._phone_stands(request)
         if request.lined_up:  # it follows the piece this request plays: as that one starts, it joins its list
             if self.typed:
                 self._when_replied(request, from_start)
@@ -863,6 +854,8 @@ class Assistant:
                     self.tell(line(how, self.chinese(), request.playlist or spoken_title(request.title)))
                     self.line_said = True
                 announced = True
+                if self.phone_used():  # used while she said it
+                    return self._phone_stands(request)
             if self.typed:  # it starts once her reply is there (ask)
                 self._when_replied(request, from_start)
                 return {"status": "playing", "how": how, "title": request.title, "from": clock(request.from_s),
@@ -877,6 +870,20 @@ class Assistant:
             return {"error": "recording_unavailable"}
         return {"status": "playing", "how": how, "title": player.current[1], "from": clock(player.position),
                 "introduction_spoken": announced, **({"playlist": request.playlist} if request.playlist else {})}
+
+    def _phone_stands(self, request: PlaybackRequest) -> dict:
+        """The phone's player used since the request began (_start): nothing is started, and she says it is ready; the
+        very piece chosen there plays, and she says so."""
+        player = self.player
+        if player is not None and request.recording_id is not None \
+                and player.current_id == request.recording_id and player.state == "playing":
+            return {"status": "playing", "how": "now_playing", "title": request.title,
+                    "from": clock(player.position)}
+        return {"status": "not_started", "title": request.title,
+                **({"playlist": request.playlist} if request.playlist else {}),
+                "instruction": "While you were getting it, the user changed what plays on their phone, so it was "
+                               "not started. Do not start it: say in a few words that it is ready whenever they "
+                               f"want it. Answer in {self.answer_in()}."}
 
     def _play(self, request: PlaybackRequest, from_start: bool) -> None:
         player, lineup = self.player, self.asked_now
