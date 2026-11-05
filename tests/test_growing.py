@@ -75,15 +75,15 @@ class GrowingTests(unittest.TestCase):
                 notes, controls = made_up(seed)
                 piece = Growing()
                 for midi, until in in_parts(notes, controls, sorted(random.Random(seed).sample(range(1, 40), 6))):
-                    piece.add(midi, until, 41.0)
+                    piece.add(midi, until)
                 file = file_messages(midi_of(notes, [c[:3] for c in controls]))
                 self.assertEqual(list(piece.messages(threading.Event())), file)
                 self.assertGreater(len(file), 500)
 
     def test_a_note_ending_where_a_later_part_begins_one_lets_up_first(self):
         piece = Growing()
-        piece.add(midi_of([(0.5, 2.0, 60, 80)]), 2.0, 3.0)  # let up at 2.0, where the next part's notes may begin
-        piece.add(midi_of([(2.0, 2.5, 60, 90), (2.0, 2.5, 55, 70)], [(2.0, 64, 100)]), math.inf, 3.0)
+        piece.add(midi_of([(0.5, 2.0, 60, 80)]), 2.0)  # let up at 2.0, where the next part's notes may begin
+        piece.add(midi_of([(2.0, 2.5, 60, 90), (2.0, 2.5, 55, 70)], [(2.0, 64, 100)]), math.inf)
         got = [(m.control,) if m.type == 'control_change' else (m.note, m.velocity)
                for m in piece.messages(threading.Event())]
         self.assertEqual(got[1:5], [(64,), (55, 70), (60, 0), (60, 90)], 'At 2.0: the pedal, then by key, the key up first')
@@ -93,13 +93,13 @@ class GrowingTests(unittest.TestCase):
 
     def test_its_music_waits_where_its_notes_are_not_there_yet(self):
         piece, got, stopped = Growing(), [], threading.Event()
-        piece.add(midi_of([(0.0, 0.2, 60, 80)]), 1.0, 5.0)
+        piece.add(midi_of([(0.0, 0.2, 60, 80)]), 1.0)
         playing = threading.Thread(target=lambda: got.extend(piece.messages(stopped)), daemon=True)
         playing.start()
         self.addCleanup(stopped.set)
         time.sleep(0.2)
         self.assertEqual([m and m.type for m in got[:3]], ['note_on', 'note_on', None], 'It waits for more')
-        piece.add(midi_of([(1.0, 1.5, 62, 80)]), math.inf, 5.0)
+        piece.add(midi_of([(1.0, 1.5, 62, 80)]), math.inf)
         playing.join(2)
         self.assertFalse(playing.is_alive(), 'Ended with the piece')
         self.assertEqual([(m.note, m.velocity) for m in got if m], [(60, 80), (60, 0), (62, 80), (62, 0)])
@@ -107,7 +107,7 @@ class GrowingTests(unittest.TestCase):
 
     def test_not_made_after_all_it_says_so_and_stopped_it_ends(self):
         piece = Growing()
-        piece.add(midi_of([(0.0, 0.2, 60, 80)]), 1.0, 5.0)
+        piece.add(midi_of([(0.0, 0.2, 60, 80)]), 1.0)
         threading.Timer(0.2, piece.fail).start()
         with self.assertRaises(NotMade):
             list(piece.messages(threading.Event()))
@@ -120,15 +120,15 @@ class GrowingTests(unittest.TestCase):
     def test_it_plays_once_there_is_enough_of_it_after_its_first_note(self):
         piece = Growing()
         self.assertIsNone(piece.first_note())
-        piece.add(midi_of([]), 3.0, 60.0)  # silence first
+        piece.add(midi_of([]), 3.0)  # silence first
         self.assertFalse(piece.plays())
-        piece.add(midi_of([(3.2, 3.5, 60, 80)]), 3.2 + PLAY_AHEAD_S - 0.5, 60.0)
+        piece.add(midi_of([(3.2, 3.5, 60, 80)]), 3.2 + PLAY_AHEAD_S - 0.5)
         self.assertAlmostEqual(piece.first_note(), 3.2, places=3)
         self.assertFalse(piece.plays(), 'Not enough after it yet')
-        piece.add(midi_of([]), 3.2 + PLAY_AHEAD_S, 60.0)
+        piece.add(midi_of([]), 3.2 + PLAY_AHEAD_S)
         self.assertTrue(piece.plays())
         short = Growing()
-        short.add(midi_of([(0.0, 0.5, 60, 80)]), math.inf, 1.0)
+        short.add(midi_of([(0.0, 0.5, 60, 80)]), math.inf)
         self.assertTrue(short.plays(), 'All of it there')
         self.assertEqual(piece.notes(), [[3.2, 0.3, 60, 80]])
 
@@ -164,14 +164,14 @@ class PlayingTests(unittest.TestCase):
         return check()
 
     def test_it_plays_while_it_is_made_and_where_it_is_not_there_yet_its_music_waits(self):
-        self.piece.add(midi_of([(0.0, 0.1, 60, 80), (0.3, 0.4, 62, 80)]), 0.5, 3.0)
+        self.piece.add(midi_of([(0.0, 0.1, 60, 80), (0.3, 0.4, 62, 80)]), 0.5)
         self.p.select(self.rec['id'])
         self.assertTrue(self.wait(lambda: self.p.position >= 0.5))
         time.sleep(0.4)  # its music waits at 0.5, where it is not there yet
         snap = self.p.snapshot()
         self.assertEqual((snap['state'], snap['ready'], snap['until'], snap['duration']), ('playing', 0.5, 0.5, 3.0))
         self.assertLessEqual(self.p.position, 0.5)
-        self.piece.add(midi_of([(0.5, 0.6, 64, 80), (0.8, 0.9, 65, 80)]), math.inf, 3.0)
+        self.piece.add(midi_of([(0.5, 0.6, 64, 80), (0.8, 0.9, 65, 80)]), math.inf)
         self.assertTrue(self.wait(lambda: self.p.state == 'stopped'))
         sent = self.notes_sent()
         self.assertEqual([note for _, note in sent], [60, 62, 64, 65])
@@ -181,7 +181,7 @@ class PlayingTests(unittest.TestCase):
         self.assertIsNone(self.p.snapshot()['ready'], 'All of it there')
 
     def test_paused_it_goes_on_from_there_and_a_seek_past_what_is_there_waits_there(self):
-        self.piece.add(midi_of([(0.0, 0.1, 60, 80), (0.6, 0.7, 62, 80)]), 1.0, 3.0)
+        self.piece.add(midi_of([(0.0, 0.1, 60, 80), (0.6, 0.7, 62, 80)]), 1.0)
         self.p.select(self.rec['id'])
         self.assertTrue(self.wait(lambda: self.p.position >= 0.3))
         self.p.pause()
@@ -194,7 +194,7 @@ class PlayingTests(unittest.TestCase):
         self.assertEqual((snap['state'], snap['position'], snap['until'], snap['ready']), ('playing', 2.0, 2.0, 1.0),
                          'It waits where it was taken')
         before = len(self.sent)
-        self.piece.add(midi_of([(1.5, 1.6, 64, 80), (2.0, 2.1, 65, 80)]), math.inf, 3.0)
+        self.piece.add(midi_of([(1.5, 1.6, 64, 80), (2.0, 2.1, 65, 80)]), math.inf)
         self.assertTrue(self.wait(lambda: self.p.state == 'stopped'))
         self.assertEqual([m.note for _, m in self.sent[before:] if m.type == 'note_on' and m.velocity], [65],
                          'From 2.0 on')
@@ -202,19 +202,19 @@ class PlayingTests(unittest.TestCase):
     def test_going_on_after_its_music_waited_it_never_waits_for_a_start_or_a_pause_meanwhile(self):
         told = []
         self.p.listeners.append(lambda: told.append(self.p.snapshot()))  # as the service tells the phones
-        self.piece.add(midi_of([(0.0, 0.1, 60, 80)]), 0.5, 3.0)
+        self.piece.add(midi_of([(0.0, 0.1, 60, 80)]), 0.5)
         self.p.select(self.rec['id'])
         self.assertTrue(self.wait(lambda: self.p.position >= 0.5))
         time.sleep(0.2)  # its music waits at 0.5
         with self.p._lock:  # a start or a pause, which waits for the playing thread to end before it goes on
-            self.piece.add(midi_of([(0.5, 0.6, 64, 80)]), math.inf, 3.0)
+            self.piece.add(midi_of([(0.5, 0.6, 64, 80)]), math.inf)
             self.assertTrue(self.wait(lambda: any(m.note == 64 for _, m in self.sent if m.type == 'note_on'), 1),
                             'On with its notes, never waiting for that lock on the playing thread')
             told.clear()
         self.assertTrue(self.wait(lambda: told), 'The phones are told that it goes on')
 
     def test_not_made_after_all_it_stops(self):
-        self.piece.add(midi_of([(0.0, 0.1, 60, 80)]), 0.5, 3.0)
+        self.piece.add(midi_of([(0.0, 0.1, 60, 80)]), 0.5)
         self.p.select(self.rec['id'])
         self.assertTrue(self.wait(lambda: self.p.position >= 0.4))
         self.piece.fail()
@@ -222,7 +222,7 @@ class PlayingTests(unittest.TestCase):
         self.assertIsNone(self.p.completed, 'Not a piece played to its end')
 
     def test_once_made_it_plays_from_its_file(self):
-        self.piece.add(midi_of([(0.0, 0.1, 60, 80)]), math.inf, 1.0)
+        self.piece.add(midi_of([(0.0, 0.1, 60, 80)]), math.inf)
         with tempfile.TemporaryDirectory() as tmp:
             midi_of([(0.0, 0.1, 60, 80)]).write(str(Path(tmp) / 'piece.mid'))
             made = self.lib.made(self.rec['id'], Path(tmp) / 'piece.mid')

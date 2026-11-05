@@ -382,7 +382,7 @@ class Downloads:
 
         def part(midi, until, length):  # as it is made (on this thread)
             nonlocal playing
-            growing.add(midi, until, length)
+            growing.add(midi, until)
             if anew and job.recording is None and not growing.whole and growing.plays():
                 named.wait()
                 self._check(job)
