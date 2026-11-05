@@ -1467,7 +1467,9 @@ class Assistant:
         self.selectable_ids.clear()
         progress_spoken = False
         playback_announced = False
-        confirms = False  # an action besides playing (a playlist made, the volume): her words say it
+        # An action besides playing (a playlist made, the volume), or a pause or stop after a piece her line introduced
+        # (else that piece would stand paused or stopped with nothing said of it): her words say it.
+        confirms = False
         action = match_command(text)
         if action is not None:
             log.debug("a short request, no model: %s", action)
@@ -1603,7 +1605,8 @@ class Assistant:
                         self.tell(line(WAITS[call.name], self.chinese()), meanwhile=True)
                         progress_spoken = True
                     raw = self.run_tool(call.name, call.arguments)
-                    confirms = confirms or call.name in ACTIONS - PLAYS
+                    confirms = confirms or call.name in ACTIONS - PLAYS or playback_announced \
+                        and call.name == "control_playback" and call.arguments.get("action") in {"pause", "cancel"}
                     if call.name == "search_online" and "searched" in json.loads(raw):  # no site could be searched
                         online_failed = True
                     if call.name == "search_library" and found is None:

@@ -867,6 +867,24 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(len(self.spoken), 1)
         self.assertIn(self.spoken[0], every('playing', True, '贝加尔湖畔'))
 
+    def test_spoken_her_pause_or_cancel_after_the_piece_her_line_introduced_is_said(self):
+        # Case 14 of the real-model check once (DeepSeek, 2026-11-04): 月光 played, introduced by her line, then paused in
+        # the same request, with nothing said of it. Her reply says it, or her line for it.
+        moon = self.records[1]['id']
+        for action, final in (('pause', '好的，先停在这儿～'), ('pause', ''), ('cancel', '')):
+            with self.subTest(action=action, final=final):
+                self.prime()
+                chat = ScriptedChat([call('play_recording', id=moon)], [call('control_playback', action=action)], final)
+                answer = self.ask(chat, '换成德彪西的月光吧。')
+                self.assertEqual(len(self.spoken), 1)
+                self.assertIn(self.spoken[0], every('playing', True, '月光'))
+                self.assertEqual(self.player.state, 'paused' if action == 'pause' else 'stopped')
+                self.assertIn(answer, [final] if final else every(action, True))
+        self.prime()  # stopped before it: her line for the new piece says it all, as before
+        chat = ScriptedChat([call('control_playback', action='cancel'), call('play_recording', id=moon)], '好呀，换成月光啦～')
+        self.assertEqual(self.ask(chat, '这首不听了，换成德彪西的月光吧。'), '')
+        self.assertEqual((self.player.current[1], self.player.state), ('月光', 'playing'))
+
     def test_model_pause_uses_one_fallback_only_if_final_reply_is_empty(self):
         for final_reply in ('', "好呀，我先停一下。"):
             with self.subTest(final_reply=final_reply):
