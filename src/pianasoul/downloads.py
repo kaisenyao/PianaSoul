@@ -226,6 +226,7 @@ class Downloads:
                     self.lib.set_audio(job.audio, status="converting")
             self.changed()
             try:
+                kept = self.lib.by_source(job.source)  # made again into a record the library had: never taken out
                 job.result = self._make(job)
                 job.status, job.recording = "done", job.result["id"]
             except Stopped:
@@ -239,8 +240,9 @@ class Downloads:
                     continue  # first in the queue still: made next
                 if job in self.jobs:
                     self.jobs.remove(job)
-                # Stopped as it was filed, it is not kept; a stop from now on finds it out of the queue, as it ended.
-                filed = job.recording if job.status == "done" and job.stopped.is_set() else None
+                # Stopped as it was filed, a piece new to the library is not kept; a stop from now on finds it out of
+                # the queue, as it ended.
+                filed = job.recording if job.status == "done" and job.stopped.is_set() and kept is None else None
                 if filed is not None:
                     job.status, job.error, job.result, job.recording = "stopped", "stopped", None, None
             if filed is not None:

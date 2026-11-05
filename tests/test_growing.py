@@ -529,6 +529,27 @@ class MadeAsItPlaysTests(unittest.TestCase):
     def test_her_piece_made_whole_and_stopped_on_the_phone_as_it_is_filed_does_not_start(self):
         self.stopped_as_it_is_filed([])
 
+    def test_one_made_before_whose_file_is_gone_and_stopped_as_it_is_filed_stays_in_the_library(self):
+        old = self.lib.making('周杰伦 - 晴天', source_type='url', source_url='https://www.youtube.com/watch?v=abcdefghijk',
+                              duration_s=30.0)
+        self.lib.execute('UPDATE recordings SET making = 0 WHERE id = ?', (old['id'],))  # made once; its file since gone
+        steps = Steps([])
+        d = self.downloads(steps)
+        filing, stopped, set_video = threading.Event(), threading.Event(), self.lib.set_video
+
+        def file(rec_id, details):  # its video's details kept, as it is filed
+            filing.set()
+            stopped.wait(2)
+            return set_video(rec_id, details)
+        with patch.object(self.lib, 'set_video', side_effect=file):
+            job = d.add('https://youtu.be/abcdefghijk')
+            steps.go.release()
+            self.assertTrue(filing.wait(2))
+            d.stop(job.id)  # the phone's stop, too late
+            stopped.set()
+            self.assertTrue(job.finished.wait(2))
+        self.assertIsNotNone(self.lib.get(old['id']), 'The piece it had is kept, with what was done to it')
+
     def test_one_made_before_whose_file_is_gone_is_made_again_whole(self):
         old = self.lib.making('周杰伦 - 晴天', source_type='url', source_url='https://www.youtube.com/watch?v=abcdefghijk',
                               duration_s=30.0)
