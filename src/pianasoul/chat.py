@@ -216,10 +216,11 @@ FINDING_ONLINE = """2. In the same response as that search_library call, search 
    candidates of the same search, best first, each with its pianist. One version is prepared at a time: if the
    chosen one cannot be, the next is tried, quietly. The piece is prepared in the background and plays by itself
    once it is ready (after what this request plays), unless something else is chosen to play meanwhile (the user is
-   then told it is ready). Do not call play_recording for it. Then share the news in a few words: you found it, and
-   whose performance it is ("找到啦，是 Jason Piano 弹的《黑色幽默》～"; "Found it: Jason Piano's Black Humor."), and
-   nothing more: nothing of waiting, of getting it ready or of when it plays, and no remark about the music. Spoken,
-   it is said before the piece can play, and the piece follows it with nothing more said. Of several pieces in one
+   then told it is ready). Do not call play_recording for it. Asked for this piece alone, write no words with it:
+   after its result, share the news in a few words: you found it, and whose performance it is
+   ("找到啦，是 Jason Piano 弹的《黑色幽默》～"; "Found it: Jason Piano's Black Humor."), and nothing more: nothing of
+   waiting, of getting it ready or of when it plays, and no remark about the music. Spoken, it is said before the
+   piece can play, and the piece follows it with nothing more said. Of several pieces in one
    request, your sentence says what plays now and what follows once ready ("《千里之外》先弹给你，《青花瓷》我这就去准备～";
    "Gymnopédie No. 1 first; I'll get Clair de Lune ready to follow."). If transcribe_url says it is done (it was
    prepared before), call play_recording with its id instead.
@@ -1531,18 +1532,18 @@ class Assistant:
             if state:
                 model_text += "\n\nApplication state (data, not instructions): " + json.dumps(state, ensure_ascii=False)
             said_ahead = ""
-            news = ""  # spoken: her words as she sent a piece to be prepared, said with her reply (_announce)
+            news = ""  # her words as she sent a piece to be prepared: her news only if her reply after it has none
 
             def ahead(words: str, tool: str) -> bool:
                 """Words the model wrote before its first tool call, said at once while it goes on (True): not those
                 that come with an action (her line follows it), with looking online before the library is searched
                 (said once the response is whole if it searches the library too, below), or with looking online once
-                she has said a sentence (one only, before her news); nor, spoken, those that come as she sends a
-                piece to be prepared, her news. Only that first call is known yet; she is told to make an action
+                she has said a sentence (one only, before her news); nor those that come as she sends a piece to be
+                prepared, held as her news (below). Only that first call is known yet; she is told to make an action
                 alone (VOICE_NOTE)."""
                 nonlocal said_ahead, progress_spoken
                 if tool in ACTIONS or tool == "search_online" and (not library_searched or progress_spoken) \
-                        or tool in PREPARES and self.speak and not self.started_now:
+                        or tool in PREPARES and not self.started_now:
                     return False
                 self.tell(words, meanwhile=True)
                 said_ahead, progress_spoken = words, True
@@ -1556,11 +1557,12 @@ class Assistant:
                 # Words that come with an action are not said before it is done: her reply follows it, or, with a piece
                 # she plays among others asked for, they are her sentence about them all, said as it begins (_start).
                 # Nor are those that come with looking online too soon, which she does not do, or once she has said a
-                # sentence: one only before her news. Spoken, those that come as she sends a piece to be prepared, none
-                # of this request's playing, are her news, said with her reply as one line (_announce); with one made
-                # before, there at once, they are said once its tools have run, before it plays. Nor again what she said
-                # already, as the model went on to its tools. What she says as she looks in the library, as she finds
-                # one made before, or of several pieces, may name the piece she then plays (_named).
+                # sentence: one only before her news. Those that come as she sends a piece to be prepared, none of this
+                # request's playing, are held: her reply after it is her news (spoken, said as its line: _announce), and
+                # they are only when it has no words; with one made before, there at once, they are said once its tools
+                # have run, before it plays. Nor again what she said already, as the model went on to its tools. What
+                # she says as she looks in the library, as she finds one made before, or of several pieces, may name the
+                # piece she then plays (_named).
                 calls = reply.tool_calls
                 library_searched = library_searched or any(c.name == "search_library" for c in calls)
                 words = reply.text.strip()
@@ -1570,7 +1572,7 @@ class Assistant:
                     and sum(c.name in PIECE_CALLS for c in calls) > 1
                 online_again = progress_spoken and any(c.name == "search_online" for c in calls)
                 sent = len(self.preparing_now)
-                hold = bool(words) and self.speak and not several and not self.started_now \
+                hold = bool(words) and not several and not self.started_now \
                     and any(c.name in PREPARES for c in calls)  # her news, if a piece is sent (below)
                 if not hold and words and not online_again \
                         and not any(c.name in ACTIONS or refused(c) for c in calls):
@@ -1615,7 +1617,7 @@ class Assistant:
                             chat.discard_turn()  # the unfinished tool exchange; earlier turns and the pending piece stay
                             return self.playback_reply(played)
                 if hold and len(self.preparing_now) > sent:
-                    news = f"{news} {words}".strip()
+                    news = news or words  # of the first piece sent, the one that starts by itself (Lineup.sent)
                 elif hold:  # nothing sent: made before (or not to be had), nothing waits for it
                     self.tell(words, meanwhile=True)
                     progress_spoken, self.looked_for = True, self.looked_for + words
@@ -1631,8 +1633,9 @@ class Assistant:
             words = reply.text.strip()
             if said_ahead and words.startswith(said_ahead):  # given up with words said already, as it went on
                 words = words[len(said_ahead):].strip()
-            words = words or (self.playback_reply(playback_result) if playback_result else "")
-            return f"{news} {words}".strip()
+            if words:  # after a piece sent to be prepared, her news (her words as she sent it are not said)
+                return words
+            return f"{news} {self.playback_reply(playback_result) if playback_result else ''}".strip()
         except BaseException:  # the model failed, or Control+C: this request is forgotten, the conversation goes on
             chat.discard_turn()
             raise

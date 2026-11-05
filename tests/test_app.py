@@ -1406,18 +1406,45 @@ class PreparedTests(Base):
         self.assertFalse(says_name('找到啦，这版很好听～', 'Jason Piano'))
         self.assertFalse(says_name('找到啦～', ''), 'No name, none said')
 
-    def test_spoken_her_words_as_she_sends_it_and_her_reply_after_are_her_news_in_one_line(self):
-        self.plays_in(0.3)
-        answer = self.ask_aloud(('我找找《晴天》～', [self.call('search_library', query='Sunny Day')]),
-                                ('找到啦，是 Jason Piano 弹的《晴天》～',
-                                 [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')]),
-                                '很温柔的一版。')
-        self.assertEqual((self.said, answer), (['我找找《晴天》～'], '找到啦，是 Jason Piano 弹的《晴天》～ 很温柔的一版。'),
-                         'Said together, as voice says her reply: two lines of hers at most')
-        job = self.queue.jobs['https://youtu.be/qingtian']
-        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
-        self.assertEqual([m['text'] for m in self.kept if m['role'] == 'assistant'], ['我找找《晴天》～', answer])
-        self.made('qingtian', job.recording)
+    def test_her_reply_after_she_sends_it_is_her_news_and_her_words_with_it_are_not_said(self):
+        # The three requests of the end-to-end runs (DeepSeek, 2026-11-04) that wrote words with transcribe_url and her
+        # news after it: those words, then her reply.
+        recorded = [('找到啦，是 Nice piano sheets 弹的《光年之外》～', '找到的就是这一版 Nice piano sheets 弹的，马上为你弹起来～'),
+                    ('找到啦，是 Oskar Roman Jezior 弹的《十年》～', '找到啦，是 Oskar Roman Jezior 弹的《十年》～'),
+                    ('好呀，我去找一版《天空之城》的钢琴曲～', '找到啦，是悠悠琴韵弹的《天空之城》～')]
+        for (with_call, reply), typed in [(pair, typed) for pair in recorded for typed in (False, True)]:
+            with self.subTest(reply=reply, typed=typed):
+                self.fresh()
+                steps = (with_call, [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')]), reply
+                with patch.object(chat_module, 'NEWS_WAIT_S', 0.1), patch.object(chat_module, 'TYPED_REPLY_S', 0):
+                    if typed:
+                        self.said, answer = [], self.a.ask(Scripted(*steps), '弹一首晴天', typed=True)
+                    else:
+                        answer = self.ask_aloud(*steps)
+                self.assertEqual((self.said, answer), ([], reply), 'Her reply alone is her news')
+                self.assertEqual(self.hers(), [reply], 'Kept once')
+
+    def test_her_words_as_she_sends_it_are_her_news_when_her_reply_after_has_none(self):
+        news = '找到啦，是 Jason Piano 弹的《晴天》～'
+        for typed in (False, True):
+            with self.subTest(typed=typed):
+                self.fresh()
+                with patch.object(chat_module, 'NEWS_WAIT_S', 0.1), patch.object(chat_module, 'TYPED_REPLY_S', 0):
+                    if typed:
+                        self.said, answer = [], self.a.ask(Scripted((news, self.sent()), ''), '弹一首晴天', typed=True)
+                    else:
+                        answer = self.ask_aloud((news, self.sent()), '')
+                self.assertEqual((self.said, answer), ([], news), 'Not said as she sends it: said as her news')
+                rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+                self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+                self.made('qingtian', rec_id)
+                self.settle()
+                self.assertEqual((self.p.current_id, self.p.state), (rec_id, 'playing'))
+                if typed:  # her news shown, then her line as it starts
+                    self.assertEqual(self.hers()[0], news)
+                    self.assertIn(self.hers()[1], every('playing', True, '晴天'))
+                else:
+                    self.assertEqual(self.hers(), [news], 'Her news was its line: nothing more as it starts')
 
     def test_spoken_her_news_is_said_before_the_piece_can_play_and_nothing_follows_when_it_starts(self):
         from pianasoul.voice import finish_interaction
