@@ -1092,6 +1092,9 @@ class PreparedTests(Base):
         self.a.downloads = self.queue = Queue()
         self.kept = []
         self.a.on_message = self.kept.append
+        self.following = []  # her threads that follow the pieces she sent to be prepared (Assistant._prepared)
+        follow = self.a._prepared
+        self.a._prepared = lambda job: (self.following.append(threading.current_thread()), follow(job))
         self.addCleanup(self.settled, self.a)
 
     def settled(self, a):
@@ -1099,6 +1102,14 @@ class PreparedTests(Base):
         self.eventually(lambda: all(not job.finished.is_set() for job, _ in a.preparing.values()))
         with a._turn:
             pass
+
+    def settle(self):
+        """All she does in the background is over: each piece she sent was made or not, and what follows it has ended;
+        what plays is as it stays."""
+        for thread in self.following:
+            thread.join(5)
+            self.assertFalse(thread.is_alive(), 'What follows a piece she sent to be prepared ends')
+        self.settled(self.a)
 
     def call(self, name, **arguments):
         return SimpleNamespace(name=name, arguments=arguments)
@@ -1513,6 +1524,27 @@ class PreparedTests(Base):
                 self.made('qingtian', second)
                 self.assertTrue(self.eventually(lambda: not self.a.preparing))
                 self.assertEqual(list(self.a.failed), [], 'Made after all')
+
+    def test_paused_or_stopped_before_it_went_its_next_version_is_only_said_to_be_ready(self):
+        changes = {'her pause': lambda: self.a.ask(Scripted(), '暂停'),
+                   'her cancel': lambda: self.a.ask(Scripted(), '取消'),
+                   'a pause on the phone': lambda: (setattr(self.a, 'taps', self.a.taps + 1), self.p.pause()),
+                   'a stop on the phone': lambda: (setattr(self.a, 'taps', self.a.taps + 1), self.p.stop())}
+        for change, make in changes.items():
+            with self.subTest(change=change):
+                self.fresh()
+                self.prepare('qingtian')
+                first = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+                self.assertTrue(self.eventually(lambda: self.p.current_id == first))
+                make()
+                self.went('qingtian', then='qingtian-kassia')
+                self.assertTrue(self.eventually(lambda: self.a.preparing))
+                second = self.playing('qingtian', '周杰伦 - 晴天 (Kassia)')
+                self.assertTrue(self.said_last('准备好啦'))
+                self.made('qingtian', second)
+                self.settle()
+                self.assertNotEqual(self.p.state, 'playing', 'What was done since it began stands')
+                self.assertIn('准备好啦', self.kept[-1]['text'], 'Only said to be ready, nothing after it')
 
     def test_her_next_goes_to_one_being_made_that_follows(self):
         self.play_and_prepare()

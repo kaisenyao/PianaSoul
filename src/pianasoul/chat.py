@@ -460,11 +460,12 @@ class Lineup:
     """What one request asked to hear, in the order it plays: the pieces it chose or went on with (ids), and after
     them, as each is ready, those it sent to be prepared (_ready). listed: the player's list they are in
     (Playback.listed), once one plays. moves and taps: what plays, as the request left it (_asked), and the phone's
-    player, as it began. announced: her news of the piece it sent to be prepared was said, spoken, as its line
-    (_announce): as it starts, nothing more is. Of the first piece it sent to be prepared, the one that starts by itself
-    (_to_start): sent, when (time.monotonic(): her news waits from then, _announce); and named, the version her words
-    named by its performer (its job's id, link and performer): the one she chose, kept as her reply comes only if her
-    words name its performer (ask), then the one the line that says it is another names (_other_version)."""
+    player, as it began; once a piece it prepared starts by itself, both as they are then (_place). announced: her
+    news of the piece it sent to be prepared was said, spoken, as its line (_announce): as it starts, nothing more
+    is. Of the first piece it sent to be prepared, the one that starts by itself (_to_start): sent, when
+    (time.monotonic(): her news waits from then, _announce); and named, the version her words named by its performer
+    (its job's id, link and performer): the one she chose, kept as her reply comes only if her words name its
+    performer (ask), then the one the line that says it is another names (_other_version)."""
     taps: int = 0
     ids: list[int] = field(default_factory=list)
     listed: int | None = None
@@ -731,10 +732,10 @@ class Assistant:
     def _place(self, job, rec: dict, lineup: Lineup, went: bool) -> None:
         """Its request still the latest to ask for pieces, it joins the list where its pieces play, after them; or,
         nothing of it playing, it plays: at the end of their list once it is over, or once what played of it went
-        (went: a version of it that played as it was made was not made), or by itself if nothing has changed since
-        the request (_start: nor on the phone), with nothing said when her news of it was its line (_announce), and in
-        another version than her words named, the line that says so in place of any (_other_version). Else she says
-        it is ready."""
+        with nothing changed since it began (went: a version of it that played as it was made was not made), or by
+        itself if nothing has changed since the request (_start: nor on the phone), with nothing said when her news of
+        it was its line (_announce), and in another version than her words named, the line that says so in place of
+        any (_other_version). Else she says it is ready."""
         player = self._get_player()
         if player.current_id == rec["id"]:
             return  # chosen meanwhile, by her or on the phone: nothing to say
@@ -745,7 +746,7 @@ class Assistant:
             self.keep("piece", rec["title"], rec["id"])
             return
         unchanged = lineup is self.lineup and lineup.listed is None and self.moves == lineup.moves
-        in_its_place = went and player.current_id is None
+        in_its_place = went and player.current_id is None and (self.moves, self.taps) == (lineup.moves, lineup.taps)
         if not (theirs and (player.ended or in_its_place) or unchanged):
             self.piano_news({"status": "not_started", "title": rec["title"]})
             return
@@ -768,6 +769,7 @@ class Assistant:
             self.piano_news(result)
         if playing:
             lineup.announced = False  # her news was its line; a version in its place later has its own
+            lineup.moves, lineup.taps = self.moves, self.taps  # what a version in its place goes by (in_its_place)
         for rec_id, title in self.played_now:
             self.keep("piece", title, rec_id)
 
