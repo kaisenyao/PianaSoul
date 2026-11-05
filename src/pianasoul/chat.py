@@ -512,7 +512,9 @@ class Assistant:
         self.lineup: Lineup | None = None  # of the latest request that chose pieces or sent any to be prepared
         self.started_now = False  # this request started a piece or went on with one (_play)
         self.looked_for = ""  # her words said at once as this request searched the library or chose several (_named)
-        self.held = ""  # her words that came with a piece she plays among others asked for, said as it begins (_start)
+        # Her words that came with a piece she plays among others asked for: said as it begins (_start), spoken, when
+        # they name it; else before her reply (_answer).
+        self.held = ""
         self.line_said = False  # her line, not her own words, said what this request plays
         self.said_now = ""  # what she said (or showed) for this request before her reply (tell)
         self.prepared: deque[int] = deque(maxlen=PREPARED_KEPT)  # the ids of the latest she prepared, oldest first
@@ -1533,6 +1535,7 @@ class Assistant:
                 model_text += "\n\nApplication state (data, not instructions): " + json.dumps(state, ensure_ascii=False)
             said_ahead = ""
             news = ""  # her words as she sent a piece to be prepared: her news only if her reply after it has none
+            plan = ""  # her sentence about several pieces, not said as the first began: said before her reply
 
             def ahead(words: str, tool: str) -> bool:
                 """Words the model wrote before its first tool call, said at once while it goes on (True): not those
@@ -1621,7 +1624,7 @@ class Assistant:
                 elif hold:  # nothing sent: made before (or not to be had), nothing waits for it
                     self.tell(words, meanwhile=True)
                     progress_spoken, self.looked_for = True, self.looked_for + words
-                self.held = ""
+                plan, self.held = plan or self.held, ""
                 reply = model_reply(chat.send_tool_results, results)
             if reply.tool_calls:  # still calling tools after MAX_TOOL_ROUNDS: give this request up
                 chat.discard_turn()
@@ -1633,9 +1636,11 @@ class Assistant:
             words = reply.text.strip()
             if said_ahead and words.startswith(said_ahead):  # given up with words said already, as it went on
                 words = words[len(said_ahead):].strip()
-            if words:  # after a piece sent to be prepared, her news (her words as she sent it are not said)
-                return words
-            return f"{news} {self.playback_reply(playback_result) if playback_result else ''}".strip()
+            if not words:  # her words as she sent a piece to be prepared are her news; her line says what plays,
+                words = news  # unless her sentence about several pieces did
+                if playback_result and not plan:
+                    words = f"{words} {self.playback_reply(playback_result)}"
+            return f"{plan} {words}".strip()
         except BaseException:  # the model failed, or Control+C: this request is forgotten, the conversation goes on
             chat.discard_turn()
             raise

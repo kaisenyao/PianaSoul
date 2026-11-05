@@ -14,7 +14,7 @@ from unittest.mock import Mock, patch
 
 import mido
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
-from pianasoul import online
+from pianasoul import chat as chat_module, online
 from pianasoul.chat import MAX_TOOL_ROUNDS, NEW_CONVERSATION_AFTER_S, Assistant, TOOLS, instructions
 from pianasoul.downloads import Job
 from pianasoul.library import Library
@@ -817,6 +817,30 @@ class PlaybackTests(unittest.TestCase):
                            call('transcribe_url', url='https://youtu.be/abcdefghijk', piece='夜曲'))
         self.assertEqual((self.spoken, answer), ([plan], ''))
         self.assertEqual((self.player.current[1], self.player.state), ('贝加尔湖畔', 'playing'))
+
+    def test_spoken_her_sentence_about_several_pieces_that_does_not_name_the_first_follows_her_line(self):
+        baikal, moon = (r['id'] for r in self.records)
+        plan = '好呀，两首都给你安排上～'
+        chat = ScriptedChat([call('search_library', query='月光')],
+                            (plan, [call('play_recording', id=baikal), call('play_recording', id=moon)]), '')
+        answer = self.ask(chat, '弹贝加尔湖畔，然后再弹一首')
+        self.assertEqual(len(self.spoken), 1)
+        self.assertIn(self.spoken[0], every('playing', True, '贝加尔湖畔'), 'Her line says the first')
+        self.assertEqual(answer, plan, 'Then her sentence, not dropped')
+        self.assertEqual((self.player.current[1], self.player.ids), ('贝加尔湖畔', [baikal, moon]))
+
+    def test_typed_her_sentence_about_several_pieces_is_her_answer(self):
+        baikal, moon = (r['id'] for r in self.records)
+        plan = '好呀，先弹《贝加尔湖畔》，再接着弹《月光》～'
+        kept = []
+        self.a.on_message = kept.append
+        chat = ScriptedChat([call('search_library', query='月光')],
+                            (plan, [call('play_recording', id=baikal), call('play_recording', id=moon)]), '')
+        with patch.object(chat_module, 'TYPED_REPLY_S', 0), patch.object(chat_module, 'TYPED_PLAY_S', 0):
+            answer = self.a.ask(chat, '弹贝加尔湖畔，然后弹月光', typed=True)
+        self.assertEqual(answer, plan, 'Shown as her answer, in place of her line')
+        self.assertEqual([m['text'] for m in kept if m['role'] == 'assistant'], [plan])
+        self.assertEqual((self.player.current[1], self.player.ids), ('贝加尔湖畔', [baikal, moon]))
 
     def test_spoken_without_her_sentence_her_line_says_the_first_of_several_and_her_reply_the_rest(self):
         baikal, moon = (r['id'] for r in self.records)
