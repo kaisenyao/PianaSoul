@@ -23,8 +23,9 @@ from openai import APIStatusError
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import online
-from pianasoul.chat import TOOLS, instructions
+from pianasoul.chat import TOOLS, instructions, says_name
 from pianasoul.downloads import clean_url
+from pianasoul.lines import every
 from pianasoul.llm import make_chat, model_spec
 from pianasoul.voice import finish_interaction
 from test_playback_interactions import PlaybackTests
@@ -59,7 +60,8 @@ CASES = [
     # Not in the library: online only after the library was searched, on the site chosen; one version prepared, the
     # next good ones handed over with it, and the piece plays once it is made, her words two at most (two_lines).
     # YouTube out of reach: she says why and where else to look, and does not search again. The version she chose
-    # cannot be had: the next one plays.
+    # cannot be had: the next one plays, and her news, if it named the first one's pianist, ends with the line that
+    # says it is another (corrected).
     ('弹一首陈奕迅的十年', 'online:youtube'),
     ('弹一首陈奕迅的十年', 'online:bilibili'),
     ('弹一首陈奕迅的十年', 'unreachable'),
@@ -102,14 +104,21 @@ VIDEOS = {
 }
 
 
-# Her words for a piece found online: two at most, what she will do and her news of it, said at once and followed by
-# the piece with nothing more, so that neither asks to wait nor says when or how it plays.
+# Her words for a piece found online: two at most, what she will do and her news of it, said before the piece can play
+# and followed by it with nothing more, so that neither asks to wait nor says when or how it plays.
 WAITING = re.compile(r'稍等|等我|等一下|稍候|准备好|好了就|一会儿|马上|弹给你|弹起来|响起来|\bmoment\b|\bhang on\b|'
                      r'\bbear with me\b|\bready\b|\bas soon as\b|\bshortly\b|\bright away\b|\bplay it for you\b', re.I)
 
 
 def two_lines(said):
     return len(said) <= 2 and not any(WAITING.search(words) for words in said)
+
+
+def corrected(answer, named, then):
+    """Her reply, the version she chose (by named) not had and another (by then) played: it ends with the line that
+    says so when it named the first one's pianist, and only then."""
+    lines = every('other_version', True, then) + every('another_version', True)
+    return any(answer.endswith(text) for text in lines) == says_name(answer, named)
 
 
 def by_title(fixture, title):
@@ -221,9 +230,10 @@ def check(expected, fixture, answer, said, trace, results, asked, playing):
     if expected == 'fallback':
         sent = next((a for name, a in trace if name == 'transcribe_url'), {})
         versions = [clean_url(v['url']) for v in sent.get('alternatives') or []]
+        playing = fixture.lib.get(player.current_id) if player.state == 'playing' else None
         return prepared_well(trace, results, 'youtube') and asked[1:2] == versions[:1] \
-            and player.state == 'playing' and fixture.lib.get(player.current_id)['source_url'] == versions[0] \
-            and two_lines(said)
+            and playing is not None and playing['source_url'] == versions[0] and two_lines(said) \
+            and corrected(answer, sent.get('performer', ''), playing['performer'])
     if expected.startswith('several:'):  # all she said names both: the plan may come before a search, the news after
         titles = expected[8:].split(',')
         first, then = (by_title(fixture, t) for t in titles)

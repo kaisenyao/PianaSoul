@@ -5,9 +5,10 @@ A short request (playback_commands) is answered with her line, typed or spoken, 
 (Assistant.piano_news), going online with nothing said yet, a piece that could not be played for want of the piano or
 of the piece, and a request the model could not answer. Otherwise, a spoken request's piece is introduced by her line
 as it begins to play (Assistant._start: a new piece or playlist, resume, retry, restart, next, previous), one she
-found online by her news of it instead (Assistant.ask), and the rest, pause and cancel among them, the model words,
-typed or spoken, with her line only when it wrote nothing. Spoken, a line without a piece's name in it is said from a
-recording of her voice, made once (voice.READY): at once, and the same each time.
+found online by her news of it instead (Assistant.ask), or by her line that it is another version than her news named
+(Assistant._other_version), and the rest, pause and cancel among them, the model words, typed or spoken, with her line
+only when it wrote nothing. Spoken, a line without a piece's name in it is said from a recording of her voice, made
+once (voice.READY): at once, and the same each time.
 """
 
 from __future__ import annotations
@@ -63,6 +64,11 @@ LINES = {
                   "en": ["I couldn't get {piece} ready this time. Shall I try another version?"]},
     "link_not_ready": {"zh": ["那个链接这次没准备好，要不要换一个试试？"],
                        "en": ["I couldn't get that link ready this time. Shall we try another one?"]},
+    # Her news named the performer of the version she chose, and it plays in another (that one could not be had):
+    # said right before it plays, {piece} being the performer of the one it plays in, when known
+    "other_version": {"zh": ["那一版没弹成，换了 {piece} 弹的这版～"],
+                      "en": ["That version didn't work out, so here's the one by {piece}."]},
+    "another_version": {"zh": ["那一版没弹成，换了另一版～"], "en": ["That version didn't work out, so here's another one."]},
     # Paused just now, to go on from there; or stopped, the piece given up
     "pause": {"zh": ["好，先暂停在这儿，想接着听就叫我～", "嗯，暂停好啦，说声继续我就接着弹。",
                      "好呀，先暂停一下，回头从这儿接着弹给你。"],

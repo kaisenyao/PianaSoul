@@ -72,6 +72,15 @@ PIECE_CALLS = {"play_recording", "search_library", "search_online", "transcribe_
 # Typed to, she answers as a person texting would: her reply after a moment at least (the dots show meanwhile), and
 # what she plays starts once it is there, a little after it.
 TYPED_REPLY_S, TYPED_PLAY_S = 1.0, 0.8
+# Spoken, her news of a piece she sent to be prepared is said once the recording of the version being made is
+# downloaded, while its first seconds are transcribed, or NEWS_WAIT_S after she sent it at the latest; the piece starts
+# once it can play and her news has been said (Assistant._announce). Recorded runs of 2026-11-04 (42 on this Mac, from
+# transcribe_url): her reply is there after 1.2 s (median; 2.7 s for nine in ten); a download is done after 2.5 to
+# 3.7 s (17; two of Bilibili's 4.6 and 4.9 s), or 7.7 to 8.8 s when YouTube holds it back some 5 s (25). Waiting for
+# those would leave 10 s of silence after her first sentence (median); 3 s leaves 5 s, about as after a download not
+# held back (4.6 s), and the rest of the wait after her news (3.5 s, the lead-in's second included). The first note is
+# no later for it: up to 4 s, her news ends before the piece can play.
+NEWS_WAIT_S = 3.0
 ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "Search the library too: call "
                               "search_library with the piece's other names (another language or spelling, the "
                               "composer's other name) in the same response as search_online, and play it from the "
@@ -202,10 +211,10 @@ FINDING_ONLINE = """2. In the same response as that search_library call, search 
    then told it is ready). Do not call play_recording for it. Then share the news in a few words: you found it, and
    whose performance it is ("找到啦，是 Jason Piano 弹的《黑色幽默》～"; "Found it: Jason Piano's Black Humor."), and
    nothing more: nothing of waiting, of getting it ready or of when it plays, and no remark about the music. Spoken,
-   it is said at once, and the piece follows it with nothing more said. Of several pieces in one request, your
-   sentence says what plays now and what follows once ready ("《千里之外》先弹给你，《青花瓷》我这就去准备～"; "Gymnopédie No. 1
-   first; I'll get Clair de Lune ready to follow."). If transcribe_url says it is done (it was prepared before), call
-   play_recording with its id instead.
+   it is said before the piece can play, and the piece follows it with nothing more said. Of several pieces in one
+   request, your sentence says what plays now and what follows once ready ("《千里之外》先弹给你，《青花瓷》我这就去准备～";
+   "Gymnopédie No. 1 first; I'll get Clair de Lune ready to follow."). If transcribe_url says it is done (it was
+   prepared before), call play_recording with its id instead.
 4. If there is no good piano version, say so kindly and do not play something poor.
 If the user pastes a video link, call transcribe_url with it (its names empty unless the user named them) and say
 in a few words that you will play it ("好呀，弹给你听～"; "Sure, I'll play it for you."), which is said as your news is.
@@ -378,6 +387,15 @@ def spoken_title(title: str) -> str:
     return title_parts(title)["piece"]
 
 
+def says_name(words: str, name: str) -> bool:
+    """Whether her words say a name, or a part of it ("夜色钢琴曲 赵海洋" as 赵海洋), whatever the spaces and marks in
+    it ("Czzy__" as Czzy)."""
+    def bare(text: str) -> str:
+        return "".join(c for c in text.casefold() if c.isalnum())
+    said = bare(words)
+    return any(len(part) > 1 and part in said for part in map(bare, [name, *name.split()]))
+
+
 def _brief(rec: dict) -> dict:
     """A recording as she sees it: its names (as the tools take them) and what she may need to choose it (one being
     made is there to play, as it is made)."""
@@ -435,12 +453,17 @@ class Lineup:
     them, as each is ready, those it sent to be prepared (_ready). listed: the player's list they are in
     (Playback.listed), once one plays. moves and taps: what plays, as the request left it (_asked), and the phone's
     player, as it began. announced: her news of the piece it sent to be prepared was said, spoken, as its line
-    (_announce): as it starts, nothing more is."""
+    (_announce): as it starts, nothing more is. Of the first piece it sent to be prepared, the one that starts by itself
+    (_to_start): sent, when (time.monotonic(): her news waits from then, _announce); and named, the version her words
+    named by its performer (its job's id, link and performer): the one she chose, kept as her reply comes only if her
+    words name its performer (ask), then the one the line that says it is another names (_other_version)."""
     taps: int = 0
     ids: list[int] = field(default_factory=list)
     listed: int | None = None
     moves: int = 0
     announced: bool = False
+    sent: float | None = None
+    named: tuple[int, str, str] | None = None
 
 
 class Assistant:
@@ -481,6 +504,7 @@ class Assistant:
         self.looked_for = ""  # her words said at once as this request searched the library or chose several (_named)
         self.held = ""  # her words that came with a piece she plays among others asked for, said as it begins (_start)
         self.line_said = False  # her line, not her own words, said what this request plays
+        self.said_now = ""  # what she said (or showed) for this request before her reply (tell)
         self.prepared: deque[int] = deque(maxlen=PREPARED_KEPT)  # the ids of the latest she prepared, oldest first
         self.failed: deque[str] = deque(maxlen=PREPARED_KEPT)  # the latest that could not be made, by name or link
         # Paused while she listened, held for a piece of hers to start in its place (voice.finish_interaction): the
@@ -533,6 +557,7 @@ class Assistant:
         if self.speak:
             self.speak(text, meanwhile=meanwhile)
         self.keep("assistant", text)
+        self.said_now = f"{self.said_now} {text}"
 
     def new_conversation(self, chat) -> None:
         """Start afresh: she forgets what was said. The piano is not touched."""
@@ -628,6 +653,8 @@ class Assistant:
         waited = job.id in self.preparing  # asked for again: one waits for it, as the latest request asks to hear it
         self.preparing[job.id] = (job, self.asked_now)
         self.lineup = self.asked_now
+        if self.asked_now.sent is None:  # the first she sends: her news is of it (Lineup)
+            self.asked_now.sent, self.asked_now.named = time.monotonic(), (job.id, job.source, job.performer)
         if not waited:
             threading.Thread(target=self._prepared, args=(job,), daemon=True).start()
         return {"status": "preparing", "title": job.public()["title"],
@@ -690,15 +717,16 @@ class Assistant:
             self._play_on()
             return None
         self.prepared.append(rec["id"])
-        self._place(rec, lineup, went)
+        self._place(job, rec, lineup, went)
         return (rec, lineup) if rec["making"] else None
 
-    def _place(self, rec: dict, lineup: Lineup, went: bool) -> None:
+    def _place(self, job, rec: dict, lineup: Lineup, went: bool) -> None:
         """Its request still the latest to ask for pieces, it joins the list where its pieces play, after them; or,
         nothing of it playing, it plays: at the end of their list once it is over, or once what played of it went
         (went: a version of it that played as it was made was not made), or by itself if nothing has changed since
-        the request (_start: nor on the phone), with nothing said when her news of it was its line (_announce). Else
-        she says it is ready."""
+        the request (_start: nor on the phone), with nothing said when her news of it was its line (_announce), and in
+        another version than her words named, the line that says so in place of any (_other_version). Else she says
+        it is ready."""
         player = self._get_player()
         if player.current_id == rec["id"]:
             return  # chosen meanwhile, by her or on the phone: nothing to say
@@ -723,10 +751,15 @@ class Assistant:
             result = {"error": "failed"}
         finally:
             self.asked_now = None
-        if lineup.announced and result.get("status") == "playing":
-            lineup.announced = False  # her news was its line; a version in its place later has its own
-        else:
+        playing = result.get("status") == "playing"
+        other = self._other_version(lineup, job.id, rec["source_url"], rec["performer"]) if playing else ""
+        if other:
+            print(f"assistant> {other}\n", flush=True)
+            self.keep("assistant", other)
+        elif not (lineup.announced and playing):
             self.piano_news(result)
+        if playing:
+            lineup.announced = False  # her news was its line; a version in its place later has its own
         for rec_id, title in self.played_now:
             self.keep("piece", title, rec_id)
 
@@ -1286,10 +1319,12 @@ class Assistant:
     def ask(self, chat, text: str, speak=None, typed: bool = False, taps: int | None = None,
             paused_for_her: bool = False) -> str:
         """Answer one request and keep it, her lines and the pieces she played in the conversation. speak says her lines
-        aloud as they come (voice), and her reply about a piece she sends to be prepared is its line, after which it
-        starts with nothing more said (_announce); typed marks a request typed in the app, answered on screen. taps: the
-        phone's player as it was when the request was made, if it waited its turn (Core.type). paused_for_her: the piece
-        playing was paused for her to listen (voice), and plays on after her reply unless she pauses or cancels it."""
+        aloud as they come (voice), and her reply about a piece she sends to be prepared is its line, said once its
+        recording is there, after which it starts with nothing more said (_announce); typed marks a request typed in the
+        app, answered on screen. taps: the phone's player as it was when the request was made, if it waited its turn
+        (Core.type). paused_for_her: the piece playing was paused for her to listen (voice), and plays on after her
+        reply unless she pauses or cancels it. Returns her reply, for voice to say: spoken, with the line after it that
+        says the piece is in another version than her news named, when it is (_announce)."""
         with self._turn:
             # Each request resends the whole conversation: after a long quiet spell, start afresh.
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
@@ -1297,8 +1332,9 @@ class Assistant:
             self.speak, self.played_now, self.typed, asked = speak, [], typed, time.monotonic()
             self.paused_for_her = paused_for_her
             self.preparing_now, self.started_now, self.looked_for, self.held, self.line_said = [], False, "", "", False
+            self.said_now = ""
             self.taps_asked = self.taps if taps is None else taps
-            self.asked_now = Lineup(self.taps_asked)
+            self.asked_now = lineup = Lineup(self.taps_asked)
             self.keep("user", text)
             if self.on_busy:
                 self.on_busy(True)
@@ -1308,12 +1344,17 @@ class Assistant:
                 except Exception:
                     self._start_after_reply()  # what she was to play still plays, as it would have when spoken
                     raise
+                if lineup.named and not says_name(f"{self.said_now} {answer}", lineup.named[2]):
+                    lineup.named = None  # her words did not name the version she chose by its performer
+                other = ""
                 if typed:
                     time.sleep(max(0.0, asked + TYPED_REPLY_S - time.monotonic()))
                 elif speak and answer:
-                    self._announce()
+                    other = self._announce()
                 if answer:
                     self.keep("assistant", answer)
+                if other:  # a line of its own, said right after her news
+                    self.keep("assistant", other)
                 if self.after_reply:
                     if self.on_busy:
                         self.on_busy(False)  # the dots go with her reply
@@ -1321,7 +1362,7 @@ class Assistant:
                     self._start_after_reply()
                 for rec_id, title in self.played_now:
                     self.keep("piece", title, rec_id)
-                return answer
+                return f"{answer} {other}".strip()
             finally:
                 self._asked()
                 self.speak, self.typed, self.paused_for_her = None, False, False
@@ -1330,14 +1371,37 @@ class Assistant:
                 if self.on_busy:
                     self.on_busy(False)
 
-    def _announce(self) -> None:
+    def _announce(self) -> str:
         """Spoken, her reply about a piece this request sent to be prepared, which then starts by itself (_to_start),
-        is her news of it, said at once in place of her line: the piece starts as soon as it can play once it has been
-        said, with nothing more said (Lineup.announced). Voice waits for her name after it, as while the piano plays
-        (piece_to_start), so that the piece follows it at once."""
+        is her news of it, said in place of her line: once the recording of the version being made is downloaded,
+        while its first seconds are transcribed, or NEWS_WAIT_S after she sent it at the latest. The piece starts once
+        it can play and her news has been said, whichever comes later, with nothing more said (Lineup.announced):
+        voice waits for her name after it, as while the piano plays (piece_to_start), so that the piece follows it at
+        once. Returns the line that says it is in another version than her news named, said after it (the one she
+        chose could not be had: _other_version), or ""."""
         self._asked()  # its tools are done: what plays is as it leaves it
-        if self.lineup is self.asked_now and self._to_start() is not None:
-            self.asked_now.announced = True
+        lineup = self.asked_now
+        job = self._to_start() if self.lineup is lineup else None
+        if job is None:
+            return ""
+        self.downloads.wait(lambda: job.status == "converting" or job.finished.is_set(),
+                            lineup.sent + NEWS_WAIT_S - time.monotonic())
+        if self._to_start() is not job:  # it does not start by itself after all: it could not be made, or a tap
+            return ""
+        lineup.announced = True
+        return self._other_version(lineup, job.id, job.source, job.performer)
+
+    def _other_version(self, lineup: Lineup, job_id: int, source: str, performer: str) -> str:
+        """The line that says a piece is in another version than the one her words named by its performer
+        (Lineup.named), naming the one it is in, which is the one named from then on; "" when it is in that one, or
+        they named none."""
+        named = lineup.named
+        if named is None or named[0] != job_id or named[1] == source:
+            return ""
+        lineup.named = job_id, source, performer
+        if not performer:
+            return line("another_version", self.chinese())
+        return line("other_version", self.chinese(), performer)
 
     def unfounded(self, words: str, called: set[str]) -> str:
         """What the model is told of its reply to the request (HELD_BACK), when the reply is not to be said: it says

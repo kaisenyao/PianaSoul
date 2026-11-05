@@ -17,7 +17,7 @@ import mido
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul import chat as chat_module, play
-from pianasoul.chat import Assistant
+from pianasoul.chat import Assistant, says_name
 from pianasoul.conversations import QUIET_S, Conversations
 from pianasoul.downloads import Downloads, Job
 from pianasoul.library import Library
@@ -921,8 +921,8 @@ class AssistantTests(Base):
         self.assertIn('It neither asks the listener to wait nor says how long it takes, and it is your only sentence '
                       'before your news', flat)
         self.assertIn('It never asks the listener to wait or says how long it takes', flat)
-        self.assertIn('Spoken, it is said at once, and the piece follows it with nothing more said', flat,
-                      'Her news, as it is said')
+        self.assertIn('Spoken, it is said before the piece can play, and the piece follows it with nothing more said',
+                      flat, 'Her news, as it is said: so it says nothing of its being ready')
         self.assertIn('nothing of waiting, of getting it ready or of when it plays, and no remark about the music', flat)
         for waiting in ('稍等', '准备好就', 'moment', "as soon as it's ready"):
             self.assertNotIn(waiting, told)
@@ -1061,16 +1061,17 @@ class Queue:
 
     def add(self, source, **names):
         if source not in self.jobs:
-            self.jobs[source] = Job(len(self.jobs) + 1, source, piece=names.get('piece', ''))
+            self.jobs[source] = Job(len(self.jobs) + 1, source, piece=names.get('piece', ''),
+                                    performer=names.get('performer', ''))
         return self.jobs[source]
 
     def changed(self):
         with self.changes:
             self.changes.notify_all()
 
-    def wait(self, until):
+    def wait(self, until, timeout=None):
         with self.changes:
-            self.changes.wait_for(until)
+            self.changes.wait_for(until, timeout)
 
 
 class PreparedTests(Base):
@@ -1151,7 +1152,8 @@ class PreparedTests(Base):
         """Enough of it there to play as it is made (Downloads): its record, being made, and what there is of it."""
         from pianasoul.growing import Growing
         job = self.queue.jobs[f'https://youtu.be/{piece}']
-        rec = self.lib.making(title, source_type='url', source_url=job.source, duration_s=200.0)
+        rec = self.lib.making(title, performer=job.performer, source_type='url', source_url=job.source,
+                              duration_s=200.0)
         self.p.growing[Path(rec['midi_path'])] = Growing()
         job.status, job.recording = 'converting', rec['id']
         job.playable.set()
@@ -1176,35 +1178,158 @@ class PreparedTests(Base):
         self.said = []
         return self.a.ask(Scripted(*steps), text, speak=lambda words, meanwhile=False: self.said.append(words))
 
-    def plays_in(self, seconds, piece='qingtian', title='周杰伦 - 晴天 (Jason Piano)'):
-        """Enough of the piece there to play as it is made (playing), this long after she sends it to be prepared."""
-        def then():
+    def after(self, seconds, then, piece='qingtian'):
+        """then(), this long after she sends the piece to be prepared, on a thread of its own."""
+        def run():
             self.eventually(lambda: f'https://youtu.be/{piece}' in self.queue.jobs)
             time.sleep(seconds)
-            self.playing(piece, title)
-        thread = threading.Thread(target=then)
+            then()
+        thread = threading.Thread(target=run)
         thread.start()
         self.addCleanup(thread.join)
 
-    def test_spoken_her_news_is_said_at_once_and_the_piece_starts_as_soon_as_it_can_play_with_no_line_more(self):
+    def plays_in(self, seconds, piece='qingtian', title='周杰伦 - 晴天 (Jason Piano)'):
+        """Enough of the piece there to play as it is made (playing), this long after she sends it to be prepared."""
+        self.after(seconds, lambda: self.playing(piece, title), piece)
+
+    def downloaded(self, piece='qingtian'):
+        """The recording of the version being made is there (Downloads): it is transcribed from now on."""
+        self.queue.jobs[f'https://youtu.be/{piece}'].status = 'converting'
+        self.queue.changed()
+
+    def other_version(self, piece='qingtian', then='qingtian-kassia', performer='Kassia'):
+        """The version being made cannot be had: the next one is made in its place (Downloads._next_version)."""
+        job = self.queue.jobs[f'https://youtu.be/{piece}']
+        job.source, job.performer, job.status = f'https://youtu.be/{then}', performer, 'queued'
+        self.queue.changed()
+
+    def sent(self, performer='Jason Piano'):
+        """Her call that sends 晴天 to be prepared, the version she chose by its pianist, the next one by Kassia."""
+        return [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天', performer=performer,
+                          alternatives=[{'url': 'https://youtu.be/qingtian-kassia', 'performer': 'Kassia'}])]
+
+    def hers(self):
+        return [m['text'] for m in self.kept if m['role'] == 'assistant']
+
+    def test_spoken_her_news_is_said_once_its_recording_is_downloaded_and_the_piece_starts_once_it_can_play(self):
         news = '找到啦，是 Jason Piano 弹的《晴天》～'
-        self.plays_in(0.5)
+        self.after(0.3, self.downloaded)
+        self.plays_in(0.6)
         started = time.monotonic()
-        with patch.object(self.a, 'search_online', return_value={'results': []}):
+        with patch.object(chat_module, 'NEWS_WAIT_S', 2), \
+                patch.object(self.a, 'search_online', return_value={'results': []}):
             answer = self.ask_aloud(('我找找《晴天》～', [self.call('search_library', query='Sunny Day')]),
                                     ('好呀，我去找一版《晴天》～', [self.call('search_online', query='周杰伦 晴天 piano')]),
-                                    (news, [self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')]),
-                                    '')
-        self.assertLess(time.monotonic() - started, 0.3, 'Her news does not wait for the piece')
+                                    (news, self.sent()), '')
+        took = time.monotonic() - started
+        self.assertTrue(0.3 <= took < 1.5, f'Said once its recording is there, not before it, nor at 2 s: {took:.2f} s')
         self.assertEqual(self.said, ['我找找《晴天》～'], 'One sentence before her news: the first she said')
-        self.assertEqual(answer, news, 'Her reply, which voice says at once')
+        self.assertEqual(answer, news, 'Her reply, which voice says now')
         job = self.queue.jobs['https://youtu.be/qingtian']
         self.assertTrue(self.eventually(lambda: job.recording is not None and self.p.current_id == job.recording))
-        self.assertLess(time.monotonic() - started, 0.8, 'It starts as soon as it can play, 0.5 s after it was sent')
+        self.assertGreaterEqual(time.monotonic() - started, 0.6, 'Once it can play')
         self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
-        self.assertEqual([m['text'] for m in self.kept if m['role'] == 'assistant'], ['我找找《晴天》～', news],
-                         'Her news is its line: no other comes')
+        self.assertEqual(self.hers(), ['我找找《晴天》～', news], 'Her news is its line: no other comes')
         self.made('qingtian', job.recording)
+
+    def test_spoken_her_news_is_said_news_wait_s_after_she_sent_it_when_its_recording_is_not_there_by_then(self):
+        class Slow(Scripted):  # her reply comes a while after she sent it
+            def send_tool_results(self, results):
+                time.sleep(0.4)
+                return super().send_tool_results(results)
+        with patch.object(chat_module, 'NEWS_WAIT_S', 0.6):
+            started = time.monotonic()
+            answer = self.a.ask(Slow(self.sent(), '找到啦，是 Jason Piano 弹的《晴天》～'), '弹一首晴天',
+                                speak=lambda words, meanwhile=False: None)
+        took = time.monotonic() - started
+        self.assertTrue(0.6 <= took < 0.9, f'0.6 s after she sent it, her reply coming within them: {took:.2f} s')
+        self.assertEqual(answer, '找到啦，是 Jason Piano 弹的《晴天》～')
+        self.assertTrue(self.a.piece_to_start(), 'It starts by itself once it can play')
+
+    def test_spoken_a_piece_that_can_play_before_her_news_has_been_said_waits_for_it(self):
+        news = '找到啦，是 Jason Piano 弹的《晴天》～'
+        self.a.may_play.clear()  # her name heard: she listens, thinks and speaks from now on (voice's hold_piece)
+        self.after(0.1, self.downloaded)
+        self.plays_in(0.2)
+        with patch.object(chat_module, 'NEWS_WAIT_S', 2):
+            self.assertEqual(self.ask_aloud(self.sent(), news), news)
+        job = self.queue.jobs['https://youtu.be/qingtian']
+        self.assertTrue(self.eventually(lambda: job.recording is not None))
+        time.sleep(0.1)
+        self.assertIsNone(self.p.current_id, 'It can play, and waits while her news is said')
+        self.a.may_play.set()  # her news heard, she waits for her name (voice's status)
+        self.assertTrue(self.eventually(lambda: self.p.current_id == job.recording), 'Then it starts')
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+        self.assertEqual(self.hers(), [news], 'With nothing more said')
+        self.made('qingtian', job.recording)
+
+    def test_spoken_her_news_of_a_piece_that_could_not_be_made_is_not_held_for_it(self):
+        self.after(0.1, lambda: self.made('qingtian', status='failed'))
+        with patch.object(chat_module, 'NEWS_WAIT_S', 2):
+            started = time.monotonic()
+            self.ask_aloud(self.sent(), '找到啦，是 Jason Piano 弹的《晴天》～')
+        self.assertLess(time.monotonic() - started, 1.5, 'Said once it ended')
+        self.assertTrue(self.said_last('《晴天》这次没准备好'), 'Then that it could not be made, as before')
+
+    def test_spoken_another_version_than_her_news_named_has_the_line_that_says_so_right_after_it(self):
+        news = '找到啦，是 Jason Piano 弹的《晴天》～'
+        self.after(0.1, self.other_version)
+        self.after(0.2, self.downloaded)
+        with patch.object(chat_module, 'NEWS_WAIT_S', 2):
+            answer = self.ask_aloud(self.sent(), news)
+        self.assertTrue(answer.startswith(news + ' '), answer)
+        other = answer[len(news):].strip()
+        self.assertIn(other, every('other_version', True, 'Kassia'), 'Said after her news, naming the one that plays')
+        self.assertEqual(self.hers(), [news, other], 'A line of its own')
+        rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Kassia)')
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+        self.assertEqual(self.p.current_id, rec_id)
+        self.assertEqual(self.hers(), [news, other], 'Nothing more as it starts')
+        self.made('qingtian', rec_id)
+
+    def test_another_version_has_no_line_when_her_news_named_no_pianist(self):
+        self.after(0.1, self.other_version)
+        self.after(0.2, self.downloaded)
+        with patch.object(chat_module, 'NEWS_WAIT_S', 2):
+            self.assertEqual(self.ask_aloud(self.sent(), '找到啦，这版很好听～'), '找到啦，这版很好听～')
+        rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Kassia)')
+        self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+        self.assertEqual((self.p.current_id, self.hers()), (rec_id, ['找到啦，这版很好听～']), 'Only then')
+        self.made('qingtian', rec_id)
+
+    def test_another_version_than_her_news_named_coming_later_has_the_line_as_it_starts(self):
+        news = '找到啦，是 Jason Piano 弹的《晴天》～'
+        for when in ('spoken', 'typed', 'typed, her news with her call', 'after the first played'):
+            with self.subTest(when=when):
+                self.fresh()
+                with patch.object(chat_module, 'NEWS_WAIT_S', 0.1), patch.object(chat_module, 'TYPED_REPLY_S', 0):
+                    if when == 'typed':
+                        self.a.ask(Scripted(self.sent(), news), '弹一首晴天', typed=True)
+                    elif when.startswith('typed'):  # shown at once, as she sends it (before it is sent)
+                        self.a.ask(Scripted((news, self.sent()), ''), '弹一首晴天', typed=True)
+                    else:
+                        self.assertEqual(self.ask_aloud(self.sent(), news), news, 'Nothing to say yet')
+                if when == 'after the first played':
+                    first = self.playing('qingtian', '周杰伦 - 晴天 (Jason Piano)')
+                    self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
+                    self.assertEqual((self.p.current_id, self.hers()), (first, [news]), 'The one her news named')
+                    self.went('qingtian', then='qingtian-kassia')
+                    self.queue.jobs['https://youtu.be/qingtian'].performer = 'Kassia'
+                else:
+                    self.other_version()
+                rec_id = self.playing('qingtian', '周杰伦 - 晴天 (Kassia)')
+                self.assertTrue(self.eventually(lambda: self.kept[-1]['text'] == '周杰伦 - 晴天 (Kassia)'), 'Its card')
+                self.assertEqual(self.p.current_id, rec_id)
+                self.assertIn(self.kept[-2]['text'], every('other_version', True, 'Kassia'), 'In place of any line')
+                self.made('qingtian', rec_id)
+
+    def test_her_words_name_a_pianist_whatever_the_spaces_and_marks_in_the_name_or_by_a_part_of_it(self):
+        self.assertTrue(says_name('找到啦，是夜色钢琴曲赵海洋弹的《十年》～', '夜色钢琴曲 赵海洋'))
+        self.assertTrue(says_name('找到啦，是赵海洋弹的《十年》～', '夜色钢琴曲 赵海洋'))
+        self.assertTrue(says_name('找到啦，是 Czzy 弹的《晴天》～', 'Czzy__'))
+        self.assertTrue(says_name("Found it: Jason Piano's Black Humor.", 'jason piano'))
+        self.assertFalse(says_name('找到啦，这版很好听～', 'Jason Piano'))
+        self.assertFalse(says_name('找到啦～', ''), 'No name, none said')
 
     def test_spoken_her_words_as_she_sends_it_and_her_reply_after_are_her_news_in_one_line(self):
         self.plays_in(0.3)
@@ -1225,8 +1350,9 @@ class PreparedTests(Base):
         self.p.select(self.ids[1], [self.ids[1]], {'kind': 'library'})
         self.p.pause()  # paused while she listens (voice's hold_piece)
         started = time.monotonic()
-        answer = self.ask_aloud([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')], news)
-        self.assertLess(time.monotonic() - started, 0.3, 'Not held for the piece')
+        with patch.object(chat_module, 'NEWS_WAIT_S', 0.2):
+            answer = self.ask_aloud([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='晴天')], news)
+        self.assertLess(time.monotonic() - started, 1, 'At the end of the wait: not held for the piece')
         self.assertEqual((answer, self.p.current_id), (news, self.ids[1]), 'Said without the piece, not there yet')
         self.assertTrue(self.a.piece_to_start(), 'Voice waits for her name after it, so that it starts once it can')
         speaker = Mock()

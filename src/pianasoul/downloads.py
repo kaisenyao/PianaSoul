@@ -156,10 +156,10 @@ class Downloads:
         for listener in list(self.listeners):
             listener()
 
-    def wait(self, until) -> None:
-        """Until until() is true, looked at again each time a piece changes."""
+    def wait(self, until, timeout: float | None = None) -> None:
+        """Until until() is true, looked at again each time a piece changes; or for timeout seconds at most."""
         with self._cond:
-            self._cond.wait_for(until)
+            self._cond.wait_for(until, timeout)
 
     # ---- asking for a piece -------------------------------------------------------------------------
     def add(self, source: str, *, piece: str = "", artist: str = "", performer: str = "", aliases: str = "",

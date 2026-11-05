@@ -416,8 +416,10 @@ where it was heard, with its list, and play goes on from there. The phone shows 
 - **Her words.** What always goes the same way (a control done, a volume step, a notice about the piano, goodbye)
   she says in a ready-made line from `src/pianasoul/lines.py`, recorded once in her voice. Everything else the model
   words. For a piece she finds online she says two sentences at most, neither asking you to wait: what she will do as
-  she goes online, and her news of it, said as soon as she has chosen; the piece follows it as soon as it can play,
-  with nothing more said.
+  she goes online, and her news of it, whose performance she found, said once its recording is downloaded or three
+  seconds after she chose it, whichever comes first; the piece follows it as soon as it can play, with nothing more
+  said. Should that performance not be had and another play in its place, a short line says so: right after her news,
+  or, when that comes later, in the conversation as it starts.
 
 - **Playing safely.** The model can only play pieces that a library search, a look at your library or a
   transcription returned in the same request, one of the pieces she prepared lately, one of your playlists by its
