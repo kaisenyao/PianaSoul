@@ -257,7 +257,7 @@ class ConversationTests(unittest.TestCase):
         self.c.piano_unavailable()  # a remark of hers, and the phone has yet to say it was heard
         self.assertFalse(may_play.is_set())
 
-    def test_the_service_is_busy_from_her_name_until_she_waits_for_it_again(self):
+    def test_she_is_with_you_from_her_name_until_she_waits_for_it_again(self):
         # Listening, answering, speaking and listening on for more: a restart meanwhile would cut her off.
         self.frames(1, speaking=True, name='小明同学')
         self.assistant.with_you.assert_called_once_with(True)

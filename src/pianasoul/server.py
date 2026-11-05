@@ -282,8 +282,9 @@ def state():
     her, recordings = core.assistant, core.recordings()
     return {'recordings': recordings, 'jobs': core.downloads.snapshot(),
             'playback': core.playback.snapshot(), 'conversations': core.conversations.all() if her else [],
-            'current': her.conversation_id if her else None, 'busy': core.busy, 'settings': core.settings(),
-            'devices': core.devices(), 'piano': core.piano, 'version': version, 'features': core.features(),
+            'current': her.conversation_id if her else None, 'busy': core.busy, 'with_you': core.with_you,
+            'settings': core.settings(), 'devices': core.devices(), 'piano': core.piano, 'version': version,
+            'features': core.features(),
             'audio': core.audio(), 'playlists': core.lib.playlists(), **core.artists(recordings)}
 
 

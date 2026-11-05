@@ -918,7 +918,7 @@ class Conversation:
             self.assistant.may_play.set()
         else:
             self.assistant.may_play.clear()
-        if (state != "waiting") != was_with_you:  # the service is busy from her name until she waits for it again
+        if (state != "waiting") != was_with_you:  # with you from her name until she waits for it again
             self.assistant.with_you(state != "waiting")
         self.out.status(state)
 

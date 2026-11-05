@@ -48,7 +48,8 @@ class Core:
         self.playback.growing = self.downloads.growing  # a piece plays as it is made
         self.downloads.unmade.append(self._unmade)
         self.listeners: list = []  # called with each event, on whichever thread it happens
-        self.busy = None  # the conversation she is busy in: answering a request, or with you in voice (with_you)
+        self.busy = None  # the conversation she is answering in, while she answers
+        self.with_you = False  # voice: from her name heard until she waits for it again (Assistant.with_you)
         self.assistant = self.chat = None
         self.label = ""
         if assistant:
@@ -60,6 +61,7 @@ class Core:
             self.assistant.restore(self.chat)
             self.assistant.on_message = lambda message: self.emit({"type": "message", "message": message})
             self.assistant.on_busy = self._busy_changed
+            self.assistant.on_with_you = self._with_you_changed
             self.assistant.on_playlists = self.playlists_changed
             self.worker = Worker()  # typed requests, in order
         self.playback.listeners.append(self._playback_changed)
@@ -90,6 +92,10 @@ class Core:
     def _busy_changed(self, busy: bool) -> None:
         self.busy = self.assistant.conversation_id if busy else None
         self.emit({"type": "busy", "conversation": self.busy})
+
+    def _with_you_changed(self, on: bool) -> None:
+        self.with_you = on
+        self.emit({"type": "with_you", "with_you": on})
 
     def _playback_changed(self) -> None:
         self.look_at_piano()  # it may have gone away, or a piece just started on it

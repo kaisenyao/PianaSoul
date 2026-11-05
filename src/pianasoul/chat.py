@@ -488,9 +488,8 @@ class Assistant:
         self.may_play.set()
         self.on_message = None  # called with each message kept in a conversation
         self.last_kept = None  # (conversation, role, text) of the latest message kept
-        self.on_busy = None  # called with whether she is busy: answering a request, or with you in voice (with_you)
-        self.answering = False  # from a request until her reply is ready
-        self.voice_with_you = False  # from her name until voice waits for it again
+        self.on_busy = None  # called with True when she starts on a request, False when she has answered
+        self.on_with_you = None  # called with True when voice hears her name, False when it waits for it again
         self.on_playlists = None  # called when she made or renamed a playlist
         self._turn = threading.RLock()  # one request at a time, typed or spoken
         self._news = threading.Lock()  # one line about the piano at a time (piano_news): from Core, the phone or voice
@@ -528,15 +527,9 @@ class Assistant:
 
     def with_you(self, on: bool) -> None:
         """Voice: she is with you from her name until she waits for it again, listening, answering, speaking or
-        listening on for more; the service is busy all along (a restart would cut her off)."""
-        self.voice_with_you = on
-        self._busy()
-
-    def _busy(self, answering: bool | None = None) -> None:
-        if answering is not None:
-            self.answering = answering
-        if self.on_busy:
-            self.on_busy(self.answering or self.voice_with_you)
+        listening on for more (a restart meanwhile would cut her off), whether or not a conversation exists yet."""
+        if self.on_with_you:
+            self.on_with_you(on)
 
     def tell(self, text: str, meanwhile: bool = False) -> None:
         """A line of hers before the reply: on the screen, aloud in voice, and in the conversation. meanwhile: what
@@ -1350,7 +1343,8 @@ class Assistant:
             self.asked_now = lineup = Lineup(self.taps_asked)
             try:
                 self.keep("user", text)
-                self._busy(answering=True)
+                if self.on_busy:
+                    self.on_busy(True)
                 answer = self._answer(chat, text, typed)
                 if lineup.named and not says_name(f"{self.said_now} {answer}", lineup.named[2]):
                     lineup.named = None  # her words did not name the version she chose by its performer
@@ -1364,7 +1358,8 @@ class Assistant:
                 if other:  # a line of its own, said right after her news
                     self.keep("assistant", other)
                 if self.after_reply:
-                    self._busy(answering=False)  # the dots go with her reply
+                    if self.on_busy:
+                        self.on_busy(False)  # the dots go with her reply
                     time.sleep(TYPED_PLAY_S)
                     self._start_after_reply()
                 for rec_id, title in self.played_now:
@@ -1385,7 +1380,8 @@ class Assistant:
                 self.speak, self.typed, self.paused_for_her = None, False, False
                 self.after_reply, self.asked_now = [], None
                 self.replied_at = self.clock()
-                self._busy(answering=False)
+                if self.on_busy:
+                    self.on_busy(False)
 
     def _announce(self) -> str:
         """Spoken, her reply about a piece this request sent to be prepared, which then starts by itself (_to_start),

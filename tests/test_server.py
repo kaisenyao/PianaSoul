@@ -116,7 +116,34 @@ class AppTests(unittest.TestCase):
         self.assertEqual(set(state['features']), {'transcribe', 'assistant'}, 'Online search comes with transcription')
         self.assertTrue(state['features']['assistant'])
 
-    def test_tapping_a_piece_plays_it_in_its_list_and_the_player_works(self):
+    def test_with_you_from_her_name_until_she_waits_for_it_again_busy_only_while_she_answers(self):
+        # with_you (the Mac's restart waits for it) covers the whole interaction, a conversation or not; busy is the
+        # phone's typing dots, as before: from the request until her reply.
+        events, client = [], signed_in(self.client)
+        self.core.listeners.append(lambda e: events.append(e) if e['type'] in {'busy', 'with_you'} else None)
+        parts = SimpleNamespace(stt=Mock(), wake=Mock(), speech=Mock(return_value=True), speaker=Mock())
+        parts.detectors = lambda: (parts.wake, parts.speech)
+        parts.stt.listen.return_value = None
+        parts.speaker.stream.side_effect = lambda text: iter([np.zeros(240, dtype=np.int16)])
+        out = Mock()
+        conversation = voice.Conversation(self.core.assistant, self.core.chat, parts, out)
+        self.assertEqual(client.get('/api/state').json()['with_you'], False)
+        parts.wake.heard.return_value = '小明同学'
+        conversation.frame(np.full(voice.FRAME, 1200, dtype='<i2'))
+        state = client.get('/api/state').json()
+        self.assertEqual((state['current'], state['with_you'], state['busy']), (None, True, None),
+                         'Her name heard, before any conversation: with you, no dots')
+        conversation.respond('你好')
+        conversation.resume()  # her reply heard: her orb lit, she listens on for more
+        state = client.get('/api/state').json()
+        self.assertEqual((state['with_you'], state['busy']), (True, None), 'Listening on: still with you, no dots')
+        conversation.sleep()
+        self.assertEqual(client.get('/api/state').json()['with_you'], False, 'She waits for her name again')
+        current = self.core.assistant.conversation_id
+        self.assertEqual(events, [{'type': 'with_you', 'with_you': True}, {'type': 'busy', 'conversation': current},
+                                  {'type': 'busy', 'conversation': None}, {'type': 'with_you', 'with_you': False}])
+
+
         a, b = self.ids
         signed_in(self.client)
         snap = self.client.post('/api/play', json={'id': a, 'ids': self.ids, 'scope': {'kind': 'library'}}).json()
