@@ -51,6 +51,17 @@ NOTE_ROLE = "developer"
 DASHSCOPE_HOSTS = {"beijing": "dashscope.aliyuncs.com", "singapore": "dashscope-intl.aliyuncs.com"}
 # Model Studio's code for words that did not pass its content inspection, those asked or those written.
 REFUSED = "DataInspectionFailed"
+# How long a request to her model may wait (limits). The SDKs' own limit is 10 minutes for each read: after the Mac
+# slept, a reply streamed over a connection that had gone held its request half an hour. CONNECT_S to connect, as the
+# SDKs have it; then for each read, CHAT_READ_S in her chat, between the events of a streamed reply (Anthropic's comes
+# whole, a few sentences), and ANSWER_READ_S for complete_json, whose answer comes whole. A request quiet for longer
+# fails as one whose connection went: it is asked again as such a request is (the SDKs' retries, OpenAIChat._call), and
+# then she says she could not answer. Timed on this Mac on 2026-11-04 (the end-to-end runs: 256 streamed calls, 70 of
+# complete_json): the first event came after 0.6 s (OpenAI, median; 4.6 s for 99 in 100) or 1.2 s (Model Studio, from
+# the US; 6.8 s), and no wait between two events was longer than 7.1 s, under a third of CHAT_READ_S; complete_json
+# named a piece in 8.6 s at most, and 30 pieces at once (library.enrich's batch, timed for this) in 29 to 35 s on
+# OpenAI, which thinks first, and 10 to 12 s on Model Studio: ANSWER_READ_S is two and a half times the longest.
+CONNECT_S, CHAT_READ_S, ANSWER_READ_S = 5.0, 20.0, 90.0
 
 
 class BrokenOff(RuntimeError):
@@ -130,14 +141,23 @@ def dashscope_host(variable: str = "DASHSCOPE_REGION") -> str:
     return DASHSCOPE_HOSTS[region]
 
 
-def openai_client(provider: str):
-    """An OpenAI SDK client for a provider with the Responses API: OpenAI's as the SDK makes it from the environment;
-    Model Studio's with its own key and its region's address, never OPENAI_API_KEY or OPENAI_BASE_URL."""
-    from openai import OpenAI
+def limits(sdk, read_s: float):
+    """How long a request to her model may wait, as the SDK (openai or anthropic) takes it: CONNECT_S to connect, and
+    read_s for each read or write."""
+    return sdk.Timeout(read_s, connect=CONNECT_S)
 
+
+def openai_client(provider: str):
+    """An OpenAI SDK client for a provider with the Responses API, with her chat's limits: OpenAI's as the SDK makes it
+    from the environment; Model Studio's with its own key and its region's address, never OPENAI_API_KEY or
+    OPENAI_BASE_URL."""
+    import openai
+
+    timeout = limits(openai, CHAT_READ_S)
     if provider == "bailian":
-        return OpenAI(api_key=api_key(provider), base_url=f"https://{dashscope_host()}/compatible-mode/v1")
-    return OpenAI()
+        return openai.OpenAI(api_key=api_key(provider), base_url=f"https://{dashscope_host()}/compatible-mode/v1",
+                             timeout=timeout)
+    return openai.OpenAI(timeout=timeout)
 
 
 @contextlib.contextmanager
@@ -177,8 +197,9 @@ class OpenAIChat:
 
     def _call(self, items: list) -> Reply:
         """The model's response, streamed (it is done sooner so): its words before a tool call go to before_tool as
-        soon as it starts on the call. A stream that breaks off is asked for again, as the SDK does with a response
-        that comes whole, unless its words were handed over already: they are never said twice."""
+        soon as it starts on the call. A stream that breaks off, or is quiet for CHAT_READ_S, is asked for again, as
+        the SDK does with a response that comes whole, unless its words were handed over already: they are never said
+        twice."""
         from openai import APIConnectionError
 
         self.asked = self.previous, items
@@ -258,7 +279,8 @@ class AnthropicChat:
     def __init__(self, model: str, instructions: str, tools: list[dict]):
         import anthropic
 
-        self.client, self.model, self.instructions = anthropic.Anthropic(), model, instructions
+        self.client = anthropic.Anthropic(timeout=limits(anthropic, CHAT_READ_S))
+        self.model, self.instructions = model, instructions
         self.tools = [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
                       for t in tools]
         self.messages: list[dict] = []
@@ -322,17 +344,21 @@ def make_chat(instructions: str, tools: list[dict]):
 
 
 def complete_json(prompt: str) -> dict:
-    """One-shot request that should answer with a JSON object; Refused when the provider refuses its words."""
+    """One-shot request that should answer with a JSON object, whole (ANSWER_READ_S); Refused when the provider
+    refuses its words."""
     provider, model = model_spec()
     if provider == "anthropic":
         import anthropic
 
-        resp = anthropic.Anthropic().messages.create(model=model, max_tokens=4000,
-                                                     messages=[{"role": "user", "content": prompt}])
+        resp = anthropic.Anthropic(timeout=limits(anthropic, ANSWER_READ_S)).messages.create(
+            model=model, max_tokens=4000, messages=[{"role": "user", "content": prompt}])
         text = "".join(b.text for b in resp.content if b.type == "text")
     else:
+        import openai
+
         with refusals():
             text = openai_client(provider).responses.create(model=model, input=prompt,
+                                                            timeout=limits(openai, ANSWER_READ_S),
                                                             **settings(provider, model)).output_text
     match = re.search(r"\{.*\}", text or "", re.S)
     try:

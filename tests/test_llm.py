@@ -1,10 +1,13 @@
 """Her chat model's client: responses streamed, the words written before a tool call handed over as the model starts
-on it, thinking a little on the models that think; her model line (OpenAI, Model Studio or Anthropic) and the keys it
-needs.
+on it, thinking a little on the models that think, and how long a request may wait; her model line (OpenAI, Model
+Studio or Anthropic) and the keys it needs.
 No paid APIs: the responses are made up."""
 import contextlib
+import http.server
 import json
 import os
+import threading
+import time
 import unittest
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
@@ -166,10 +169,15 @@ def streamed(*data: dict) -> httpx2.Response:
                            content="".join(f"data: {json.dumps(d)}\n\n" for d in data).encode())
 
 
+def answer(text: str, response_id="r1") -> list[dict]:
+    """Her answer's events: its words, then the response."""
+    return [{"type": "response.output_text.delta", "delta": text},
+            {"type": "response.completed", "response": completed(text, response_id)}]
+
+
 def said(text: str, response_id="r1") -> httpx2.Response:
-    """Her answer, streamed: its words, then the response."""
-    return streamed({"type": "response.output_text.delta", "delta": text},
-                    {"type": "response.completed", "response": completed(text, response_id)})
+    """Her answer, streamed."""
+    return streamed(*answer(text, response_id))
 
 
 def refused() -> httpx2.Response:
@@ -326,6 +334,112 @@ class ModelStudioTests(unittest.TestCase):
                 places.REAL_COMPLETE_JSON("Name it.")
             with self.assertRaisesRegex(llm.Refused, "^DataInspectionFailed: Output data may contain"):
                 llm.make_chat("instructions", [])[0].send_user("你好")
+
+
+class LimitsTests(unittest.TestCase):
+    """How long a request to her model may wait, with each provider: to connect, and for each read."""
+
+    def test_she_waits_five_seconds_to_connect_and_twenty_for_each_read_and_ninety_for_an_answer_whole(self):
+        import anthropic
+        chat_limits = {"connect": 5.0, "read": 20.0, "write": 20.0, "pool": 20.0}
+        for values in ({"OPENAI_API_KEY": "openai-test"}, {"PIANASOUL_MODEL": "bailian", "DASHSCOPE_API_KEY": "d"}):
+            with line(**values), Server(said("好呀。"), httpx2.Response(200, json=completed("{}"))) as server:
+                llm.make_chat("instructions", [])[0].send_user("你好")
+                places.REAL_COMPLETE_JSON("Name it.")
+            self.assertEqual([r.extensions["timeout"] for r in server.requests],
+                             [chat_limits, {**chat_limits, "read": 90.0, "write": 90.0, "pool": 90.0}], values)
+        with line(PIANASOUL_MODEL="anthropic", ANTHROPIC_API_KEY="anthropic-test"):
+            self.assertEqual(llm.make_chat("instructions", [])[0].client.timeout, anthropic.Timeout(20.0, connect=5.0))
+            with patch.object(anthropic, "Anthropic") as made:
+                made.return_value.messages.create.return_value = NS(content=[NS(type="text", text="{}")])
+                places.REAL_COMPLETE_JSON("Name it.")
+            made.assert_called_once_with(timeout=anthropic.Timeout(90.0, connect=5.0))
+
+
+QUIET = True  # an answer quiet after its events (Quiet)
+WORDS = {"type": "response.output_text.delta", "delta": "好"}
+
+
+class Quiet:
+    """A made-up Responses API on this Mac, reached over a real connection, so that the SDK's limits on time hold.
+    Each request is answered in turn by its events, after which the connection ends, or, an answer marked QUIET, is
+    quiet after them (a connection gone, as after the Mac slept) until the test is over. While it is on (with), OpenAI
+    is asked there."""
+
+    def __init__(self, *answers: tuple[list[dict], bool]):
+        self.answers, self.requests, self.over = list(answers), 0, threading.Event()
+        quiet = self
+
+        class Answer(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers["content-length"]))
+                quiet.requests += 1
+                events, silent = quiet.answers.pop(0)
+                self.send_response(200)
+                self.send_header("content-type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write("".join(f"data: {json.dumps(event)}\n\n" for event in events).encode())
+                self.wfile.flush()
+                if silent:
+                    quiet.over.wait(10)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Answer)
+
+    def __enter__(self):
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.line = line(OPENAI_API_KEY="openai-test", OPENAI_BASE_URL=f"http://127.0.0.1:{self.server.server_port}/v1")
+        self.line.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        self.line.__exit__(*exc)
+        self.over.set()
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class QuietTests(unittest.TestCase):
+    """Her model quiet as it streams, over a real connection: asked again after CHAT_READ_S, as a stream that broke
+    off is, and given up after her tries, not after the SDK's 10 minutes for each read."""
+
+    def setUp(self):
+        limit = patch.object(llm, "CHAT_READ_S", 0.3)
+        limit.start()
+        self.addCleanup(limit.stop)
+
+    def test_a_reply_quiet_as_it_streams_is_asked_for_again_after_chat_read_s(self):
+        with Quiet(([WORDS], QUIET), (answer("好呀。"), not QUIET)) as quiet:
+            chat, _ = llm.make_chat("instructions", [])
+            started = time.monotonic()
+            reply = chat.send_user("你好")
+            took = time.monotonic() - started
+        self.assertEqual((reply.text, quiet.requests), ("好呀。", 2))
+        self.assertTrue(0.3 <= took < 2, f"Asked again once quiet for 0.3 s: {took:.2f} s")
+
+    def test_quiet_each_time_her_model_is_given_up_after_her_three_tries(self):
+        from openai import APITimeoutError
+        with Quiet(*[([WORDS], QUIET)] * 3) as quiet:
+            chat, _ = llm.make_chat("instructions", [])
+            started = time.monotonic()
+            with self.assertRaises(APITimeoutError):  # then she says she could not answer (voice, Core.type)
+                chat.send_user("你好")
+            took = time.monotonic() - started
+        self.assertEqual(quiet.requests, 3)
+        self.assertTrue(0.9 <= took < 3, f"Three times 0.3 s: {took:.2f} s")
+
+    def test_quiet_after_her_words_were_said_is_not_asked_again(self):
+        from openai import APITimeoutError
+        call = {"type": "response.output_item.added", "item": {"type": "function_call", "name": "search_library"}}
+        with Quiet(([WORDS, call], QUIET), (answer("好呀。"), not QUIET)) as quiet:
+            chat, _ = llm.make_chat("instructions", [])
+            chat.before_tool = Mock(return_value=True)  # said
+            with self.assertRaises(APITimeoutError):
+                chat.send_user("弹一首夜曲")
+        chat.before_tool.assert_called_once_with("好", "search_library")
+        self.assertEqual(quiet.requests, 1, "Never said twice")
 
 
 if __name__ == "__main__":
