@@ -591,11 +591,6 @@ class Assistant:
         for r in results:  # made from it, or from its copy on another site (online.merged)
             known = next((k for k in map(self.lib.by_source, r["urls"]) if k and k["file_exists"]), None)
             r["in_library"] = known["id"] if known else None
-        # Her first YouTube result is downloaded while she chooses: YouTube makes a download wait some 5 s before it
-        # gives the audio (Bilibili does not, and is never downloaded ahead). Not chosen, it is let go (ask).
-        first = next((r for r in results if r["site"] == "youtube"), None)
-        if first is not None and first["in_library"] is None and self.downloads is not None:
-            self.downloads.fetch_ahead(first["url"])
         keys = ("url", "channel", "duration_s", "views", "description", "in_library")
         return {"results": [{"title": r["video_title"], "site": online.SOURCES[r["site"]], **{k: r[k] for k in keys},
                              "flags": online.describe(r["flags"])} for r in results], **note}
@@ -1329,8 +1324,6 @@ class Assistant:
                 return answer
             finally:
                 self._asked()
-                if self.downloads is not None:  # a video downloaded ahead that she did not choose (search_online)
-                    self.downloads.drop_ahead()
                 self.speak, self.typed, self.paused_for_her = None, False, False
                 self.after_reply, self.asked_now = [], None
                 self.replied_at = self.clock()

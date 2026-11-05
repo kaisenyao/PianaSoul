@@ -406,12 +406,9 @@ The project can live on a dedicated Mac mini. To start it from any folder, add
 
 A request goes: speech recognition, then the assistant with your library, then a check that the piano is there, and
 then the notes. A new piece is searched for while you wait, in your library and online at once, then downloaded and
-transcribed in the background. YouTube holds a download back for some five seconds before the audio comes, so her
-first YouTube result starts downloading while she chooses; if she picks another, that download stops and nothing of
-it is kept (Bilibili's videos do not wait, and are not downloaded ahead). A piece starts to play once its first
-seconds are transcribed, a second or two after the download, while the rest is transcribed well ahead of the music;
-the notes are the same, one for one, as when a piece is transcribed whole. It joins the library once all of it is
-there.
+transcribed in the background. It starts to play once its first seconds are transcribed, a second or two after the
+download, while the rest is transcribed well ahead of the music; the notes are the same, one for one, as when a piece
+is transcribed whole. It joins the library once all of it is there.
 
 What plays is kept when the service stops (the Mac app quits, the Mac restarts): the next start has the piece paused
 where it was heard, with its list, and play goes on from there. The phone shows it paused as soon as the Mac is away.

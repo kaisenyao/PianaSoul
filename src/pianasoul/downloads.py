@@ -14,10 +14,6 @@ The transcription's process starts with the piece, so its model loads while the 
 can play while the rest of it is transcribed: once enough of it is there (growing.Growing.plays), it has its record,
 marked as being made (Library.making), and it is in the library once it is made; if it is not made after all (it
 fails, or is stopped), its record goes, and its next version, if it has one, can play in its turn.
-
-A video may be downloaded before it is asked for (fetch_ahead: her first YouTube result, while she chooses, since
-YouTube makes a download wait some 5 s): asked for, its piece takes that download as it goes, and its outcome is the
-piece's; not asked for, it is let go, and nothing of it stays.
 """
 
 from __future__ import annotations
@@ -99,24 +95,6 @@ class Stopped(Exception):
 
 
 @dataclass
-class Ahead:
-    """A video's audio downloaded before it is asked for (Downloads.fetch_ahead)."""
-    url: str
-    audio: tuple[Path, dict] | None = None  # once downloaded: the audio, and the video's details (download_audio)
-    error: Exception | None = None  # or why it could not be
-    done: threading.Event = field(default_factory=threading.Event)
-    let_go: threading.Event = field(default_factory=threading.Event)  # not wanted: it stops, nothing of it stays
-
-
-def _drop_audio(url: str) -> None:
-    """Nothing of a video's download stays."""
-    from .download import task_id
-
-    for leftover in AUDIO_DIR.glob(f"{task_id(url)}.*"):
-        leftover.unlink(missing_ok=True)
-
-
-@dataclass
 class Job:
     id: int
     source: str  # a video's address, or a local audio file
@@ -140,7 +118,6 @@ class Job:
     finished: threading.Event = field(default_factory=threading.Event)
     # It can play (as it is made, or made), or it ended; a version that could play and went clears it (_transcribe)
     playable: threading.Event = field(default_factory=threading.Event)
-    ahead: Ahead | None = None  # its video's download, begun before it was asked for (fetch_ahead), until taken
 
     @property
     def local(self) -> bool:
@@ -164,7 +141,6 @@ class Downloads:
         self.unmade: list = []  # called with a record's id when its piece played as it was made, and was not made
         self.growing: dict[Path, Growing] = {}  # the pieces being made that can play, by the file each will have
         self.name_piece = name_piece  # (query, video, artists) -> {piece, artist, performer, aliases}, or None: the video's
-        self._ahead: Ahead | None = None  # a video downloaded ahead, not asked for yet (fetch_ahead)
         self._speed = SECONDS_PER_SECOND
         self._ids = itertools.count(1)
         self._cond = threading.Condition()
@@ -212,8 +188,6 @@ class Downloads:
             if recording:
                 job.audio = recording["id"]
                 self.lib.set_audio(job.audio, status="queued", error="")
-            if self._ahead is not None and self._ahead.url == source:  # downloading already: the piece's own now
-                job.ahead, self._ahead = self._ahead, None
             self.jobs.append(job)
             self._cond.notify_all()
         self.changed()
@@ -233,85 +207,12 @@ class Downloads:
                 return
             self.jobs.remove(job)
             job.stopped.set()
-            if job.ahead is not None:  # not taken yet (_audio)
-                self._let_go(job.ahead)
-                job.ahead = None
             if job.status == "queued":
                 job.status, job.error = "stopped", "stopped"
                 self._ended(job)
                 job.finished.set()
                 job.playable.set()  # (or not: it ended)
         self.changed()
-
-    # ---- downloading ahead ----------------------------------------------------------------------------
-    def fetch_ahead(self, url: str) -> None:
-        """Start downloading a video's audio before it is asked for: her first YouTube result, while she chooses.
-        Asked for (add), its piece takes this download as it goes (_audio). One at a time: another before it, not
-        asked for, is let go. Not for a video being made, or whose audio is there already."""
-        from .download import task_id
-
-        source = clean_url(url)
-        with self._cond:
-            if self._ahead is not None and self._ahead.url == source:
-                return  # on its way already
-            self.drop_ahead()
-            if any(j.source == source for j in self.jobs) or any(AUDIO_DIR.glob(f"{task_id(source)}.*")):
-                return
-            ahead = self._ahead = Ahead(source)
-        log.debug("downloading ahead: %s", source)
-        threading.Thread(target=self._fetch, args=(ahead,), name="ahead", daemon=True).start()
-
-    def drop_ahead(self) -> None:
-        """What was downloaded ahead and not asked for (fetch_ahead) is let go: it stops, and nothing of it stays."""
-        with self._cond:
-            ahead, self._ahead = self._ahead, None
-            if ahead is not None:
-                self._let_go(ahead)
-
-    def _let_go(self, ahead: Ahead) -> None:
-        """(_cond held.) Its download stops where it is, and what it got goes, now or once it ends (_fetch)."""
-        ahead.let_go.set()
-        if ahead.done.is_set():
-            _drop_audio(ahead.url)
-
-    def _fetch(self, ahead: Ahead) -> None:
-        from .download import download_audio
-
-        def progress(fraction: float) -> None:
-            if ahead.let_go.is_set():
-                raise Stopped()
-
-        started = time.monotonic()
-        try:
-            ahead.audio = download_audio(ahead.url, AUDIO_DIR, progress)
-            log.debug("downloaded ahead in %.1f s: %s", time.monotonic() - started, ahead.audio[0].name)
-        except Exception as exc:  # the piece's, should it be asked for
-            ahead.error = exc
-            log.debug("not downloaded ahead (%s): %s", type(exc).__name__, ahead.url)
-        with self._cond:
-            ahead.done.set()
-            if ahead.let_go.is_set():
-                _drop_audio(ahead.url)
-            self._cond.notify_all()
-
-    def _audio(self, job: Job, progress) -> tuple[Path, dict]:
-        """A piece's audio and its video's details: from its download ahead (fetch_ahead), once that is done, as it
-        went, failure included; or downloaded now."""
-        from .download import download_audio
-
-        with self._cond:
-            ahead, job.ahead = job.ahead, None
-            if ahead is not None:
-                self._cond.wait_for(lambda: ahead.done.is_set() or job.stopped.is_set())
-                if not ahead.done.is_set():
-                    self._let_go(ahead)
-                    raise Stopped()
-        if ahead is None:
-            return download_audio(job.source, AUDIO_DIR, progress)
-        log.debug("its download ahead taken: %s", job.source)
-        if ahead.error is not None:
-            raise ahead.error
-        return ahead.audio
 
     # ---- the work -------------------------------------------------------------------------------------
     def _work(self) -> None:
@@ -373,6 +274,7 @@ class Downloads:
 
     def _make(self, job: Job) -> dict:
         print(f"  · getting {job.title or job.source} ready…", flush=True)
+        from .download import download_audio, task_id
         from .pipeline import Options, Transcription
 
         def progress(fraction: float) -> None:
@@ -386,12 +288,13 @@ class Downloads:
                 return self._file(job, Path(job.source), {}, apart)
             try:
                 started = time.monotonic()
-                audio, details = self._audio(job, progress)
+                audio, details = download_audio(job.source, AUDIO_DIR, progress)
                 log.debug("downloaded in %.1f s: %s", time.monotonic() - started, audio.name)
                 rec = self._file(job, audio, details, apart)
             except Exception:
                 if job.stopped.is_set():  # whatever the downloader made of the stop, nothing it got stays
-                    _drop_audio(job.source)
+                    for leftover in AUDIO_DIR.glob(f"{task_id(job.source)}.*"):
+                        leftover.unlink(missing_ok=True)
                     raise Stopped() from None
                 raise  # the audio stays for a retry
         for leftover in AUDIO_DIR.glob(f"{audio.stem}.*"):  # no longer needed once the MIDI is in the library
