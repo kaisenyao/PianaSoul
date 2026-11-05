@@ -46,7 +46,6 @@ LIST_MOST, OVERVIEW_MOST, MOST_PLAYED = 40, 15, 20  # library_info: pieces in on
 ACTIONS = {"play_recording", "control_playback", "play_playlist", "replay_conversation", "set_volume",
            "save_conversation_as_playlist", "rename_playlist"}  # tools that do something she then confirms
 PLAYS = {"play_recording", "control_playback", "play_playlist", "replay_conversation"}  # their result, said with her line (playback_reply)
-WAITS = {"search_online": "searching"}  # going online, and her line for it when she has said nothing yet
 PREPARES = {"transcribe_url", "transcribe_local"}  # her calls that send a piece to be prepared
 ANSWERED_IN = {"search_library", "search_online", "library_info"}  # their results bring words in other languages
 # What the model is told as it is asked again for a reply held back (Assistant.unfounded): words that say what no tool
@@ -494,12 +493,10 @@ class Assistant:
         self.after_reply: list = []  # what she starts playing, typed to, once her reply is there
         self.taps = 0  # what was done on the phone's player: counted, so that what she would start gives way to it
         self.taps_asked = 0  # as it was when the request began: used since, nothing she gets ready is started (_start)
-        self.taps_before = 0  # as it was when the first start of a typed request began to wait
         # What plays, changed by her (play, pause, stop): counted, so that a piece she prepared in the background
         # starts by itself, nothing of its request playing, only if nothing changed since (_ready).
         self.moves = 0
         self.preparing: dict[int, tuple] = {}  # being prepared: job id -> (job, the Lineup of the request that sent it)
-        self.preparing_now: list[int] = []  # the jobs this request has sent to be prepared
         self.asked_now: Lineup | None = None  # what the request she answers asks to hear (_ready: that of a piece made)
         self.lineup: Lineup | None = None  # of the latest request that chose pieces or sent any to be prepared
         self.started_now = False  # this request started a piece or went on with one (_play)
@@ -653,7 +650,6 @@ class Assistant:
             if job.result is None:
                 return {"status": "failed", "error": job.error or job.status}
             return {"status": "done", **_brief(job.result)}
-        self.preparing_now.append(job.id)
         waited = job.id in self.preparing  # asked for again: one waits for it, as the latest request asks to hear it
         self.preparing[job.id] = (job, self.asked_now)
         self.lineup = self.asked_now
@@ -975,14 +971,12 @@ class Assistant:
         """What a typed request plays, once her reply is there; not if the phone's player was used meanwhile (a tap
         wins, as it does before she starts anything: _start)."""
         starts, self.after_reply = self.after_reply, []
-        if self.taps == self.taps_before:
+        if not self.phone_used():
             for start in starts:
                 start()
 
     def _when_replied(self, request: PlaybackRequest, from_start: bool) -> None:
         """A typed request's piece starts, or is lined up, once her reply is there (ask)."""
-        if not self.after_reply:
-            self.taps_before = self.taps
         self.after_reply.append(lambda: self._started(request, from_start))
 
     def _started(self, request: PlaybackRequest, from_start: bool) -> None:
@@ -1356,7 +1350,7 @@ class Assistant:
                 self.new_conversation(chat)
             self.speak, self.played_now, self.typed, asked = speak, [], typed, time.monotonic()
             self.paused_for_her = paused_for_her
-            self.preparing_now, self.started_now, self.looked_for, self.held, self.line_said = [], False, "", "", False
+            self.started_now, self.looked_for, self.held, self.line_said = False, "", "", False
             self.said_now = ""
             self.taps_asked = self.taps if taps is None else taps
             self.asked_now = lineup = Lineup(self.taps_asked)
@@ -1449,7 +1443,6 @@ class Assistant:
     def _answer(self, chat, text: str, typed: bool) -> str:
         self.request = text
         self.selectable_ids.clear()
-        progress_spoken = False
         playback_announced = False
         # An action besides playing (a playlist made, the volume), or a pause or stop after a piece her line introduced
         # (else that piece would stand paused or stopped with nothing said of it): her words say it.
@@ -1530,12 +1523,12 @@ class Assistant:
                 she has said a sentence (one only, before her news); nor those that come as she sends a piece to be
                 prepared, held as her news (below). Only that first call is known yet; she is told to make an action
                 alone (VOICE_NOTE)."""
-                nonlocal said_ahead, progress_spoken
-                if tool in ACTIONS or tool == "search_online" and (not library_searched or progress_spoken) \
+                nonlocal said_ahead
+                if tool in ACTIONS or tool == "search_online" and (not library_searched or self.said_now) \
                         or tool in PREPARES and not (self.started_now or self.after_reply):
                     return False
                 self.tell(words, meanwhile=True)
-                said_ahead, progress_spoken = words, True
+                said_ahead = words
                 return True
             chat.before_tool = ahead
             reply = model_reply(chat.send_user, model_text)
@@ -1559,14 +1552,13 @@ class Assistant:
                 words, said_ahead = words[len(said):].strip(), ""
                 several = any(c.name == "play_recording" for c in calls) \
                     and sum(c.name in PIECE_CALLS for c in calls) > 1
-                online_again = progress_spoken and any(c.name == "search_online" for c in calls)
-                sent = len(self.preparing_now)
+                online_again = bool(self.said_now) and any(c.name == "search_online" for c in calls)
                 hold = bool(words) and not several and not (self.started_now or self.after_reply) \
                     and any(c.name in PREPARES for c in calls)  # her news, if a piece is sent (below)
                 if not hold and words and not online_again \
                         and not any(c.name in ACTIONS or refused(c) for c in calls):
                     self.tell(words, meanwhile=True)
-                    progress_spoken, said = True, said + words
+                    said += words
                 elif several:
                     self.held = words
                 if several or any(c.name == "search_library" for c in calls):
@@ -1585,9 +1577,8 @@ class Assistant:
                             k: found[k] for k in ("id", "piece", "artist", "performer")}, "instruction": IN_LIBRARY},
                             ensure_ascii=False)))
                         continue
-                    if not progress_spoken and call.name in WAITS:  # going online is not started silently
-                        self.tell(line(WAITS[call.name], self.chinese()), meanwhile=True)
-                        progress_spoken = True
+                    if call.name == "search_online" and not self.said_now:  # going online is not started silently
+                        self.tell(line("searching", self.chinese()), meanwhile=True)
                     raw = self.run_tool(call.name, call.arguments)
                     confirms = confirms or call.name in ACTIONS - PLAYS or playback_announced \
                         and call.name == "control_playback" and call.arguments.get("action") in {"pause", "cancel"}
@@ -1602,15 +1593,16 @@ class Assistant:
                         if played.get("status") != "lined_up":  # her line, if any, is for the piece that plays
                             playback_result = played
                         if played.get("introduction_spoken"):
-                            progress_spoken = playback_announced = True
+                            playback_announced = True
                         if played.get("error") in {"playback_connection_unavailable", "recording_unavailable", "recording_not_found"}:
                             chat.discard_turn()  # the unfinished tool exchange; earlier turns and the pending piece stay
                             return self.playback_reply(played)
-                if hold and len(self.preparing_now) > sent:
+                if hold and any(c.name in PREPARES and json.loads(raw).get("status") == "preparing"
+                                for c, raw in results):
                     news = news or words  # of the first piece sent, the one that starts by itself (Lineup.sent)
                 elif hold:  # nothing sent: made before (or not to be had), nothing waits for it
                     self.tell(words, meanwhile=True)
-                    progress_spoken, self.looked_for = True, self.looked_for + words
+                    self.looked_for += words
                 plan, self.held = plan or self.held, ""
                 reply = model_reply(chat.send_tool_results, results)
             if reply.tool_calls:  # still calling tools after MAX_TOOL_ROUNDS: give this request up
@@ -1618,7 +1610,7 @@ class Assistant:
             # Her words said it all as it began to play, and so did her line about a piece asked for alone; after her
             # line about the first of several (lined up after it, or sent to be prepared), her reply says the rest.
             if playback_announced and not confirms and not (self.line_said and (len(self.played_now) > 1
-                                                                                or self.preparing_now)):
+                                                                                or self.asked_now.sent is not None)):
                 return news
             words = reply.text.strip()
             if said_ahead and words.startswith(said_ahead):  # given up with words said already, as it went on
