@@ -1,7 +1,7 @@
 """Her words that say something is done, or is being done at once, which only her tools do: said with no tool
 called, they are not true. Some models write "这就取消", "改好啦" or "retrying now" and call nothing, or write the
-conversation's own "[played: …]" as words; or ask "你想听哪个卡农？" before looking in the library (Qwen,
-2026-11-04). Spotted, the model is asked once more (chat.Assistant).
+conversation's own "[played: …]" as words (Qwen, 2026-11-04). Spotted, the model is asked once more
+(chat.Assistant).
 
 Words only, in Chinese and English, sentence by sentence: what asks, offers, waits on the user ("等你连好") or comes
 later, says what was not done, or what the user did, claims nothing ("要不要我接着弹？", "连好了我就继续", "I can't
@@ -55,23 +55,20 @@ DONE = re.compile("|".join([
     r"|all done)\b",
     r"\bhere's\b(?! (?:what|how|why|where|who|a |an |the |my |your |our |some|everything|all))"
     r"|\bhere's (?:the|your) (?:piece|song)\b",  # not "here's your most played", "here's the story"
-    r"\b(?:is|it's) now (?:called|named)\b|\bnow called\b",
     r"\bvolume (?:up|down)\b|\bturn(?:ed|ing)? (?:it )?(?:up|down)\b|\bvolume (?:is )?(?:now )?(?:set )?(?:at|to) \d",
     # Not what plays, as asked ("Clair de Lune is playing right now").
     r"\b(?:is|are) (?:now )?playing\b(?! right now)|\bplaying (?:it |this |that )?(?:now|again|for you)\b",
     r"\bplaylist (?:is )?(?:ready|made|saved|created)\b",
 ]), re.I)
-# Of those, what says only that the piece is paused where it is ("先停在这儿", "停住啦", "paused"), not stopped: true
-# already when it is paused.
-PAUSED = re.compile(r"先[^，。]{0,12}?(?:停|暂停|暫停)|停在这|停在這|停住|暂停|暫停|\bpaus(?:e|ed|ing)\b", re.I)
-# What she says she is going to look for, or asks the listener to wait while she does: true only when something
-# follows it, so it counts when her reply ends with it ("我去网上找一版，稍等我一下～"), not before an answer ("我看看你
-# 最近都听了些什么～ 最多的是《月光》").
+# Of those, what says only that the piece is paused where it is ("先停在这儿", "停在22秒", "停住啦", "paused"), not
+# stopped: true already when it is paused.
+PAUSED = re.compile(r"先[^，。]{0,12}?(?:停|暂停|暫停)|停在|停住|暂停|暫停|\bpaus(?:e|ed|ing)\b", re.I)
+# What she says she is going to look for: true only when something follows it, so it counts when her reply ends with
+# it ("我去网上找一版～", "I'll find a version of it."), not before an answer ("我去看看你最近都听了些什么～ 最多的是
+# 《月光》").
 GOING = re.compile("|".join([
-    rf"{AT_ONCE}{LOOK}", r"找找|找一找|查查|查一查|翻翻|翻一翻|搜搜|我看看",  # 我去找找, 我查查你的曲库
-    r"稍等|等我一下|等我一会|等我一會|稍候|请等一下|請等一下",
+    rf"{AT_ONCE}{LOOK}",  # 我去找一版, 我先查查你的曲库
     r"\bI'?ll (?:find|look|search|check|get)\b", r"\blet me (?:find|look|search|check|get)\b",
-    r"\b(?:one|just a) moment\b|\bgive me a (?:moment|sec|second)\b|\bhang on\b|\bbear with me\b",
 ]), re.I)
 
 # What waits on the user (their connecting, their turning a site on, their telling her), or on anything else first,
@@ -96,13 +93,6 @@ CLAIMS_NOTHING = re.compile(
 END = re.compile(r"(?<=[。！？!?；;\n～~…])|(?<=\.)(?=\s)")
 CLAUSE = re.compile(r"[，,、：:—–]+")
 ASKS = re.compile(r"(?:[吗嗎]|(?<![什怎这這那多])么)$")  # a question without its mark ("要我接着放吗～"), not 什么
-
-# Asking which piece is meant, or which way.
-WHICH = re.compile(r"哪一?(?:首|个|個|版|位|支|种|種|部)|还是|還是|是指|指的是|你是说|你是說|你说的是|你說的是|是想听|是想聽"
-                   r"|\b(?:which|do you mean|did you mean|or)\b", re.I)
-# A request to hear something.
-HEAR = re.compile(r"弹|彈|放(?!松|心)|播|(?<![好难難])(?:听|聽)(?!说|說)|来一?首|來一?首|\b(?:play|hear|listen|put on)\b",
-                  re.I)
 
 
 def _sentences(words: str) -> list[tuple[str, bool]]:
@@ -129,10 +119,10 @@ def _claiming(sentence: str, pattern: re.Pattern) -> list[str]:
 
 
 def claims(words: str) -> set[str]:
-    """What words say: that something is done or is being done at once, what her tools do ("done", or "paused" when
-    it is only that the piece is paused where it is); and, when they end with it, that she goes to look for something
-    ("going"). Up to a question only: what follows it waits on its answer. The conversation's notes of what was done,
-    written as words, are "done" too."""
+    """What words say: that something is done or is being done at once, what her tools do, or, when they end with it,
+    that she goes to look for something ("done"; "paused" when it is only that the piece is paused where it is). Up to
+    a question only: what follows it waits on its answer. The conversation's notes of what was done, written as words,
+    are "done" too."""
     said = {"done"} if MARKER.search(words) else set()
     sentences = _sentences(words)
     for sentence, asks in sentences:
@@ -140,15 +130,5 @@ def claims(words: str) -> set[str]:
             return said
         said.update("paused" if PAUSED.search(clause) else "done" for clause in _claiming(sentence, DONE))
     if sentences and _claiming(sentences[-1][0], GOING):
-        said.add("going")
+        said.add("done")
     return said
-
-
-def asks_which(words: str) -> bool:
-    """Whether words ask which piece, or which of two things, is meant."""
-    return any(asks and WHICH.search(sentence) for sentence, asks in _sentences(words))
-
-
-def asks_to_hear(request: str) -> bool:
-    """Whether a request asks to hear something (弹, 放, 听, play...), rather than only to talk."""
-    return HEAR.search(request) is not None

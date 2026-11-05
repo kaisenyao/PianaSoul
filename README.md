@@ -426,10 +426,9 @@ where it was heard, with its list, and play goes on from there. The phone shows 
   transcription returned in the same request, one of the pieces she prepared lately, one of your playlists by its
   name, or the pieces she played in the conversation, so it cannot play something it made up. Short requests such as "stop" are done without the model.
 
-- **Saying only what was done.** A reply that says something was done, or is on its way, when no tool did it (some
-  models write "retrying now" and call nothing), or that asks which piece you mean before looking in your library,
-  is held back, and the model is asked for it once more from the same point, told what was wrong. Words she said
-  before it stay said; nothing else changes.
+- **Saying only what was done.** A reply given with no tool called at all that says something was done, or is on its
+  way (some models write "retrying now" and call nothing), is held back, and the model is asked for it once more from
+  the same point, told what was wrong; nothing else changes.
 
 - **Another chat model.** Anthropic can do the chat: set `PIANASOUL_MODEL=anthropic:claude-haiku-5-5` and
   `ANTHROPIC_API_KEY`. Speech recognition still needs `OPENAI_API_KEY`.

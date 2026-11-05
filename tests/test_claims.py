@@ -3,7 +3,7 @@ and OpenAI, 2026-11-03 and 11-04), and what any model may write. No model is ask
 import unittest
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
-from pianasoul.claims import asks_to_hear, asks_which, claims
+from pianasoul.claims import claims
 
 # Replies that called no tool and said something was done (her real-model check, 2026-11-04: Qwen, DeepSeek).
 SAID_UNDONE = [
@@ -101,25 +101,13 @@ class ClaimTests(unittest.TestCase):
         self.assertEqual(claims("改好啦，「睡前」现在叫「晚安曲」了～要不要我把它从头弹给你听？"), {"done"})
 
     def test_going_to_look_counts_only_when_her_reply_ends_with_it(self):
-        self.assertEqual(claims("曲库里没有，我去网上找一版，稍等我一下～"), {"going"})
-        self.assertEqual(claims("Let me look in your library."), {"going"})
-        self.assertFalse(claims("我看看你最近都听了些什么～ 最多的是《月光》，一共 5 次。"), 'The looking was done')
+        self.assertEqual(claims("曲库里没有，我去网上找一版，稍等我一下～"), {"done"})
+        self.assertEqual(claims("Let me look in your library."), {"done"})
+        self.assertFalse(claims("我去看看你最近都听了些什么～ 最多的是《月光》，一共 5 次。"), 'The looking was done')
 
-    def test_asking_which_piece_is_found_and_other_questions_are_not(self):
-        for words in ("“卡农”有好几个意思呢～你是想听帕赫贝尔那首经典的 D 大调卡农，还是别的？",
-                      "您说的月光，是贝多芬的《月光奏鸣曲》，还是德彪西的那首《月光》呀？库里现在只有德彪西那首。",
-                      "卡农版本挺多的，你是想听帕赫贝尔那首经典的D大调卡农吗？",
-                      "Do you mean Beethoven's Moonlight Sonata or Debussy's Clair de Lune?"):
-            self.assertTrue(asks_which(words), words)
-        for words in ("要不要我接着把它放完？", "你呢，听夜曲的时候心里在想什么呀？", "Shall I play you something?",
-                      "曲库里有两首《月光》。"):
-            self.assertFalse(asks_which(words), words)
-
-    def test_a_request_to_hear_something_is_told_from_one_to_talk(self):
-        for request in ("弹一下卡农吧", "我想听贝多芬的月光奏鸣曲", "来首轻松的", "Play Clair de Lune"):
-            self.assertTrue(asks_to_hear(request), request)
-        for request in ("今天有点累，陪我聊聊天吧", "这首真好听", "听说肖邦很瘦", "Tell me about Chopin"):
-            self.assertFalse(asks_to_hear(request), request)
+    def test_the_piece_kept_where_it_stopped_is_said_to_be_paused(self):
+        # DeepSeek, case 13 of the real-model check (2026-11-04): the piece really was paused, and so held back wrongly.
+        self.assertEqual(claims("好，先暂停着，位置我给你留着（停在22秒），连好了跟我说一声就接着弹～"), {"paused"})
 
 
 if __name__ == "__main__":

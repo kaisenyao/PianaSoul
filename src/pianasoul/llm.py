@@ -257,7 +257,7 @@ class OpenAIChat:
 
     def ask_again(self, note: str) -> Reply:
         """The latest response asked for once more, with the application's word on it (note): from where it was
-        asked, so that the reply held back is not in the conversation, and words said before it stay there."""
+        asked, so that the reply held back is not in the conversation."""
         self.previous, items = self.asked
         return self._call([*items, {"role": NOTE_ROLE, "content": note}])
 
@@ -308,12 +308,11 @@ class AnthropicChat:
         return self._call()
 
     def ask_again(self, note: str) -> Reply:
-        """As OpenAIChat's: the note joins what the latest response answered (the Messages API has no other turn
-        for it)."""
+        """As OpenAIChat's: the note joins the request, which the reply held back answered with no tool called
+        (Assistant.unfounded); the Messages API has no other turn for it."""
         self.messages.pop()
-        asked = self.messages[-1]["content"]
-        self.messages[-1] = {"role": "user", "content": [
-            *(asked if isinstance(asked, list) else [{"type": "text", "text": asked}]), {"type": "text", "text": note}]}
+        self.messages[-1] = {"role": "user", "content": [{"type": "text", "text": self.messages[-1]["content"]},
+                                                         {"type": "text", "text": note}]}
         return self._call()
 
     def discard_turn(self) -> None:

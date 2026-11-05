@@ -441,27 +441,13 @@ class PlaybackTests(unittest.TestCase):
         start.assert_not_called()  # her pause: it stays where it is
         self.assertEqual((self.player.state, self.player.position), ('paused', 22))
 
-    def test_words_said_before_a_tool_stay_said_and_what_follows_the_note_comes_after_them(self):
-        canon = self.records[1]['id']
-        chat = ScriptedChat(('我去库里翻一翻～', [call('search_library', query='Clair de Lune')]), '找到啦，这就给你弹～',
-                            [call('play_recording', id=canon)], '')
-        with patch.object(self.a, 'search_library', return_value={'results': [self.lib.get(canon)]}):
-            self.ask(chat, '弹一下德彪西的月光')
-        self.assertEqual(self.player.current[1], '月光')
-        self.assertEqual(self.spoken[0], '我去库里翻一翻～', 'Said once, at once')
-        self.assertEqual(len(self.spoken), 2, 'Then her line as it plays; the words held back never')
-        self.assertIn('no tool did it', chat.notes[0])
-
-    def test_asking_which_piece_before_looking_is_held_back_and_she_looks_first(self):
-        chat = ScriptedChat('“月光”是指贝多芬的《月光奏鸣曲》，还是德彪西的《月光》呀？',
-                            [call('search_library', query='Clair de Lune Debussy')],
-                            [call('play_recording', id=self.records[1]['id'])])
-        self.ask(chat, '弹一下月光吧')
-        self.assertIn('before you looked', chat.notes[0])
-        self.assertEqual(self.player.current[1], '月光')
-        chat = ScriptedChat('你更喜欢肖邦还是李斯特呀？')
-        self.ask(chat, '跟我聊聊浪漫派吧')
-        self.assertEqual(chat.notes, [], 'A question in conversation, nothing asked for to hear')
+    def test_only_a_reply_with_no_tool_called_at_all_is_held_back(self):
+        # OpenAI, case 23 of the real-model check, three times (2026-11-04): after its search online failed, her right
+        # answer was held back (开启哔哩哔哩 is the user's to do), and asked for again.
+        answer = '这次在线搜索没能连上 YouTube；可以在手机“在线搜索”的搜索栏下开启哔哩哔哩，我再帮你找一版《十年》。'
+        chat = ScriptedChat([call('search_library', query='陈奕迅 十年')], answer)
+        self.assertEqual(self.ask(chat, '弹一首陈奕迅的十年'), answer)
+        self.assertEqual(chat.notes, [])
 
     def test_she_knows_who_plays_the_piece_playing(self):
         self.lib.update(self.records[0]['id'], performer='赵海洋')  # kept beside the title, not in it

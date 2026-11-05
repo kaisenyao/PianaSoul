@@ -30,7 +30,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 from . import online
-from .claims import asks_to_hear, asks_which, claims
+from .claims import claims
 from .conversations import QUIET_S as NEW_CONVERSATION_AFTER_S, Conversations, seconds_since
 from .library import ALIASES, DB_PATH, NAMES, Library, artist_key, enrich, format_row, said_whole, title_parts
 from .lines import every, line
@@ -49,20 +49,12 @@ PLAYS = {"play_recording", "control_playback", "play_playlist", "replay_conversa
 WAITS = {"search_online": "searching"}  # going online, and her line for it when she has said nothing yet
 PREPARES = {"transcribe_url", "transcribe_local"}  # her calls that send a piece to be prepared
 ANSWERED_IN = {"search_library", "search_online", "library_info"}  # their results bring words in other languages
-LOOKS = {"search_library", "search_online", "library_info"}  # tools that only look: they do nothing she may say is done
 # What the model is told as it is asked again for a reply held back (Assistant.unfounded): words that say what no tool
-# did, or a question which piece is meant before looking. Once a request: wrongly held back, the reply only comes a
-# little later.
-HELD_BACK = {
-    "claims": "(From the application, not the user.) Your reply {reply} was held back, not said: it says something "
-              "is done or being done, but no tool did it. If the user asked for that, call the tool that does it; if "
-              "not, reply without saying it is done. Never write notes in brackets such as [played: …]. Answer in "
-              "{language}.",
-    "asks": "(From the application, not the user.) Your reply {reply} was held back, not said: it asks which piece "
-            "the user means before you looked. If they asked to hear a piece, look first as your instructions say "
-            "(library_matches, then search_library with the piece's other names) and play it if it is there; ask "
-            "only if it is still unclear. If they did not, reply as you meant to. Answer in {language}.",
-}
+# did. Once a request: wrongly held back, the reply only comes a little later.
+HELD_BACK = ("(From the application, not the user.) Your reply {reply} was held back, not said: it says something is "
+             "done or being done, but no tool did it. If the user asked for that, call the tool that does it; if not, "
+             "reply without saying it is done. Never write notes in brackets such as [played: …]. Answer in "
+             "{language}.")
 PREPARED_KEPT = 5  # the latest pieces she prepared in the background, remembered to be asked for
 # Of a piece she prepares, the versions tried besides the one she chose while one cannot be made: each may take a
 # download and a transcription before it fails, so the listener is not kept waiting long for a third failure.
@@ -1438,20 +1430,16 @@ class Assistant:
         return line("other_version", self.chinese(), performer)
 
     def unfounded(self, words: str, called: set[str]) -> str:
-        """What the model is told of its reply to the request (HELD_BACK), when the reply is not to be said: it says
-        that something is done or being done, or that she goes to look, with no tool doing it (claims; that the piece
-        is paused, it may say when it is, not only while she listens); or, a piece asked for and nothing looked at, it
-        asks which piece is meant. "" for any other reply. called: the tools called for the request."""
+        """What the model is told of its reply to the request (HELD_BACK), when the reply is not to be said: with no
+        tool called for the request, it says that something is done or being done, or that she goes to look (claims;
+        that the piece is paused, it may say when it is, not only while she listens). "" for any other reply. called:
+        the tools called for the request."""
         said = claims(words)
         if self.player and self.player.state == "paused" and not self.paused_for_her:
             said.discard("paused")
-        if said and not called - LOOKS:
-            held = "claims"
-        elif not called and asks_which(words) and asks_to_hear(self.request):
-            held = "asks"
-        else:
+        if called or not said:
             return ""
-        return HELD_BACK[held].format(reply=json.dumps(words[:300], ensure_ascii=False), language=self.answer_in())
+        return HELD_BACK.format(reply=json.dumps(words[:300], ensure_ascii=False), language=self.answer_in())
 
     def could_not_answer(self) -> str:
         """The model failed (ask raised; the request is forgotten): she says so, in the conversation too, unless what
