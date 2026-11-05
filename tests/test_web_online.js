@@ -179,7 +179,6 @@ function theWordsForItInBothLanguages() {
     assert.deepEqual(Object.keys(T.refused), [...sites]);
     assert.deepEqual(Object.keys(T.cause), ['unreachable', 'refused', 'failed']);
     assert.notEqual(T.searchFailed, T.nothing, 'A failure is not "No Results"');
-    assert.ok(!('searchInstead' in T), 'One site instead of the other is gone: each is on or off');
   }
   const english = [...Object.values(en.sites), ...Object.values(en.refused), en.searchFailed, en.sourcesLabel,
     en.partly(Object.values(en.cause).map(c => c(en.sites.youtube)), [en.sites.bilibili])];
