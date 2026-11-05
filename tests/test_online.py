@@ -90,7 +90,7 @@ class SearchTests(unittest.TestCase):
         self.assertEqual((found[0]['url'], found[0]['site']), ('https://www.youtube.com/watch?v=aaaaaaaaaaa', 'youtube'))
         site = Site(entries=[])
         with patch('yt_dlp.YoutubeDL', site):
-            online.details(['https://www.youtube.com/watch?v=aaaaaaaaaaa'])
+            online.details('https://www.youtube.com/watch?v=aaaaaaaaaaa')
         self.assertEqual((site.options[0]['socket_timeout'], site.options[0]['extractor_retries']), (20, 1),
                          "A video's page keeps its time")
 

@@ -82,10 +82,10 @@ def bv_of(av: int) -> str:
 
 
 def _video_page(url: str) -> dict:
-    """For a YouTube video, what its page says, with the channel's picture (online search); for a Bilibili one a
-    search found, its UP主's picture, which no page yt-dlp reads gives; else nothing."""
+    """For a YouTube video, what its page says, with the channel's picture (online.details: OnlineError when it cannot
+    be read); for a Bilibili one a search found, its UP主's picture, which no page yt-dlp reads gives; else nothing."""
     if online.video_id(url):
-        return online.details([url]).get(url, {})
+        return online.details(url)
     avatar = online.avatar_found(url)
     return {"channel_avatar": avatar} if avatar else {}
 

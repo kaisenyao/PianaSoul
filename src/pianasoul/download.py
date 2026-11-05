@@ -145,15 +145,3 @@ def download_audio(url: str, cache_dir: Path, progress=None) -> tuple[Path, dict
         target = cache_dir / f"{key}{downloaded.suffix}"
         os.replace(downloaded, target)
         return target, details
-
-
-def video_info(url: str) -> dict:
-    """What yt-dlp knows about one video, without downloading it."""
-    from yt_dlp import YoutubeDL
-
-    options = {"quiet": True, "noplaylist": True, "socket_timeout": 20, "js_runtimes": {"deno": {}, "node": {}}}
-    with YoutubeDL(options) as ydl:
-        info = ydl.extract_info(url, download=False, process=False)
-    if not info or info.get("_type", "video") != "video":
-        raise ValueError("provide a single video URL, not a playlist or channel")
-    return info

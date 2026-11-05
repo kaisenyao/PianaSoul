@@ -101,9 +101,9 @@ def reason_of(exc: BaseException) -> str:
 
 
 def _extract(url: str, listed: bool = False, **options) -> dict:
-    """What yt-dlp makes of a YouTube address or search, without downloading anything; OnlineError, saying why, when
-    it cannot. listed: its entries are read here too (a search's pages are fetched only as they are read), so that
-    their failure says why."""
+    """What yt-dlp makes of a video's or a channel's address, or of a YouTube search, without downloading anything;
+    OnlineError, saying why, when it cannot. listed: its entries are read here too (a search's pages are fetched only
+    as they are read), so that their failure says why."""
     from yt_dlp import YoutubeDL
     from yt_dlp.utils import YoutubeDLError
 
@@ -114,7 +114,8 @@ def _extract(url: str, listed: bool = False, **options) -> dict:
                 info["entries"] = list(info.get("entries") or [])
             return info
     except YoutubeDLError as exc:  # DownloadError and ExtractorError alike
-        raise OnlineError(str(exc).removeprefix("ERROR: "), reason_of(exc), "youtube") from None
+        site = "youtube" if url.startswith("ytsearch") else site_of(url)  # YouTube's search, or the address's site
+        raise OnlineError(str(exc).removeprefix("ERROR: "), reason_of(exc), site) from None
 
 
 def flags_for(title: str, channel: str, description: str, seconds: int, query: str = "",
@@ -409,24 +410,20 @@ def https_url(url) -> str:
     return "https:" + url if url.startswith("//") else re.sub(r"^http://", "https://", url)
 
 
-def details(urls: list[str]) -> dict[str, dict]:
-    """What the pages of these YouTube videos say (by url), as the library keeps it, with each channel's picture:
-    one video at a time (a second or two each). A video yt-dlp cannot read (removed, private) is left out."""
+def details(url: str) -> dict:
+    """What one video's page says, on any site, as the library keeps it (a second or two); a YouTube video's with its
+    channel's picture, from its channel's page (half a second more). OnlineError, saying why, when it cannot be read
+    (removed, private, out of reach) or is not one video."""
     from .download import video_details
 
-    found, avatars = {}, {}
-    for url in dict.fromkeys(u for u in urls if video_id(u)):
-        try:
-            info = _extract(url)
-        except OnlineError:
-            continue
-        channel = str(info.get("channel_url") or "")
-        if channel not in avatars:
-            avatars[channel] = channel_avatar(channel)
-        video = video_details(info)  # unprocessed, its thumbnails are only listed
-        found[url] = {**video, "thumbnail": video["thumbnail"] or _largest(info.get("thumbnails")),
-                      "channel_avatar": avatars[channel]}
-    return found
+    info = _extract(url, noplaylist=True)  # a video in parts (Bilibili's): its own part, not all of them
+    if not info or info.get("_type", "video") != "video":
+        raise OnlineError("provide a single video URL, not a playlist or channel", "failed", site_of(url))
+    video = video_details(info)  # unprocessed, its thumbnails are only listed
+    video["thumbnail"] = video["thumbnail"] or _largest(info.get("thumbnails"))
+    if site_of(url) == "youtube":
+        video["channel_avatar"] = channel_avatar(str(info.get("channel_url") or ""))
+    return video
 
 
 def channel_avatar(url: str) -> str:
