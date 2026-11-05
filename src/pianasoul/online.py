@@ -139,6 +139,7 @@ PIANO_WORDS = ("piano", "钢琴", "鋼琴")
 PIANO_WORD = {"youtube": "piano", "bilibili": "钢琴"}
 ENOUGH = 5  # piano versions enough for a search's offer: with fewer, the other videos follow them
 MOST = {"youtube": 15, "bilibili": 20}  # the most a search gives: on Bilibili, its one page (one request)
+MOST_MERGED = 15  # the most a search of several sites gives, merged (search_sites): her search_online's 1-15
 LATE_S = 2.0  # a site still searching this long after another gave videos is not waited for (search_sites)
 
 
@@ -220,11 +221,12 @@ def search(query: str, max_results: int = 8, source: str = "youtube") -> list[di
 
 def search_sites(query: str, max_results: int, sources: list[str]) -> tuple[list[dict], list[OnlineError]]:
     """Videos for query on each of sources (SOURCES), all searched at once, each in a thread of its own, by its own
-    rules and asked for piano in its own word (for_site); merged, at most max_results. With them, why each site that
-    could not be searched could not, in SOURCES' order. A site still searching LATE_S after another gave videos is
-    not waited for, and counts as out of reach: where YouTube is (mainland China), its 8 s would hold the videos
-    there are."""
-    max_results = max(1, int(max_results))  # as her model sends it ("8", 8.0 too), for each site and the merge
+    rules and asked for piano in its own word (for_site); merged, at most max_results (1 to MOST_MERGED). With them,
+    why each site that could not be searched could not, in SOURCES' order. A site still searching LATE_S after
+    another gave videos is not waited for, and counts as out of reach: where YouTube is (mainland China), its 8 s
+    would hold the videos there are."""
+    # As her model sends it ("8", 8.0 too), for each site and the merge.
+    max_results = max(1, min(int(max_results), MOST_MERGED))
     answers = queue.Queue()
 
     def ask(source: str) -> None:
