@@ -32,7 +32,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 from . import online
 from .claims import asks_to_hear, asks_which, claims
 from .conversations import QUIET_S as NEW_CONVERSATION_AFTER_S, Conversations, seconds_since
-from .library import ALIASES, DB_PATH, NAMES, Library, artist_key, enrich, format_row, title_parts
+from .library import ALIASES, DB_PATH, NAMES, Library, artist_key, enrich, format_row, said_whole, title_parts
 from .lines import every, line
 from .play import clock
 from .playback_commands import in_chinese, match_command, strip_fillers
@@ -88,6 +88,12 @@ ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "S
 ONLINE_FAILED = json.dumps({"error": "online_search_failed", "instruction": "Searching online failed this time, as its "
                             "result said: do not search again. Say you could not search online this time, and why, "
                             "as your instructions say."})
+# Her search online in the response whose search_library found the piece clearly (Assistant.clear_match) is not run:
+# what the library has plays without waiting for the web (a search there takes a second or so). She may still search
+# online after it, for another version.
+IN_LIBRARY = ("Not searched online: the library has this piece (in_library), found by its name. Play it from there "
+              "with play_recording. Only if the user asked for another version or for one online, or named another "
+              "pianist, call search_online again.")
 
 INSTRUCTIONS = """You are the PianaSoul assistant. The user asks for music; you find a good piano performance and
 play it on their piano. Talk like a friend who loves the piano: warm, cheerful and a little playful, never like a
@@ -1202,6 +1208,18 @@ class Assistant:
             print(f"  ⏹ {self.player.current[1]}", flush=True)
         return {"status": "stopped"}
 
+    def clear_match(self, query: str, found: list[dict]) -> dict | None:
+        """Of what search_library found for a query (found, as she sees it), the one recording that is clearly the piece
+        searched for: the only one matched on a whole word (MATCH_SCORE) whose own name, the piece in its title or one
+        of its other names (aliases), the query says whole (said_whole); not the piece in the player, which, asked for
+        again, is wanted in another version. None when there are several, or none."""
+        def names(r: dict) -> list[str]:
+            return [r["piece"], *re.split(r"[;,；，]", r.get("aliases") or "")]
+        current = getattr(self.player, "current_id", None)
+        clear = [r for r in found if r.get("score", 0) >= MATCH_SCORE and r.get("file_exists") and r["id"] != current
+                 and any(said_whole(name, query) for name in names(r))]
+        return clear[0] if len(clear) == 1 else None
+
     def library_matches(self, text: str) -> list[dict]:
         """The library searched for a request's own words before the model is asked, so that it can play what it
         finds, or go looking elsewhere, at once: one step fewer before she speaks. Only matches on a whole word, which
@@ -1550,11 +1568,18 @@ class Assistant:
                 if several or any(c.name == "search_library" for c in calls):
                     self.looked_for += said
                 results = []
+                found = None  # what this response's search_library found clearly (clear_match): not looked for online
                 called.update(call.name for call in reply.tool_calls)
                 for call in reply.tool_calls:
                     if why := refused(call):
                         log.debug("search_online: refused, %s", "again" if online_failed else "the library not searched")
                         results.append((call, why))
+                        continue
+                    if call.name == "search_online" and found is not None:  # what the library has waits for no web
+                        log.debug("search_online: not run, the library has it: %s", found["piece"])
+                        results.append((call, json.dumps({"status": "not_searched", "in_library": {
+                            k: found[k] for k in ("id", "piece", "artist", "performer")}, "instruction": IN_LIBRARY},
+                            ensure_ascii=False)))
                         continue
                     if not progress_spoken and call.name in WAITS:  # going online is not started silently
                         self.tell(line(WAITS[call.name], self.chinese()), meanwhile=True)
@@ -1563,6 +1588,9 @@ class Assistant:
                     confirms = confirms or call.name in ACTIONS - PLAYS
                     if call.name == "search_online" and "searched" in json.loads(raw):  # no site could be searched
                         online_failed = True
+                    if call.name == "search_library" and found is None:
+                        query = str(call.arguments.get("query", ""))
+                        found = self.clear_match(query, json.loads(raw).get("results", []))
                     results.append((call, raw))
                     if call.name in PLAYS:
                         played = json.loads(raw)

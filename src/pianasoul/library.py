@@ -211,6 +211,14 @@ def _terms(text: str) -> set[str]:
     return terms
 
 
+def said_whole(name: str, text: str) -> bool:
+    """Whether a text says a name whole, read as the library's search reads both (case, full-width forms and marks
+    aside): as whole words, and Chinese, which has no spaces, as a whole run of characters between spaces or marks
+    (月光 is not in 月光奏鸣曲)."""
+    name = _norm(name)
+    return bool(name) and f" {name} " in f" {_norm(text)} "
+
+
 def present(path: Path) -> bool:
     """Whether a file is there to be read: not missing, and not one whose content iCloud has not brought down."""
     try:

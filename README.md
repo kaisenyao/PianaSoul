@@ -405,7 +405,8 @@ The project can live on a dedicated Mac mini. To start it from any folder, add
 - **Hearing her name, and telling speech from silence:** sherpa-onnx keyword spotting and Silero VAD, on this Mac.
 
 A request goes: speech recognition, then the assistant with your library, then a check that the piano is there, and
-then the notes. A new piece is searched for while you wait, in your library and online at once, then downloaded and
+then the notes. A piece is searched for while you wait, in your library and online at once; when your library has it
+by the very name she looks for, it plays from there without waiting for the web. A new piece is then downloaded and
 transcribed in the background. It starts to play once its first seconds are transcribed, a second or two after the
 download, while the rest is transcribed well ahead of the music; the notes are the same, one for one, as when a piece
 is transcribed whole. It joins the library once all of it is there.

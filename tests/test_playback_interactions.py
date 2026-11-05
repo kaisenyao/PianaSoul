@@ -291,6 +291,50 @@ class PlaybackTests(unittest.TestCase):
         self.assertIn('same response', chat.results[0]['instruction'])
         searched.assert_called_once()
 
+    def test_what_the_library_has_by_its_name_plays_without_waiting_for_the_web(self):
+        moon = self.records[1]['id']
+        line = '我找找《月光》～'
+        chat = ScriptedChat((line, [call('search_library', query='Debussy Clair de Lune 月光'),
+                                    call('search_online', query='Debussy Clair de Lune piano')]),
+                            [call('play_recording', id=moon)], '')
+        with patch.object(self.a, 'search_online') as searched:
+            self.ask(chat, '想听德彪西那首')
+        searched.assert_not_called()
+        skipped = chat.results[1]
+        self.assertEqual((skipped['status'], skipped['in_library']['id']), ('not_searched', moon))
+        self.assertIn('search_online again', skipped['instruction'], 'She may still go online, for another version')
+        self.assertEqual(self.player.current_id, moon, 'Played from the library')
+        self.assertNotIn(LINES['searching']['zh'][0], self.spoken, 'Nor said to go online')
+
+    def test_the_web_is_searched_as_before_unless_the_library_has_one_piece_by_its_name(self):
+        baikal = self.records[0]['id']
+        online_ = call('search_online', query='piano')
+        cases = {  # her calls, as she wrote them
+            'several by their names': [call('search_library', query='月光 贝加尔湖畔'), online_],
+            'none': [call('search_library', query='Red Bean'), online_],
+            'a name within another': [call('search_library', query='月光奏鸣曲 Moonlight Sonata'), online_],
+            'the piece in the player, asked for in another version': [call('search_library', query='李健 贝加尔湖畔'),
+                                                                      online_],
+            'online first in her response': [online_, call('search_library', query='月光')],
+        }
+        for case, calls in cases.items():
+            with self.subTest(case=case):
+                if case.startswith('the piece in the player'):
+                    self.prime()
+                chat = ScriptedChat(calls, '好。')
+                with patch.object(self.a, 'search_online', return_value={'results': []}) as searched:
+                    self.ask(chat, '换一个版本')
+                searched.assert_called_once()
+                self.assertNotIn('not_searched', [r.get('status') for r in chat.results])
+                if case.startswith('the piece in the player'):
+                    self.assertEqual(self.player.current_id, baikal)
+        chat = ScriptedChat([call('search_library', query='月光'), call('search_online', query='月光 piano')],
+                            [call('search_online', query='Clair de Lune piano')], '好。')
+        with patch.object(self.a, 'search_online', return_value={'results': []}) as searched:
+            self.ask(chat, '找一个网上的月光')
+        searched.assert_called_once()  # once the library was found to have it, asked again: for another version
+        self.assertEqual([r.get('status') for r in chat.results[1:]], ['not_searched', None])
+
     def test_once_searching_online_failed_she_does_not_search_again(self):
         self.lib.set_setting('search_sources', 'youtube')
         unreachable = online.OnlineError('Unable to download API page: timed out', 'unreachable', 'youtube')

@@ -10,7 +10,7 @@ import mido
 
 import places  # noqa: F401  (first: the library, data and cache folders are throwaway ones)
 from pianasoul.downloads import clean_url
-from pianasoul.library import Library, enrich, file_result, make_title, title_parts
+from pianasoul.library import Library, enrich, file_result, make_title, said_whole, title_parts
 from pianasoul.llm import Refused
 
 
@@ -137,6 +137,14 @@ class LibraryTests(unittest.TestCase):
         self.lib.favorite(ids[1], True)
         self.assertEqual([r['id'] for r in self.lib.search('waltz in a minor')], [ids[1], ids[0], ids[2]])
         self.assertEqual(self.lib.search('Kolesnikov waltz')[0]['id'], ids[1])
+
+    def test_a_name_is_said_whole_as_whole_words_or_a_whole_run_of_chinese(self):
+        self.assertTrue(said_whole('Für Elise', 'Beethoven FÜR ELISE'))
+        self.assertTrue(said_whole('晴天', 'Jay Chou 晴天, Sunny Day'))
+        self.assertTrue(said_whole('Canon in D', 'Pachelbel: Canon in D'))
+        self.assertFalse(said_whole('月光', '月光奏鸣曲 Moonlight Sonata'), 'Another piece, whose name holds it')
+        self.assertFalse(said_whole('Canon', 'Canonical'))
+        self.assertFalse(said_whole('', 'Canon'))
 
     def test_an_older_library_gets_the_new_columns_and_keeps_its_records(self):
         import sqlite3
