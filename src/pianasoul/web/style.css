@@ -51,12 +51,13 @@ button:disabled { cursor: default; }
 input, textarea { -webkit-user-select: text; user-select: text; }
 svg { display: block; }
 
-/* The color at the top of the screen: the page's; the player's top over the player (black, or white in the light
-   look, so that the status bar meets it however far it is swiped), and black under a page sheet, as on iOS; darker with the screen while a sheet or a
+/* The color at the top of the screen: the page's; the player's top over the player (its color, or white in the light
+   look, so that the status bar meets it), and black under a page sheet, as on iOS; darker with the screen while a sheet or a
    question dims it. It is the page's background, which a Home Screen app's status bar takes on (iOS 26), since the
    whole screen (#app) lies behind it in iOS's eyes. */
 :root { --top: var(--bg); }
-:root:has(#view-player:not([hidden]):not(.off)), :root:has(#app.sheeted) { --top: #000; }
+:root:has(#view-player:not([hidden]):not(.off)) { --top: hsl(var(--h, 220) 45% 22%); }
+:root:has(#app.sheeted) { --top: #000; }
 :root[data-theme=light]:has(#view-player:not([hidden]):not(.off)):not(:has(#app.sheeted)) { --top: #fff; }
 :root:has(#dim.show) body { background: color-mix(in srgb, var(--top) calc(100% - var(--sheet-dim) * 100%), #000); }
 
@@ -665,7 +666,7 @@ button.grow:active { background: var(--press); }
    with the piece's color on what plays it (the big button, the bar, skipping) and gray on the rest. */
 #pages > #view-player {
   overflow: clip; touch-action: none; color: var(--p-text); color-scheme: dark;
-  background: linear-gradient(#000, hsl(var(--h, 220) 45% 22%) 24%, hsl(var(--h, 220) 30% 7%) 64%);
+  background: linear-gradient(hsl(var(--h, 220) 45% 22%), hsl(var(--h, 220) 30% 7%) 64%);
   --p-text: #fff; --p-text2: rgba(255, 255, 255, .6); --p-text3: rgba(255, 255, 255, .55); --p-icon: rgba(255, 255, 255, .85);
   --p-aux: rgba(255, 255, 255, .72); --p-press: rgba(255, 255, 255, .1); --p-track: rgba(255, 255, 255, .22);
   --p-fill: rgba(255, 255, 255, .85); --p-ready: rgba(255, 255, 255, .2); --p-vol: rgba(255, 255, 255, .85);
