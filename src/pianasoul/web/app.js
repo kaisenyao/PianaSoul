@@ -1935,13 +1935,13 @@ function renderCands() {
               : job ? ringButton(job)
               : `<button class="addbtn" data-add="${i}" aria-label="${esc(T.download)}">${ICON_DOWNLOAD}</button>`;
     const act = made ? `data-play="${made.id}"` : job ? `data-preparing="${job.id}"` : `data-add="${i}"`;
-    const seen = [c.channel, c.views != null ? T.views(c.views) : ''].filter(Boolean).join(' · ');
+    const seen = [c.channel, c.views != null ? T.views(c.views) : ''].filter(Boolean);  // a line each, read in full
     return `<div class="cand">
         <a href="${esc(c.url)}" target="_blank" rel="noopener" aria-label="${esc(T.watchVideo)}">
           <span class="thumb" style="--h:${hueOfName(c.url)}">${c.thumbnail ? `<img src="${esc(c.thumbnail)}" alt="" referrerpolicy="no-referrer">` : ''}${T.sites[c.site] ? `<span class="site">${esc(T.sites[c.site])}</span>` : ''}<span class="dur">${mmss(c.duration_s)}</span></span>
         </a>
         <button class="ctext" ${act} aria-label="${esc(T.actionOn(made || job ? T.playNow : T.download, c.video_title))}">
-          <span class="ct1">${esc(c.video_title)}</span><span class="ct2">${esc(seen)}</span>
+          <span class="ct1">${esc(c.video_title)}</span>${seen.map(x => `<span class="ct2">${esc(x)}</span>`).join('')}
         </button>
         ${btn}
       </div>`;

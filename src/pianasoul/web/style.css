@@ -442,6 +442,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; d
 .ctext { flex: 1; min-width: 0; align-self: stretch; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; }
 .ct1 { font-size: 15px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ct2 { display: block; font-size: 12.5px; color: var(--text2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct2 + .ct2 { margin-top: 1px; }
 .addbtn { width: 34px; height: 34px; flex: none; display: grid; place-items: center; color: var(--accent); }
 .addbtn svg { width: 28px; height: 28px; }
 .cand .addbtn { position: relative; }
