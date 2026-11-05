@@ -51,13 +51,12 @@ button:disabled { cursor: default; }
 input, textarea { -webkit-user-select: text; user-select: text; }
 svg { display: block; }
 
-/* The color at the top of the screen: the page's; the player's top over the player (its color, or white in the light
-   look, so that the status bar meets it), and black under a page sheet, as on iOS; darker with the screen while a sheet or a
+/* The color at the top of the screen: the page's; the player's top over the player (black, or white in the light
+   look, so that the status bar meets it however far it is swiped), and black under a page sheet, as on iOS; darker with the screen while a sheet or a
    question dims it. It is the page's background, which a Home Screen app's status bar takes on (iOS 26), since the
    whole screen (#app) lies behind it in iOS's eyes. */
 :root { --top: var(--bg); }
-:root:has(#view-player:not([hidden]):not(.off)) { --top: hsl(var(--h, 220) 45% 22%); }
-:root:has(#app.sheeted) { --top: #000; }
+:root:has(#view-player:not([hidden]):not(.off)), :root:has(#app.sheeted) { --top: #000; }
 :root[data-theme=light]:has(#view-player:not([hidden]):not(.off)):not(:has(#app.sheeted)) { --top: #fff; }
 :root:has(#dim.show) body { background: color-mix(in srgb, var(--top) calc(100% - var(--sheet-dim) * 100%), #000); }
 
@@ -72,8 +71,8 @@ svg { display: block; }
   --p: 0; --w: 78vw;
   --edge: 0px;  /* room below the status bar for what iOS blurs there (below) */
 }
-/* iOS blurs what stays just under the status bar, down to about 29 pt below the safe area (measured on an iPhone 16,
-   iOS 27), and a page cannot turn that off: on iOS, titles start just below it. */
+/* iOS blurs what stays just under the status bar, down to about 88 pt from the top of the screen (measured on an
+   iPhone 16, iOS 27), and a page cannot turn that off: on iOS, titles start just below it. */
 @supports (-webkit-touch-callout: none) { #app { --edge: 16px; } }
 
 /* ---------- Sidebar: stays put underneath; the main screen slides right to reveal it ---------- */
@@ -667,7 +666,7 @@ button.grow:active { background: var(--press); }
    with the piece's color on what plays it (the big button, the bar, skipping) and gray on the rest. */
 #pages > #view-player {
   overflow: clip; touch-action: none; color: var(--p-text); color-scheme: dark;
-  background: linear-gradient(hsl(var(--h, 220) 45% 22%), hsl(var(--h, 220) 30% 7%) 64%);
+  background: linear-gradient(#000, hsl(var(--h, 220) 45% 5%) 6%, hsl(var(--h, 220) 45% 13%) 15%, hsl(var(--h, 220) 45% 22%) 30%, hsl(var(--h, 220) 30% 7%) 66%);  /* eased out of the black */
   --p-text: #fff; --p-text2: rgba(255, 255, 255, .6); --p-text3: rgba(255, 255, 255, .55); --p-icon: rgba(255, 255, 255, .85);
   --p-aux: rgba(255, 255, 255, .72); --p-press: rgba(255, 255, 255, .1); --p-track: rgba(255, 255, 255, .22);
   --p-fill: rgba(255, 255, 255, .85); --p-ready: rgba(255, 255, 255, .2); --p-vol: rgba(255, 255, 255, .85);
@@ -691,7 +690,7 @@ button.grow:active { background: var(--press); }
    them and below; on a short screen the artwork gives way. */
 .pmain {
   position: relative; height: 100%; display: flex; flex-direction: column; container-type: size;
-  padding: calc(var(--safe-top) + var(--edge) + 52px) 28px calc(var(--safe-bottom) + 6px);
+  padding: calc(var(--safe-top) + var(--edge) + 40px) 28px calc(var(--safe-bottom) + 6px);
 }
 /* ✕ stops the piece and closes the player; the other shares or downloads its MIDI, gray until its file is made */
 .pcorner { position: absolute; top: calc(var(--safe-top) + var(--edge) + 2px); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--p-icon); }
@@ -714,7 +713,7 @@ button.grow:active { background: var(--press); }
 .art.has-artwork .picture { display: block; }
 .art.has-artwork #roll { transform: rotateY(180deg); }
 .art.has-artwork.flipped .flip { transform: rotateY(180deg); }
-.ptitle { display: flex; align-items: center; gap: 12px; margin-top: 42px; min-width: 0; }
+.ptitle { display: flex; align-items: center; gap: 12px; margin-top: 36px; min-width: 0; }
 .ptext { flex: 1; min-width: 0; }
 /* 原作者 · 演奏者, each a way to their page, each cut short on its own when the line is too narrow for both */
 #p-sub { display: flex; min-width: 0; }
@@ -753,7 +752,7 @@ button.grow:active { background: var(--press); }
 .pvol .fill { background: var(--p-vol); }
 .pvol svg { width: 17px; height: 17px; flex: none; }
 .pvol .scrub { flex: 1; margin-top: 0; }
-.peek { margin-top: auto; align-self: center; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 16px; font-size: 13px; color: var(--p-text3); }
+.peek { padding-top: 24px; margin-top: auto; align-self: center; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 16px; font-size: 13px; color: var(--p-text3); }
 .peek svg { width: 14px; height: 14px; }
 /* 详细信息 in the same band below the status bar as the other pages' titles */
 .pinfo h3 { display: flex; align-items: center; height: 54px; margin: 0 0 8px; font-size: 22px; font-weight: 700; }
