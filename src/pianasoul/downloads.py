@@ -258,6 +258,7 @@ class Downloads:
             if any(j.source == source for j in self.jobs) or any(AUDIO_DIR.glob(f"{task_id(source)}.*")):
                 return
             ahead = self._ahead = Ahead(source)
+        log.debug("downloading ahead: %s", source)
         threading.Thread(target=self._fetch, args=(ahead,), name="ahead", daemon=True).start()
 
     def drop_ahead(self) -> None:
@@ -286,6 +287,7 @@ class Downloads:
             log.debug("downloaded ahead in %.1f s: %s", time.monotonic() - started, ahead.audio[0].name)
         except Exception as exc:  # the piece's, should it be asked for
             ahead.error = exc
+            log.debug("not downloaded ahead (%s): %s", type(exc).__name__, ahead.url)
         with self._cond:
             ahead.done.set()
             if ahead.let_go.is_set():
