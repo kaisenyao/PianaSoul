@@ -72,8 +72,9 @@ svg { display: block; }
   --p: 0; --w: 78vw;
   --edge: 0px;  /* room below the status bar for what iOS blurs there (below) */
 }
-/* iOS blurs what stays just under the status bar, and a page cannot turn that off: on iOS, titles start below it. */
-@supports (-webkit-touch-callout: none) { #app { --edge: 24px; } }
+/* iOS blurs what stays just under the status bar, down to about 29 pt below the safe area (measured on an iPhone 16,
+   iOS 27), and a page cannot turn that off: on iOS, titles start just below it. */
+@supports (-webkit-touch-callout: none) { #app { --edge: 16px; } }
 
 /* ---------- Sidebar: stays put underneath; the main screen slides right to reveal it ---------- */
 #sidebar {
@@ -833,15 +834,3 @@ button.grow:active { background: var(--press); }
 #signed-out b { font-size: 20px; font-weight: 600; }
 #signed-out p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text2); }
 
-/* The piano's capsule: floats over every page, below where a page's title is, and takes no room from it. */
-#piano-bar {
-  position: absolute; z-index: 38; left: 12px; right: 12px; top: calc(var(--safe-top) + var(--edge) + 60px); height: 34px;  /* above the pages, under #dim */
-  border-radius: 17px; display: flex; align-items: center; background: var(--card); color: var(--text); font-size: 14px; font-weight: 500;
-}
-#piano-how { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding-left: 44px; }
-#piano-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#piano-bar .pdot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); flex: none; }
-#piano-hide { flex: none; width: 44px; height: 100%; display: grid; place-items: center; color: var(--text2); }
-#piano-hide svg { width: 16px; height: 16px; }
-#piano-how, #piano-hide { position: relative; }
-#piano-how::after, #piano-hide::after { content: ""; position: absolute; inset: -5px 0; }  /* 44 pt to tap */

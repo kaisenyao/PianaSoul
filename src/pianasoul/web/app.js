@@ -174,7 +174,7 @@ function listen() {
     else if (e.type === 'settings') { delete e.type; data.settings = e; applySettings(); }
     else if (e.type === 'audio') { data.audio = e.audio; refresh(); }
     else if (e.type === 'playlists') { if (!changing) setPlaylists(e.playlists); }  // changing: as it is here, until answered
-    else if (e.type === 'piano') { data.piano = e.piano; renderPiano(); if (state.view === 'settings') loadDevices(); }
+    else if (e.type === 'piano') { if (state.view === 'settings') loadDevices(); }
   };
   // Asked again at once, and half a second later (a page back from the background finds the Mac as it was, even if its
   // first request fails), then every 2 s; still not back after 1.5 s, the Mac is shown away.
@@ -468,7 +468,6 @@ function refresh() {
   if (rowFinger !== null) { missed = true; return; }
   closeGone();
   const open = [...document.querySelectorAll('.swipe.open')].map(row => [row.parentElement, row.dataset.id]);
-  renderPiano();
   if (!herOn()) renderLibrary();  // home
   for (const e of stack) if (e.view !== 'session' && !$('#view-' + e.view).classList.contains('off')) renderEntry(e);  // one going: by slideOut
   if (openSheet === $('#sheet-queue')) renderQueue();
@@ -2438,20 +2437,6 @@ function info(title, text) {
 }
 $('#info-ok').addEventListener('click', closeOverlays);
 
-// The piano, as the Mac watches it: while the one chosen is not connected, a bar at the top of every page says so,
-// and the pages make room for it; a tap says how to connect it. It goes once the piano is back. × hides it until
-// then: it shows again the next time that piano goes, or for another one chosen meanwhile. With her, she says so
-// too, as ever.
-let pianoHidden = null;  // the piano whose bar was hidden, while it stays away
-function renderPiano() {
-  if (data.piano.connected) pianoHidden = null;
-  const off = !data.piano.connected && pianoHidden !== data.piano.name;
-  $('#piano-bar').hidden = !off;
-  if (off) $('#piano-text').textContent = T.pianoOff(data.piano.name);
-}
-$('#piano-how').addEventListener('click', () => info(...(T.connectHow[data.piano.kind] || T.connectHow.other)));
-$('#piano-hide').innerHTML = ICON.close;
-$('#piano-hide').addEventListener('click', () => { pianoHidden = data.piano.name; renderPiano(); });
 $('#dim').addEventListener('click', dismiss);
 
 // Long-press menu, for a piece, a playlist or a conversation: the row lifts and its actions show by it. With html null

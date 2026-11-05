@@ -50,7 +50,6 @@ const zh = {
   needsTranscription: '需要转谱', waitingTranscription: '等待转谱', canTranscribe: '可以转谱',
   transcribeFailed: '转谱失败', transcribe: '转谱', retry: '重试', toTranscribe: n => `${n}段录音待转谱`,
   recording: '此录音需要转谱', needsAdvanced: '在Mac上的PianaSoul设置中打开“在线搜索与转谱”后，它会自动转换为MIDI。',
-  pianoOff: name => `钢琴未连接 · ${name}`, hideNotice: '关闭提示',
   pairedAnewTitle: '需要重新配对', pairedAnew: '这台Mac已重置配对。请扫描Mac上的新二维码。',
   notPairedTitle: '连接你的Mac', notPaired: '扫描Mac上PianaSoul中第2步的二维码。',
   connectHow: {  // [what is wrong, what to do next]: the detailed steps are in the Mac app's Piano settings
@@ -228,7 +227,6 @@ const en = {
   canTranscribe: 'Ready to transcribe', transcribeFailed: 'Transcription failed', transcribe: 'Transcribe', retry: 'Retry',
   toTranscribe: n => `${n} to transcribe`,
   recording: 'Recording Needs Transcription', needsAdvanced: 'Turn on Online Search & Transcription in PianaSoul’s settings on the Mac, and it’s converted to MIDI automatically.',
-  pianoOff: name => `Piano Not Connected · ${name}`, hideNotice: 'Hide notice',
   pairedAnewTitle: 'Pair Again', pairedAnew: 'This Mac has reset its pairing. Scan the new code on the Mac.',
   notPairedTitle: 'Connect to Your Mac', notPaired: 'Scan the code in step 2 in PianaSoul on your Mac.',
   connectHow: {
