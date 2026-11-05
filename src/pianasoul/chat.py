@@ -76,6 +76,9 @@ ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "S
                               "search_library with the piece's other names (another language or spelling, the "
                               "composer's other name) in the same response as search_online, and play it from the "
                               "library if it is there."})
+ONLINE_FAILED = json.dumps({"error": "online_search_failed", "instruction": "Searching online failed this time, as its "
+                            "result said: do not search again. Say you could not search online this time, and why, "
+                            "as your instructions say."})
 
 INSTRUCTIONS = """You are the PianaSoul assistant. The user asks for music; you find a good piano performance and
 play it on their piano. Talk like a friend who loves the piano: warm, cheerful and a little playful, never like a
@@ -1380,11 +1383,15 @@ class Assistant:
             return self.short_request(action)
 
         # library_matches are for the request's own words only: the piece may be in the library under its other
-        # names, so she looks online only as she searches the library herself (in the same response) or after.
-        library_searched = False
+        # names, so she looks online only as she searches the library herself (in the same response) or after; and
+        # once searching online failed (no site could be searched), not again in this request, as she is told.
+        library_searched = online_failed = False
 
-        def refused(call) -> bool:
-            return call.name == "search_online" and not library_searched
+        def refused(call) -> str:
+            """Why a call of hers is not run, as its result: looking online too soon, or again; or ""."""
+            if call.name != "search_online":
+                return ""
+            return ONLINE_TOO_SOON if not library_searched else ONLINE_FAILED if online_failed else ""
 
         called: set[str] = set()  # the tools the model called for this request
         held = False  # a reply of the model's held back, and the model asked for it again: once a request (unfounded)
@@ -1488,15 +1495,17 @@ class Assistant:
                 results = []
                 called.update(call.name for call in reply.tool_calls)
                 for call in reply.tool_calls:
-                    if refused(call):
-                        log.debug("search_online: refused, the library not searched yet")
-                        results.append((call, ONLINE_TOO_SOON))
+                    if why := refused(call):
+                        log.debug("search_online: refused, %s", "again" if online_failed else "the library not searched")
+                        results.append((call, why))
                         continue
                     if not progress_spoken and call.name in WAITS:  # going online is not started silently
                         self.tell(line(WAITS[call.name], self.chinese()), meanwhile=True)
                         progress_spoken = True
                     raw = self.run_tool(call.name, call.arguments)
                     confirms = confirms or call.name in ACTIONS - PLAYS
+                    if call.name == "search_online" and "searched" in json.loads(raw):  # no site could be searched
+                        online_failed = True
                     results.append((call, raw))
                     if call.name in PLAYS:
                         played = json.loads(raw)

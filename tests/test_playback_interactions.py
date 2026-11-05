@@ -291,6 +291,24 @@ class PlaybackTests(unittest.TestCase):
         self.assertIn('same response', chat.results[0]['instruction'])
         searched.assert_called_once()
 
+    def test_once_searching_online_failed_she_does_not_search_again(self):
+        self.lib.set_setting('search_sources', 'youtube')
+        unreachable = online.OnlineError('Unable to download API page: timed out', 'unreachable', 'youtube')
+        chat = ScriptedChat(('好呀，我去找一版《红豆》～', [call('search_library', query='Red Bean'),
+                                                       call('search_online', query='红豆 piano')]),
+                            [call('search_online', query='红豆 钢琴')], '这次连不上 YouTube。')
+        with patch('pianasoul.online.search', side_effect=unreachable) as searched:
+            answer = self.ask(chat, '我想听红豆')
+        searched.assert_called_once()
+        self.assertEqual((chat.results[1]['searched'], chat.results[2]['error']), (['YouTube'], 'online_search_failed'))
+        self.assertIn('do not search again', chat.results[2]['instruction'])
+        self.assertEqual(answer, '这次连不上 YouTube。')
+        chat = ScriptedChat([call('search_library', query='Red Bean'), call('search_online', query='红豆 piano')],
+                            [call('search_online', query='红豆 钢琴')], '没找到呢。')
+        with patch('pianasoul.online.search', return_value=[]) as searched:
+            self.ask(chat, '我想听红豆')
+        self.assertEqual(searched.call_count, 2, 'Nothing found is not a failure: once more, with fewer words')
+
     def test_a_line_about_what_she_will_do_is_said_while_she_does_it(self):
         said = []
         chat = ScriptedChat([call('search_library', query='Red Bean')],
