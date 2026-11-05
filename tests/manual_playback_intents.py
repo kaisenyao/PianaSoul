@@ -277,14 +277,19 @@ def check(expected, fixture, answer, said, trace, results, asked, playing):
     return okay
 
 
-def counted(chat, kept):
-    """The chat model, each reply's tokens added to kept, and a reply held back for its words kept there too."""
+def counted(chat, kept, failed):
+    """The chat model, each reply's tokens added to kept, and a reply held back for its words kept there too; a call
+    that failed goes to failed (her answer is then her line that she could not answer)."""
     last = {}
     for name in ('send_user', 'send_tool_results', 'ask_again'):
         def send(*args, _send=getattr(chat, name), _name=name):
             if _name == 'ask_again':
                 kept['held_back'] = last['text']
-            reply = _send(*args)
+            try:
+                reply = _send(*args)
+            except Exception as exc:
+                failed.append(exc)
+                raise
             last['text'] = reply.text
             kept['calls'] += 1
             kept['tokens'] = [a + b for a, b in zip(kept['tokens'], reply.tokens)]
@@ -324,7 +329,8 @@ def run(index, text, expected):
             return raw
         fixture.a.run_tool = safe_tool
         chat, kept['model'] = make_chat(instructions() + VOICE_NOTE + TYPED_NOTE, TOOLS)  # as the service (server.py)
-        counted(chat, kept)
+        failed = []  # her model's failure: an error of the request, and a key, quota or payment error stops the run
+        counted(chat, kept, failed)
         baikal, moon = (r['id'] for r in fixture.records)
         if expected in CHAT_CASES:
             for asked, line, rec in (('弹一下李健的贝加尔湖畔', '好啦，这就给你弹《贝加尔湖畔》。', baikal),
@@ -341,6 +347,8 @@ def run(index, text, expected):
                 kept['first_words_s'] = kept['first_words_s'] or round(time.monotonic() - started, 2)
         with online_as(fixture, expected, asked) if expected in ONLINE else contextlib.nullcontext():
             answer = fixture.a.ask(chat, text, speak=speak, paused_for_her=paused_for_her)
+            if failed:
+                raise failed[0]
             kept['done_s'] = round(time.monotonic() - started, 2)
             if paused_for_her:
                 finish_interaction(fixture.a, Mock(), answer, True)  # as her voice ends the request
