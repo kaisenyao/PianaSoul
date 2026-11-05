@@ -67,7 +67,7 @@ const zh = {
   appearances: {system: '跟随系统', dark: '深色', light: '浅色'},
   connected: '已连接', disconnected: '未连接',
   results: '曲目', nothing: '无结果',
-  sites: {youtube: 'YouTube', bilibili: '哔哩哔哩'}, sourcesLabel: '搜索的网站',  // where online search searches
+  sites: {youtube: 'YouTube', bilibili: '哔哩哔哩'}, sourcesLabel: '来源',  // where online search searches
   // No site could be searched: why, in full, and a site turned off to search too. Some could: why the others could
   // not, in short, above what they found.
   unreachable: site => `无法连接到${site}。`, searchSite: site => `搜索${site}`, searchFailed: '无法搜索。请重试。',
@@ -246,7 +246,7 @@ const en = {
   appearances: {system: 'System', dark: 'Dark', light: 'Light'},
   connected: 'Connected', disconnected: 'Not Connected',
   results: 'Pieces', nothing: 'No Results',
-  sites: {youtube: 'YouTube', bilibili: 'Bilibili'}, sourcesLabel: 'Sites to Search',
+  sites: {youtube: 'YouTube', bilibili: 'Bilibili'}, sourcesLabel: 'Sources',
   unreachable: site => `Can’t connect to ${site}.`, searchSite: site => `Search ${site}`,
   searchFailed: 'Couldn’t search. Try again.',
   refused: {youtube: 'YouTube isn’t allowing searches right now. Try again later.',

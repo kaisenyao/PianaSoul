@@ -1907,8 +1907,9 @@ const online = onlineSearch(api, () => renderCands());
 const failure = ({reason, source}) => reason === 'unreachable' && T.sites[source] ? T.unreachable(T.sites[source])
   : reason === 'refused' && T.refused[source] || T.searchFailed;
 const cause = ({reason, source}) => T.cause[reason](T.sites[source]);
-$('#sources').innerHTML = SOURCES.map(s => `<button data-source="${s}"></button>`).join('');
+$('#sources').innerHTML = '<span></span>' + SOURCES.map(s => `<button data-source="${s}"></button>`).join('');
 function renderCands() {
+  $('#sources span').textContent = T.sourcesLabel;
   for (const b of document.querySelectorAll('#sources button')) {
     b.textContent = T.sites[b.dataset.source];
     b.setAttribute('aria-pressed', data.settings.search_sources.includes(b.dataset.source));
