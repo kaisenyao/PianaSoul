@@ -1192,6 +1192,13 @@ class PreparedTests(Base):
         """Enough of the piece there to play as it is made (playing), this long after she sends it to be prepared."""
         self.after(seconds, lambda: self.playing(piece, title), piece)
 
+    def coming_in(self, piece='qingtian'):
+        """The first of the recording of the version being made has come in (Downloads: its download's progress); the
+        rest of it is still downloading."""
+        job = self.queue.jobs[f'https://youtu.be/{piece}']
+        job.status, job.progress = 'downloading', 0.003
+        self.queue.changed()
+
     def downloaded(self, piece='qingtian'):
         """The recording of the version being made is there (Downloads): it is transcribed from now on."""
         self.queue.jobs[f'https://youtu.be/{piece}'].status = 'converting'
@@ -1200,7 +1207,7 @@ class PreparedTests(Base):
     def other_version(self, piece='qingtian', then='qingtian-kassia', performer='Kassia'):
         """The version being made cannot be had: the next one is made in its place (Downloads._next_version)."""
         job = self.queue.jobs[f'https://youtu.be/{piece}']
-        job.source, job.performer, job.status = f'https://youtu.be/{then}', performer, 'queued'
+        job.source, job.performer, job.status, job.progress = f'https://youtu.be/{then}', performer, 'queued', 0.0
         self.queue.changed()
 
     def sent(self, performer='Jason Piano'):
@@ -1211,10 +1218,10 @@ class PreparedTests(Base):
     def hers(self):
         return [m['text'] for m in self.kept if m['role'] == 'assistant']
 
-    def test_spoken_her_news_is_said_once_its_recording_is_downloaded_and_the_piece_starts_once_it_can_play(self):
+    def test_spoken_her_news_is_said_once_its_recording_comes_in_and_the_piece_starts_once_it_can_play(self):
         news = '找到啦，是 Jason Piano 弹的《晴天》～'
-        self.after(0.3, self.downloaded)
-        self.plays_in(0.6)
+        self.after(0.3, self.coming_in)
+        self.plays_in(1.2)
         started = time.monotonic()
         with patch.object(chat_module, 'NEWS_WAIT_S', 2), \
                 patch.object(self.a, 'search_online', return_value={'results': []}):
@@ -1222,15 +1229,37 @@ class PreparedTests(Base):
                                     ('好呀，我去找一版《晴天》～', [self.call('search_online', query='周杰伦 晴天 piano')]),
                                     (news, self.sent()), '')
         took = time.monotonic() - started
-        self.assertTrue(0.3 <= took < 1.5, f'Said once its recording is there, not before it, nor at 2 s: {took:.2f} s')
+        self.assertTrue(0.3 <= took < 1, f'Said once the first of its recording is there: not before it, nor once it is'
+                                         f' all there or at 2 s: {took:.2f} s')
         self.assertEqual(self.said, ['我找找《晴天》～'], 'One sentence before her news: the first she said')
         self.assertEqual(answer, news, 'Her reply, which voice says now')
         job = self.queue.jobs['https://youtu.be/qingtian']
         self.assertTrue(self.eventually(lambda: job.recording is not None and self.p.current_id == job.recording))
-        self.assertGreaterEqual(time.monotonic() - started, 0.6, 'Once it can play')
+        self.assertGreaterEqual(time.monotonic() - started, 1.2, 'Once it can play')
         self.assertTrue(self.eventually(lambda: self.kept[-1]['role'] == 'piece'))
         self.assertEqual(self.hers(), ['我找找《晴天》～', news], 'Her news is its line: no other comes')
         self.made('qingtian', job.recording)
+
+    def test_spoken_her_news_is_said_as_the_download_of_its_recording_begins_not_once_it_is_done(self):
+        gate = threading.Event()
+
+        def download(url, folder, progress):  # its video's page read, the first of its audio, then the rest
+            time.sleep(0.3)
+            progress(0.001)
+            gate.wait(5)
+            progress(1.0)  # stopped meanwhile: it goes no further
+        self.a.downloads = downloads = Downloads(self.lib)
+        with patch('pianasoul.download.download_audio', side_effect=download), \
+                transcription(AssertionError('not reached')), patch.object(chat_module, 'NEWS_WAIT_S', 2):
+            started = time.monotonic()
+            self.ask_aloud(self.sent(), '找到啦，是 Jason Piano 弹的《晴天》～')
+            took = time.monotonic() - started
+            job = downloads.jobs[0]
+            self.assertEqual(job.status, 'downloading', 'The rest of it not there yet')
+            downloads.stop(job.id)
+            gate.set()
+            self.assertTrue(job.finished.wait(2))
+        self.assertTrue(0.3 <= took < 1, f'Said as the first of it came in, not at 2 s: {took:.2f} s')
 
     def test_spoken_her_news_is_said_news_wait_s_after_she_sent_it_when_its_recording_is_not_there_by_then(self):
         class Slow(Scripted):  # her reply comes a while after she sent it

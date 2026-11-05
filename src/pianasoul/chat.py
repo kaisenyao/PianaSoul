@@ -72,14 +72,16 @@ PIECE_CALLS = {"play_recording", "search_library", "search_online", "transcribe_
 # Typed to, she answers as a person texting would: her reply after a moment at least (the dots show meanwhile), and
 # what she plays starts once it is there, a little after it.
 TYPED_REPLY_S, TYPED_PLAY_S = 1.0, 0.8
-# Spoken, her news of a piece she sent to be prepared is said once the recording of the version being made is
-# downloaded, while its first seconds are transcribed, or NEWS_WAIT_S after she sent it at the latest; the piece starts
-# once it can play and her news has been said (Assistant._announce). Recorded runs of 2026-11-04 (42 on this Mac, from
-# transcribe_url): her reply is there after 1.2 s (median; 2.7 s for nine in ten); a download is done after 2.5 to
-# 3.7 s (17; two of Bilibili's 4.6 and 4.9 s), or 7.7 to 8.8 s when YouTube holds it back some 5 s (25). Waiting for
-# those would leave 10 s of silence after her first sentence (median); 3 s leaves 5 s, about as after a download not
-# held back (4.6 s), and the rest of the wait after her news (3.5 s, the lead-in's second included). The first note is
-# no later for it: up to 4 s, her news ends before the piece can play.
+# Spoken, her news of a piece she sent to be prepared is said once the recording of the version being made begins to
+# come in (its download's progress) or is there, or NEWS_WAIT_S after she sent it at the latest; the piece starts once
+# it can play and her news has been said (Assistant._announce). Her news (2.6 to 7.5 s, 3.5 s the median) is longer
+# than the 1.4 s from a download done to its first part playing: the sooner it is said, the sooner the first note.
+# Recorded runs of 2026-11-04 (42 on this Mac, from transcribe_url): her reply is there after 1.2 s (median; 2.7 s for
+# nine in ten); the first of a recording comes after 2.1 to 3.1 s, its video's page read first (27 downloads of the
+# same videos timed again, most done 0.3 to 1 s later), or 6.6 to 8.2 s when YouTube holds it back some 5 s (25 of the
+# 42). Waiting for those would then leave 9.5 s of silence after her first sentence (median); 3 s leaves 5 s, about as
+# when it is not held back (4.4 s), and the rest of the wait after her news (3.5 s, the lead-in's second included). Up
+# to 4 s, the first note is no later for it: her news ends before the piece can play.
 NEWS_WAIT_S = 3.0
 ONLINE_TOO_SOON = json.dumps({"error": "library_not_searched", "instruction": "Search the library too: call "
                               "search_library with the piece's other names (another language or spelling, the "
@@ -1338,7 +1340,7 @@ class Assistant:
             paused_for_her: bool = False) -> str:
         """Answer one request and keep it, her lines and the pieces she played in the conversation. speak says her lines
         aloud as they come (voice), and her reply about a piece she sends to be prepared is its line, said once its
-        recording is there, after which it starts with nothing more said (_announce); typed marks a request typed in the
+        recording comes in, after which it starts with nothing more said (_announce); typed marks a request typed in the
         app, answered on screen. taps: the phone's player as it was when the request was made, if it waited its turn
         (Core.type). paused_for_her: the piece playing was paused for her to listen (voice), and plays on after her
         reply unless she pauses or cancels it. Returns her reply, for voice to say: spoken, with the line after it that
@@ -1391,18 +1393,18 @@ class Assistant:
 
     def _announce(self) -> str:
         """Spoken, her reply about a piece this request sent to be prepared, which then starts by itself (_to_start),
-        is her news of it, said in place of her line: once the recording of the version being made is downloaded,
-        while its first seconds are transcribed, or NEWS_WAIT_S after she sent it at the latest. The piece starts once
-        it can play and her news has been said, whichever comes later, with nothing more said (Lineup.announced):
-        voice waits for her name after it, as while the piano plays (piece_to_start), so that the piece follows it at
-        once. Returns the line that says it is in another version than her news named, said after it (the one she
-        chose could not be had: _other_version), or ""."""
+        is her news of it, said in place of her line: once the recording of the version being made begins to come in
+        (the first of its download: its progress) or is there (a file, or downloaded before), or NEWS_WAIT_S after she
+        sent it at the latest. The piece starts once it can play and her news has been said, whichever comes later,
+        with nothing more said (Lineup.announced): voice waits for her name after it, as while the piano plays
+        (piece_to_start), so that the piece follows it at once. Returns the line that says it is in another version
+        than her news named, said after it (the one she chose could not be had: _other_version), or ""."""
         self._asked()  # its tools are done: what plays is as it leaves it
         lineup = self.asked_now
         job = self._to_start() if self.lineup is lineup else None
         if job is None:
             return ""
-        self.downloads.wait(lambda: job.status == "converting" or job.finished.is_set(),
+        self.downloads.wait(lambda: job.progress > 0 or job.status == "converting" or job.finished.is_set(),
                             lineup.sent + NEWS_WAIT_S - time.monotonic())
         if self._to_start() is not job:  # it does not start by itself after all: it could not be made, or a tap
             return ""
