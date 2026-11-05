@@ -349,6 +349,8 @@ class MadeAsItPlaysTests(unittest.TestCase):
             steps.next(), steps.next()
             self.assertTrue(job.playable.wait(2), 'Named, it plays while its page is still being read')
             self.assertEqual(self.lib.get(job.recording)['title'], '周杰伦 - 晴天')
+            self.assertEqual(self.lib.get(job.recording)['video_title'], '晴天 钢琴',
+                             'Its details show its video from the start, as the download said it')
             steps.next()
             steps.go.release()
             self.assertFalse(job.finished.wait(0.3), 'Filed once its page is read')

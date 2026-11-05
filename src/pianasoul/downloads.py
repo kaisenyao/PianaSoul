@@ -345,8 +345,7 @@ class Downloads:
         self._check(job)
         job.status = "converting"
         self.changed()
-        rec = self._transcribe(job, audio, job.video.get("duration_s") or details.get("duration_s") or 0, side, named,
-                               apart)
+        rec = self._transcribe(job, audio, details, side, named, apart)
         if details:
             self.lib.set_video(rec["id"], details)
             rec = self.lib.get(rec["id"])
@@ -366,11 +365,13 @@ class Downloads:
             setattr(job, name, getattr(job, name) or named.get(name, ""))
         job.artist, job.performer = self.lib.known_artist(job.artist), self.lib.known_artist(job.performer)
 
-    def _transcribe(self, job: Job, audio: Path, seconds: float, side: threading.Thread, named: threading.Event,
+    def _transcribe(self, job: Job, audio: Path, details: dict, side: threading.Thread, named: threading.Event,
                     apart) -> dict:
         """The piece made, then filed under its names once the side's work is done (_file). A new piece plays as it
-        is made once enough of it is there (Growing.plays) and it is named: its record comes then (one made before,
-        whose file is gone, is made again whole)."""
+        is made once enough of it is there (Growing.plays) and it is named: its record comes then, with what is known
+        of its video so far (its details show the video from the start; its page may still be being read), and one
+        made before, whose file is gone, is made again whole."""
+        seconds = job.video.get("duration_s") or details.get("duration_s") or 0
         started, base = time.monotonic(), 0.0 if job.local else DOWNLOAD_SHARE
         ticking = threading.Event()
         growing, anew = Growing(), self.lib.by_source(job.source) is None
@@ -391,6 +392,7 @@ class Downloads:
                 rec = self.lib.making(job.title, composer=job.artist, performer=job.performer, aliases=job.aliases,
                                       tags=job.tags, source_type="local" if job.local else "url",
                                       source_url=job.source, duration_s=length)
+                self.lib.set_video(rec["id"], details)
                 playing = Path(rec["midi_path"])
                 self.growing[playing] = growing
                 job.recording = rec["id"]
