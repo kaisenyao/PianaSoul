@@ -2446,7 +2446,6 @@ let pianoHidden = null;  // the piano whose bar was hidden, while it stays away
 function renderPiano() {
   if (data.piano.connected) pianoHidden = null;
   const off = !data.piano.connected && pianoHidden !== data.piano.name;
-  app.classList.toggle('piano-off', off);
   $('#piano-bar').hidden = !off;
   if (off) $('#piano-text').textContent = T.pianoOff(data.piano.name);
 }

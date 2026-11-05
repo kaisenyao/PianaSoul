@@ -69,14 +69,15 @@ svg { display: block; }
   --card-top: max(calc(var(--safe-top) - 8px), 10px);  /* where a page sheet pushes the screen back to (below) */
   padding-bottom: var(--safe-bottom);  /* read by the long-press menu */
   --p: 0; --w: 78vw;
-  --bar: 0px;  /* the room the piano's bar takes below the status bar, while it shows */
+  --edge: 0px;  /* room below the status bar for what iOS blurs there (below) */
 }
-#app.piano-off { --bar: 62px; }  /* its gap, height and the space below it */
+/* iOS blurs what stays just under the status bar, and a page cannot turn that off: on iOS, titles start below it. */
+@supports (-webkit-touch-callout: none) { #app { --edge: 24px; } }
 
 /* ---------- Sidebar: stays put underneath; the main screen slides right to reveal it ---------- */
 #sidebar {
   position: absolute; top: 0; bottom: 0; left: 0; width: var(--w); background: var(--bg);
-  display: flex; flex-direction: column; padding-top: calc(var(--safe-top) + var(--bar) + 4px);
+  display: flex; flex-direction: column; padding-top: calc(var(--safe-top) + var(--edge) + 4px);
   transform: translateX(calc((var(--p) - 1) * 36px));
   opacity: calc(.25 + .75 * var(--p));
 }
@@ -199,8 +200,8 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; d
    in (a pointercancel), and it would stop there. */
 .view, .sb-scroll, #search-results, .chat-scroll, .sheet-body, .pinfo { touch-action: pan-y; }
 .view header {
-  position: sticky; top: 0; z-index: 10; height: calc(var(--safe-top) + var(--bar) + 54px);
-  padding: calc(var(--safe-top) + var(--bar)) 90px 0;
+  position: sticky; top: 0; z-index: 10; height: calc(var(--safe-top) + var(--edge) + 54px);
+  padding: calc(var(--safe-top) + var(--edge)) 90px 0;
   display: grid; place-items: center; background: var(--header);
   -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
 }
@@ -688,17 +689,17 @@ button.grow:active { background: var(--press); }
    them and below; on a short screen the artwork gives way. */
 .pmain {
   position: relative; height: 100%; display: flex; flex-direction: column; container-type: size;
-  padding: calc(var(--safe-top) + var(--bar) + 52px) 28px calc(var(--safe-bottom) + 6px);
+  padding: calc(var(--safe-top) + var(--edge) + 52px) 28px calc(var(--safe-bottom) + 6px);
 }
 /* ✕ stops the piece and closes the player; the other shares or downloads its MIDI, gray until its file is made */
-.pcorner { position: absolute; top: calc(var(--safe-top) + var(--bar) + 2px); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--p-icon); }
+.pcorner { position: absolute; top: calc(var(--safe-top) + var(--edge) + 2px); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--p-icon); }
 .pcorner:active { background: var(--p-press); }
 .pcorner:disabled { opacity: .35; }
 .pcorner:disabled:active { background: none; }
 .pcorner svg { width: 22px; height: 22px; }
 #p-close { left: 14px; }
 #p-midi { right: 14px; }
-.pinfo { height: 100%; overflow-y: auto; padding: calc(var(--safe-top) + var(--bar)) 20px calc(var(--safe-bottom) + 24px); }
+.pinfo { height: 100%; overflow-y: auto; padding: calc(var(--safe-top) + var(--edge)) 20px calc(var(--safe-bottom) + 24px); }
 /* With artwork the art is a card: the picture in front, the notes behind; a tap turns it over */
 .art {
   width: min(100%, 100cqh - 352px); align-self: center; aspect-ratio: 1; margin-top: auto; flex: none; border-radius: 14px;
@@ -831,10 +832,9 @@ button.grow:active { background: var(--press); }
 #signed-out b { font-size: 20px; font-weight: 600; }
 #signed-out p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text2); }
 
-/* The piano's capsule: over every page, which makes room for it (--bar). Lower than the status bar by a gap: iOS blurs
-   whatever stays just under the status bar, and a page has no say in that. */
+/* The piano's capsule: floats over every page, below where a page's title is, and takes no room from it. */
 #piano-bar {
-  position: absolute; z-index: 38; left: 12px; right: 12px; top: calc(var(--safe-top) + 20px); height: 34px;  /* above the pages, under #dim */
+  position: absolute; z-index: 38; left: 12px; right: 12px; top: calc(var(--safe-top) + var(--edge) + 60px); height: 34px;  /* above the pages, under #dim */
   border-radius: 17px; display: flex; align-items: center; background: var(--card); color: var(--text); font-size: 14px; font-weight: 500;
 }
 #piano-how { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding-left: 44px; }
