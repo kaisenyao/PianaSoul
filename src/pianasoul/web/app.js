@@ -90,11 +90,7 @@ function applySettings() {
   const theme = data.settings.appearance === 'system' ? (dark.matches ? 'dark' : 'light') : data.settings.appearance;
   document.documentElement.dataset.theme = theme;
   $('meta[name=theme-color]').content = theme === 'dark' ? '#000000' : '#ffffff';
-  // The icon on a white or a black ground, as the look: Add to Home Screen (and an Android install, from the
-  // manifest) keeps the one there is at that moment.
-  for (const link of document.querySelectorAll('link[rel=icon], link[rel=apple-touch-icon]')) {
-    link.href = theme === 'dark' ? '/icon.png' : '/icon-light.png';
-  }
+  // The icon is the white one in either look; the manifest's colors (an Android install's splash) follow the look.
   $('link[rel=manifest]').href = theme === 'dark' ? '/manifest.webmanifest' : '/manifest-light.webmanifest';
   for (const el of document.querySelectorAll('[data-t]')) el.textContent = T[el.dataset.t];
   for (const el of document.querySelectorAll('[data-t-placeholder]')) el.placeholder = T[el.dataset.tPlaceholder];
