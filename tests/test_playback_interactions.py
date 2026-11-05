@@ -117,6 +117,12 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(set(tools['control_playback']['parameters']['properties']), {'action'})
         self.assertFalse(tools['control_playback']['parameters']['additionalProperties'])
 
+    def test_a_new_piece_plays_in_place_of_the_current_one(self):
+        # Told only that it plays a new piece, models paused or cancelled the one before it as well: after
+        # play_recording, that stops the new piece (control_playback takes the current one).
+        play = {t['name']: t for t in TOOLS}['play_recording']['description']
+        self.assertIn('and play it from zero in place of the current piece.', play)
+
     def test_a_piece_is_prepared_from_one_version_with_the_next_good_ones_as_alternatives(self):
         url = {t['name']: t for t in TOOLS}['transcribe_url']['parameters']['properties']
         self.assertEqual(set(url['alternatives']['items']['properties']), {'url', 'performer'})

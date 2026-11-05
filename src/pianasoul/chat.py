@@ -306,7 +306,7 @@ TOOLS = [
          "name": {"type": "string", "description": "the artist's or the playlist's name, for those"}},
          "required": ["about"], "additionalProperties": False}},
     {"name": "play_recording",
-     "description": "Select a NEW recording from library_matches, search_library, library_info, a transcription that is done or the pieces prepared lately, and play it from zero. "
+     "description": "Select a NEW recording from library_matches, search_library, library_info, a transcription that is done or the pieces prepared lately, and play it from zero in place of the current piece. "
                     "Called again in the same request, for another piece asked for, that one follows the first. "
                     "For continuing, retrying or restarting the existing piece, use control_playback instead.",
      "parameters": {"type": "object", "properties": {"id": {"type": "integer"}},

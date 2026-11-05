@@ -82,6 +82,9 @@ CASES = [
     ('Play the songs from this chat again, from the first one.', 'replay_chat'),
     ('把刚才聊天里弹过的曲子整理成一个歌单吧', 'chat_playlist'),
     ('把歌单「睡前」改名叫「晚安曲」', 'rename'),
+    # Another piece in place of the one there: nothing to pause or cancel (play_recording takes its place); a stop
+    # called after it would stop the new piece (case 14 once, DeepSeek, 2026-11-04).
+    ('这首不听了，换成德彪西的月光吧。', 'new_song'),
 ]
 CHAT_CASES = {'replay_chat', 'chat_playlist', 'rename'}  # in a conversation where she played both pieces
 ENGLISH_TITLES = [expected.split(':', 1)[1] for _, expected in CASES if expected.startswith('library:')]
@@ -244,7 +247,8 @@ def check(expected, fixture, answer, said, trace, results, asked, playing):
         offset = 0 if expected in {'restart', 'new_song'} else 22
         title = '月光' if expected == 'new_song' else '贝加尔湖畔'
         offsets = {0, 22} if expected == 'replay' else {offset}
-        return player.state == 'playing' and player._from in offsets and player.current[1] == title
+        stopped = expected == 'new_song' and 'control_playback' in names  # the new piece takes the old one's place
+        return player.state == 'playing' and player._from in offsets and player.current[1] == title and not stopped
     if expected.startswith('offline_'):
         offset = 0 if expected == 'offline_restart' else 22
         return pending is not None and pending.from_s == offset and '设备和钢琴' in answer
