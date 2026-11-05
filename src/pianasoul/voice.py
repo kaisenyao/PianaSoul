@@ -80,7 +80,7 @@ STEADY_SETTINGS = {**VOICE_SETTINGS, "stability": 0.85}
 # Her ready-made lines (lines.py) and how each is said: made once with her cloud voice and kept in the data folder
 # (voice/), each voice's apart. The greetings and the lines about a setting as above; the rest as her replies are, so
 # that a ready-made line and the reply after it sound like one person. How is given in ElevenLabs' settings; Model
-# Studio takes what it can of them (BailianVoice.how). Without a cloud voice the macOS voice says them.
+# Studio says every line at its voice's own pace. Without a cloud voice the macOS voice says them.
 READY = {**{text: GREETING_SETTINGS for lines in LINES["greet"].values() for text in lines},
          **{text: VOICE_SETTINGS for text in recorded()},
          **{text: STEADY_SETTINGS for key in STEADY for lines in LINES[key].values() for text in lines}}
@@ -89,7 +89,7 @@ READY = {**{text: GREETING_SETTINGS for lines in LINES["greet"].values() for tex
 # ones only in Beijing.
 QWEN_TTS_MODEL = "qwen-audio-3.1-tts-flash"
 DASHSCOPE_TTS_PATH = "/api/v1/services/audio/tts/SpeechSynthesizer"
-QWEN_VOICE = "longanhuan_v3.1"
+QWEN_VOICE = "longanlingxin_v3.1"
 STUDIO_DEBT = "Arrearage"  # Model Studio's code (HTTP 400) for an account that owes money: no sentence is said
 # Silero voice activity detection tells speech from silence and the piano.
 VAD_MODEL = "silero_vad.onnx"
@@ -620,16 +620,11 @@ class BailianVoice:
         self.missing = "" if self.key else "DASHSCOPE_VOICE_API_KEY"
         self.label = f"Model Studio {QWEN_TTS_MODEL}, {self.voice}"
 
-    @staticmethod
-    def how(settings: dict) -> dict:
-        """Its way of saying what is said with these ElevenLabs settings. It has no stability or style: the speed
-        alone carries over, as its rate (1.0 its own pace). Tuned by ear later."""
-        return {"rate": settings["speed"]}
-
     def open(self, text: str, settings: dict):
-        """The connection text comes on, said as these settings say; VoiceError when Model Studio refuses it."""
+        """The connection text comes on, said at the voice's own pace, greetings too (by ear, the more natural): the
+        settings are ElevenLabs'. VoiceError when Model Studio refuses it."""
         body = {"model": QWEN_TTS_MODEL, "input": {"text": text, "voice": self.voice, "format": "pcm",
-                                                   "sample_rate": 24000, **self.how(settings)}}
+                                                   "sample_rate": 24000}}
         request = urllib.request.Request(self.url, data=json.dumps(body).encode(), headers={
             "Authorization": f"Bearer {self.key}", "Content-Type": "application/json", "X-DashScope-SSE": "enable"})
         try:
@@ -659,8 +654,9 @@ class BailianVoice:
 
     def clip_key(self, text: str, settings: dict) -> str:
         """What a recording of text is made of: the service, its model and the voice too, so that it is never one of
-        ElevenLabs', and each voice's are kept: going back to one, none is made again."""
-        return json.dumps(["bailian", QWEN_TTS_MODEL, self.voice, self.how(settings), text])
+        ElevenLabs', and each voice's are kept: going back to one, none is made again. Not the settings: every line
+        is said at the voice's own pace."""
+        return json.dumps(["bailian", QWEN_TTS_MODEL, self.voice, text])
 
     @staticmethod
     def refusal(status: int, answer: dict) -> VoiceError:
