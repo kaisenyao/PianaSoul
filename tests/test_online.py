@@ -317,6 +317,7 @@ class FailureTests(unittest.TestCase):
                 (DownloadError('ERROR: [BiliBili] 1GJ411x7h7: You have exceeded the rate limit. Try again later'),
                  'refused'),  # yt-dlp's words for Bilibili's risk-control page instead of the video's
                 (HTTPError(answered(404)), 'failed'),
+                (HTTPError(answered(567)), 'failed'),  # Bilibili's download servers' answer, not a refusal to search
                 (ExtractorError('Video unavailable'), 'failed'),
                 (ValueError('provide a single video URL, not a playlist or channel'), 'failed')):
             self.assertEqual(online.reason_of(error), reason, error)

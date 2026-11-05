@@ -76,7 +76,7 @@ OPTIONS = {"quiet": True, "no_warnings": True, "logger": _Silent(), "socket_time
 # A search, which someone waits for, gives up within seconds where its site cannot be reached (YouTube from mainland
 # China), and is not tried again, so that the app soon says why; reading a video's page, and its download, keep theirs.
 SEARCH_OPTIONS = {"socket_timeout": 8, "extractor_retries": 0}
-REFUSED_STATUS = {412, 429, 567}  # Bilibili's risk control, too many requests, Bilibili's servers saying no
+REFUSED_STATUS = {412, 429}  # Bilibili's risk control, too many requests
 
 
 def reason_of(exc: BaseException) -> str:
