@@ -354,13 +354,9 @@ class Worker:
         self._jobs.put((future, fn, args))
         return future
 
-    def shutdown(self) -> None:
-        """No calls after those already submitted; the thread then ends."""
-        self._jobs.put(None)
-
     def _run(self) -> None:
-        while (job := self._jobs.get()) is not None:
-            future, fn, args = job
+        while True:
+            future, fn, args = self._jobs.get()
             if future.set_running_or_notify_cancel():
                 try:
                     future.set_result(fn(*args))

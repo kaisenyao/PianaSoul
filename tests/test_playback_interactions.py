@@ -1114,9 +1114,6 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual([n for n, _ in seen], [0, 1, 2, 3])
         self.assertEqual(len({thread for _, thread in seen}), 1)
         self.assertTrue(seen[0][1].daemon)
-        worker.shutdown()
-        seen[0][1].join(2)
-        self.assertFalse(seen[0][1].is_alive())
 
 if __name__ == '__main__':
     unittest.main()
