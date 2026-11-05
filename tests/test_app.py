@@ -5,6 +5,7 @@ import io
 import sqlite3
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 import threading
@@ -961,10 +962,8 @@ class AssistantTests(Base):
         self.assertIn('nothing of waiting, of getting it ready or of when it plays, and no remark about the music', flat)
         for waiting in ('稍等', '准备好就', 'moment', "as soon as it's ready"):
             self.assertNotIn(waiting, told)
-        for text in LINES['searching']['zh']:
-            self.assertNotIn(text.split('，')[-1], told, "Her line before looking online does not end as the model's")
-        for text in LINES['searching']['en']:
-            self.assertNotIn(text.split('. ')[-1], told)
+        for text in every('searching', True) + every('searching', False):  # with the library searched at once
+            self.assertFalse(re.search('网上|online', text), 'Her line before looking says what she does, not where')
         for given in (instructions(True), instructions(False), told):  # ./run.sh chat, online or not; voice, the app
             self.assertEqual(given.count('Your names are 小茗同学 in Chinese and Jasmine in English'), 1)
             self.assertEqual(given.count('never in the third person'), 1)

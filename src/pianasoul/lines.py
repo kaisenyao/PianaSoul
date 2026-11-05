@@ -19,8 +19,9 @@ LINES = {
     # Her name alone: she is listening (spoken only, not kept in the conversation)
     "greet": {"zh": ["诶，我在呢！", "来啦～想听点什么呀？", "嗯嗯，你说～"],
               "en": ["Hi! I'm here.", "Yes? I'm listening!", "Mm-hmm, go ahead!"]},
-    # Going online for a piece, when she has not said anything yet: what she will do, not that it takes a while
-    "searching": {"zh": ["好呀，我去网上找一版～"], "en": ["Sure, I'll find a version online."]},
+    # Looking for a piece, online and in the library at once, when she has not said anything yet: what she will do,
+    # not where (the library may have it under another name), nor that it takes a while
+    "searching": {"zh": ["好呀，我去找一版～"], "en": ["Sure, I'll find a version of it."]},
     # Playing: a new piece, the same one from where it was or from the start, or the one already playing
     "playing": {"zh": ["好啦，这就给你弹《{piece}》。", "来啦，《{piece}》送给你～", "《{piece}》，听好咯～"],
                 "en": ["Here's {piece}, just for you.", "Coming up: {piece}.", "Let me play {piece} for you."]},
