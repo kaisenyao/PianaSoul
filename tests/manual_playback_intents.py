@@ -1,7 +1,8 @@
 """Run by the user: real model, simulated playback, temporary library, no microphone or TTS. Online search gives
 made-up results shaped as the sites give them, and a stand-in for the transcriber makes the pieces she chooses.
-Each request is said as to her voice; what she says, the tools she calls, when her first words come and when she
-is done, and the tokens read and written are kept for each, with a summary for each model.
+Her model is given what the service gives her (her instructions with VOICE_NOTE and TYPED_NOTE), and each request is
+said as to her voice; what she says, the tools she calls, when her first words come and when she is done, and the
+tokens read and written are kept for each, with a summary for each model.
 
     tests/manual_playback_intents.py --model bailian --model openai --rounds 3 --save runs.jsonl
     tests/manual_playback_intents.py --summary runs.jsonl
@@ -27,7 +28,8 @@ from pianasoul.chat import TOOLS, instructions, says_name
 from pianasoul.downloads import clean_url
 from pianasoul.lines import every
 from pianasoul.llm import make_chat, model_spec
-from pianasoul.voice import finish_interaction
+from pianasoul.server import TYPED_NOTE
+from pianasoul.voice import VOICE_NOTE, finish_interaction
 from test_playback_interactions import PlaybackTests
 
 # Each case starts with 贝加尔湖畔 paused at 22 seconds; for 'pause', paused for her to listen, as her voice holds a piece
@@ -321,7 +323,7 @@ def run(index, text, expected):
                 results.extend(json.loads(raw).get('results', []))
             return raw
         fixture.a.run_tool = safe_tool
-        chat, kept['model'] = make_chat(instructions(), TOOLS)
+        chat, kept['model'] = make_chat(instructions() + VOICE_NOTE + TYPED_NOTE, TOOLS)  # as the service (server.py)
         counted(chat, kept)
         baikal, moon = (r['id'] for r in fixture.records)
         if expected in CHAT_CASES:
