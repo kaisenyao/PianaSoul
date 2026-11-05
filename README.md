@@ -218,7 +218,7 @@ echo 'export DASHSCOPE_VOICE_API_KEY="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Her voice there is `longanhuan_v3.1`; `PIANASOUL_VOICE_ID` may name another of the
+Her voice there is `longanlingxin_v3.1`; `PIANASOUL_VOICE_ID` may name another of the
 [voices](https://www.alibabacloud.com/help/en/model-studio/qwen-audio-tts-voice-list) of `qwen-audio-3.1-tts-flash`.
 For a key made in Singapore, also set `DASHSCOPE_VOICE_REGION=singapore`.
 
@@ -298,7 +298,7 @@ Set these in `~/.zshrc`.
 - `ELEVENLABS_API_KEY` and `PIANASOUL_VOICE_ID`: her ElevenLabs voice.
 - `DASHSCOPE_VOICE_API_KEY`: her voice on Model Studio (`PIANASOUL_VOICE=bailian`), with a key of its own;
   `DASHSCOPE_VOICE_REGION` the region the key was made in, `beijing` (the default) or `singapore`; and
-  `PIANASOUL_VOICE_ID` the voice's name, by default `longanhuan_v3.1`.
+  `PIANASOUL_VOICE_ID` the voice's name, by default `longanlingxin_v3.1`.
 - `PIANASOUL_TRANSCRIBE`: `0` turns transcription and online search off though the advanced extra is installed, with
   her still on (the Mac app's Online Search & Transcription).
 - `PIANASOUL_PORT`: the MIDI output, by part of its name, until one is chosen in the Mac app. Default `pianasoul`.

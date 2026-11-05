@@ -1014,16 +1014,16 @@ class BailianVoiceTests(unittest.TestCase):
                          ('Bearer test-voice-key', 'enable'), "Its own key, never the model's")
         self.assertLessEqual(timeout, 30, 'Bounded')
         self.assertEqual(body, {'model': 'qwen-audio-3.1-tts-flash', 'input': {
-            'text': '你好，Jasmine', 'voice': 'longanhuan_v3.1', 'format': 'pcm', 'sample_rate': 24000, 'rate': 1.0}})
-        self.assertEqual(self.speaker.label, 'Model Studio qwen-audio-3.1-tts-flash, longanhuan_v3.1')
+            'text': '你好，Jasmine', 'voice': 'longanlingxin_v3.1', 'format': 'pcm', 'sample_rate': 24000}})
+        self.assertEqual(self.speaker.label, 'Model Studio qwen-audio-3.1-tts-flash, longanlingxin_v3.1')
 
     def test_the_voice_named_speaks_in_the_region_its_key_was_made_in(self):
         with patch.dict('os.environ', {'DASHSCOPE_VOICE_REGION': 'singapore'}), \
-                patch.object(voice, 'VOICE_ID', 'longanlingxin_v3.1'):
+                patch.object(voice, 'VOICE_ID', 'xunanchuan_v3.1'):
             self.speaker = voice.Speaker()
         _, sent = self.say('你好', events(audio(b'\x01\x00'), END))
         self.assertTrue(sent[0][0].full_url.startswith('https://dashscope-intl.aliyuncs.com/api/v1/'))
-        self.assertEqual(sent[0][1]['input']['voice'], 'longanlingxin_v3.1')
+        self.assertEqual(sent[0][1]['input']['voice'], 'xunanchuan_v3.1')
         with patch.dict('os.environ', {'DASHSCOPE_REGION': 'singapore'}):  # her model's region is not her voice's
             self.speaker = voice.Speaker()
         _, sent = self.say('你好', events(audio(b'\x01\x00'), END))
@@ -1035,15 +1035,17 @@ class BailianVoiceTests(unittest.TestCase):
         self.assertEqual((speaker.cloud, speaker.label), (False, 'macOS (set DASHSCOPE_VOICE_API_KEY)'),
                          "Never with the model's key")
 
-    def test_her_greetings_are_quicker_and_her_other_lines_at_qwen_s_own_pace(self):
+    def test_every_line_her_greetings_too_is_said_at_the_voice_s_own_pace(self):
         rates = []
         with tempfile.TemporaryDirectory() as data, patch('pianasoul.library.DATA_DIR', Path(data)):
             for text, how in (('你好', voice.GREETING_SETTINGS), ('暂停了。', voice.VOICE_SETTINGS),
                               ('大声一点了。', voice.STEADY_SETTINGS)):
                 with patch('urllib.request.urlopen', Synthesizer(events(audio(b'\x01\x00'), END))) as studio:
                     self.speaker.clip(text, how)
-                rates.append(studio.sent[0][1]['input']['rate'])
-        self.assertEqual(rates, [1.15, 1.0, 1.0])
+                rates.append(studio.sent[0][1]['input'].get('rate'))
+        self.assertEqual(rates, [None, None, None])
+        self.assertEqual(self.speaker.clip_path('你好', voice.GREETING_SETTINGS), self.speaker.clip_path('你好'),
+                         'One recording of a line, however ElevenLabs would say it')
 
     def test_a_ready_made_line_is_made_whole_from_its_events_once_and_kept(self):
         greeting = LINES['greet']['zh'][0]
@@ -1053,16 +1055,15 @@ class BailianVoiceTests(unittest.TestCase):
             with wave.open(str(self.speaker.clip_path(greeting, voice.GREETING_SETTINGS))) as w:
                 kept = w.getframerate(), w.getnchannels(), w.getsampwidth()
         self.assertEqual((said, again, len(sent), asked), ([[1, 2]], [[1, 2]], 1, []))
-        self.assertEqual(sent[0][1]['input']['rate'], 1.15, 'Said as a greeting')
         self.assertEqual(kept, (24000, 1, 2))
 
     def test_her_recordings_in_a_qwen_voice_are_its_own_and_each_voice_s_are_kept(self):
         text = LINES['pause']['zh'][0]
         qwen = self.speaker.clip_path(text)
-        with patch.object(voice, 'VOICE_ID', 'longanlingxin_v3.1'):
+        with patch.object(voice, 'VOICE_ID', 'xunanchuan_v3.1'):
             other = voice.Speaker().clip_path(text)
         with patch.dict('os.environ', {'PIANASOUL_VOICE': 'elevenlabs', 'ELEVENLABS_API_KEY': 'k'}), \
-                patch.object(voice, 'VOICE_ID', 'longanhuan_v3.1'):
+                patch.object(voice, 'VOICE_ID', 'longanlingxin_v3.1'):
             elevenlabs = voice.Speaker().clip_path(text)
         self.assertEqual(len({qwen, other, elevenlabs}), 3, "None is another's")
         self.assertEqual(voice.Speaker().clip_path(text), qwen, 'Back to a voice, its recordings are there')
