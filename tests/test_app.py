@@ -1841,6 +1841,21 @@ class DownloadTests(Base):
         self.assertEqual((rec['title'], rec['channel_avatar']), ('周杰伦 - 稻香 (MappleZS)', 'https://yt3/a.jpg'))
         self.assertIn(('converting', '周杰伦 - 稻香 (MappleZS)'), seen, 'The phone is told its name as it is named')
 
+    def test_a_recording_kept_without_its_video_s_title_is_named_from_its_page(self):
+        audio = self.root / 'a.m4a'
+        audio.write_bytes(b'x')
+        seen = []
+        convert = lambda audio, out, options, output_name, stopped: {'files': {'midi': str(make_midi(Path(out) / 'x.mid'))}}
+        page = {'video_title': '周杰伦 晴天 钢琴', 'channel': 'Pianist'}
+        for url, kept, named_from in (
+                ('https://youtu.be/aaaaaaaaaaa', {'video_title': 'a'}, '周杰伦 晴天 钢琴'),  # its file's name for its title
+                ('https://youtu.be/bbbbbbbbbbb', {'video_title': '晴天 钢琴版'}, '晴天 钢琴版')):  # its page not waited for
+            with self.subTest(kept=kept), patch('pianasoul.download.download_audio', return_value=(audio, kept)), \
+                 transcription(convert), patch('pianasoul.downloads._video_page', return_value=page):
+                d = self.downloads(name_piece=lambda query, video, artists: seen.append(video) or {'piece': '晴天'})
+                piece_made(d, url)
+                self.assertEqual(seen[-1]['video_title'], named_from)
+
     def test_a_piece_stopped_while_it_is_named_is_not_filed(self):
         audio = self.root / 'a.m4a'
         audio.write_bytes(b'x')

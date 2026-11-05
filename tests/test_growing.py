@@ -335,6 +335,27 @@ class MadeAsItPlaysTests(unittest.TestCase):
         self.assertEqual(d.growing, {}, 'Its file plays from now on')
         self.assertEqual(self.unmade, [])
 
+    def test_named_it_plays_before_its_video_s_page_is_read_which_only_its_filing_waits_for(self):
+        answer = threading.Event()  # the video's page answers
+        self.addCleanup(answer.set)
+
+        def video_page(url):
+            answer.wait(5)
+            return {'channel_avatar': 'https://yt3/a.jpg'}
+        steps = Steps(self.PARTS)
+        with patch('pianasoul.downloads._video_page', side_effect=video_page):
+            d = self.downloads(steps)
+            job = d.add('https://youtu.be/abcdefghijk')  # no names: the phone's download, a pasted link
+            steps.next(), steps.next()
+            self.assertTrue(job.playable.wait(2), 'Named, it plays while its page is still being read')
+            self.assertEqual(self.lib.get(job.recording)['title'], '周杰伦 - 晴天')
+            steps.next()
+            steps.go.release()
+            self.assertFalse(job.finished.wait(0.3), 'Filed once its page is read')
+            answer.set()
+            self.assertTrue(job.finished.wait(2))
+        self.assertEqual((job.status, self.lib.get(job.recording)['channel_avatar']), ('done', 'https://yt3/a.jpg'))
+
     def test_not_made_after_all_it_goes_and_the_player_is_told(self):
         for end in ('failed', 'stopped'):
             with self.subTest(end=end):

@@ -67,7 +67,8 @@ class _Said:
 
 def download_audio(url: str, cache_dir: Path, progress=None) -> tuple[Path, dict]:
     """Reuse a valid cache without network access, otherwise download atomically. Returns the audio and the
-    video's details (video_details). progress(fraction) follows the download; it may raise to stop it."""
+    video's details (video_details; a cached audio kept without its title has its file's name for it).
+    progress(fraction) follows the download; it may raise to stop it."""
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("expected an http(s) video URL")

@@ -302,20 +302,27 @@ class Downloads:
         return rec
 
     def _file(self, job: Job, audio: Path, details: dict, apart) -> dict:
-        """The transcription starts at once; meanwhile the video's page is read (a YouTube video: its channel's
-        picture and the rest, a second or two) and the piece named from what is known of it (the model, a second
-        or two), and once both are done it is filed under its names."""
+        """The transcription starts at once; meanwhile the piece is named from what is known of it (the model, a
+        second or two), and then the video's page is read (a YouTube video: its channel's picture and the rest, a
+        second or two), which only its filing needs; once both are done it is filed under its names. A recording
+        downloaded before and kept without its video's title (download_audio gives its file's name for it) is named
+        from its page."""
         details = dict(details)
         named = threading.Event()  # its names are there: given (she gives them), or found
         if job.piece:
             named.set()
+        untitled = details.get("video_title") == audio.stem and not job.video.get("video_title")
 
-        def meanwhile():
+        def read_page():
             try:
                 details.update(_video_page(job.source))
             except Exception as exc:  # the piece is made all the same, with what the download said of the video
                 log.debug("the video's page not read: %s", exc)
+
+        def meanwhile():
             try:
+                if untitled:
+                    read_page()
                 if not job.piece:
                     started = time.monotonic()
                     self._name(job, details)
@@ -323,6 +330,8 @@ class Downloads:
                     self.changed()  # the phone shows its name from now on
             finally:
                 named.set()
+            if not untitled:
+                read_page()
         side = threading.Thread(target=meanwhile, name="naming", daemon=True)
         side.start()
         self._check(job)
