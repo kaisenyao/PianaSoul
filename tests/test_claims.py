@@ -7,6 +7,7 @@ from pianasoul.claims import claims
 
 # Replies that called no tool and said something was done (her real-model check, 2026-11-04: Qwen, DeepSeek).
 SAID_UNDONE = [
+    "好呀，那就弹德彪西的《月光》给你听～",  # DeepSeek, case 14, 2026-11-04: no tool called
     "好的，这就把《贝加尔湖畔》的播放取消掉～",
     "好的，已经取消《贝加尔湖畔》的播放啦。想听点别的随时叫我～",
     "Of course — retrying now, so it picks up right where it stopped.",
