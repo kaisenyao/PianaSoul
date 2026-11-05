@@ -285,12 +285,18 @@ def merged(lists: list[list[dict]]) -> list[dict]:
 
 
 def _same(a: dict, b: dict) -> bool:
-    """One video: the same address, or the same title and length (to 2 s), as one performance posted on both sites
-    is (a live search for 童话 found one, its title the same on each)."""
+    """One video: the same address, or the same title and either the same channel (its name in any case, spacing and
+    punctuation) or the same length (to 2 s), as one performance posted on both sites is (a live search for 童话
+    found one, its title the same on each; 听海 by one uploader, "Nice piano sheets" and "NicePianoSheets", each
+    site's copy cut to its own length)."""
     def title(video):
         return " ".join(str(video.get("video_title") or "").lower().split())
-    return a["url"] == b["url"] or bool(title(a)) and title(a) == title(b) \
-        and abs((a.get("duration_s") or 0) - (b.get("duration_s") or 0)) <= 2
+
+    def channel(video):
+        return "".join(c for c in str(video.get("channel") or "").lower() if c.isalnum())
+    return a["url"] == b["url"] or bool(title(a)) and title(a) == title(b) and (
+        bool(channel(a)) and channel(a) == channel(b)
+        or abs((a.get("duration_s") or 0) - (b.get("duration_s") or 0)) <= 2)
 
 
 def _youtube(query: str, n: int) -> list[dict]:
