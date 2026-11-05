@@ -1365,6 +1365,8 @@ class Assistant:
                     answer = self._answer(chat, text, typed)
                 except Exception:
                     self._start_after_reply()  # what she was to play still plays, as it would have when spoken
+                    if not self.started_now and self.lineup is lineup:  # she says she could not answer: what it
+                        self.lineup = None  # sent to be prepared does not start by itself, and is said to be ready
                     raise
                 if lineup.named and not says_name(f"{self.said_now} {answer}", lineup.named[2]):
                     lineup.named = None  # her words did not name the version she chose by its performer

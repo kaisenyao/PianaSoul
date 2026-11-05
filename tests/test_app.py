@@ -1575,6 +1575,26 @@ class PreparedTests(Base):
                 self.a.ask(Scripted([self.call('play_recording', id=self.ids[0])], '好呀。'), '弹刚才准备好的那首')
                 self.assertEqual(self.p.current_id, self.ids[0], 'She remembers it, to play when asked')
 
+    def test_a_request_she_could_not_answer_does_not_come_back_to_play_what_it_sent(self):
+        class Fails(Scripted):  # her model quiet too long, after she sent the piece (llm.CHAT_READ_S)
+            def send_tool_results(self, results):
+                raise TimeoutError('the model did not answer')
+        for typed in (False, True):
+            with self.subTest(typed=typed):
+                self.fresh()
+                speak = None if typed else lambda words, meanwhile=False: None
+                with self.assertRaises(TimeoutError):
+                    self.a.ask(Fails([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='qingtian')]),
+                               '弹一首晴天', typed=typed, speak=speak)
+                self.assertIn(self.a.could_not_answer(), every('no_answer', True))
+                self.assertFalse(self.a.piece_to_start(), 'A piece paused while she listened is not held for it')
+                self.made('qingtian', self.ids[0])
+                self.assertTrue(self.said_last('准备好啦'), 'Said to be ready, as she said she could not answer')
+                self.settle()
+                self.assertIsNone(self.p.current_id, 'Once all is over, nothing started by itself')
+                self.a.ask(Scripted([self.call('play_recording', id=self.ids[0])], '好呀。'), '弹刚才那首')
+                self.assertEqual(self.p.current_id, self.ids[0], 'She remembers it, to play when asked')
+
     def test_of_pieces_asked_for_together_the_first_ready_plays_and_the_others_follow_it(self):
         self.prepare('qingtian', 'geqian')
         self.made('qingtian', self.ids[0])
