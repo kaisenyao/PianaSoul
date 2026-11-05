@@ -595,8 +595,7 @@ class AssistantTests(Base):
         class Failing(Scripted):
             def send_tool_results(self, results):
                 raise OSError('the model did not answer')
-        with self.assertRaises(OSError):
-            self.a.ask(Failing([self.call('play_recording', id=self.ids[0])]), '弹一下晴天', typed=True)
+        self.assertEqual(self.a.ask(Failing([self.call('play_recording', id=self.ids[0])]), '弹一下晴天', typed=True), '')
         self.assertEqual(self.p.current_id, self.ids[0], 'As it would have, said rather than typed')
         self.assertIsNone(self.a.pending)
 
@@ -928,18 +927,15 @@ class AssistantTests(Base):
     def test_a_model_failure_is_said_and_shown_unless_what_was_asked_plays(self):
         chat = Mock()
         chat.send_user.side_effect = TimeoutError('model down')
-        with self.assertRaises(TimeoutError):
-            self.a.ask(chat, '弹晴天')
-        said = self.a.could_not_answer()
+        said = self.a.ask(chat, '弹晴天')
         self.assertIn(said, LINES['no_answer']['zh'])
         self.assertEqual(self.kept[-1]['text'], said, 'In the conversation, for the phone')
 
         class Failing(Scripted):
             def send_tool_results(self, results):
                 raise OSError('the model did not answer')
-        with self.assertRaises(OSError):
-            self.a.ask(Failing([self.call('play_recording', id=self.ids[0])]), '弹一下晴天', typed=True)
-        self.assertEqual(self.a.could_not_answer(), '', 'It plays: nothing to excuse')
+        said = self.a.ask(Failing([self.call('play_recording', id=self.ids[0])]), '弹一下晴天', typed=True)
+        self.assertEqual(said, '', 'It plays: nothing to excuse')
 
     def test_her_lines_for_what_went_wrong_say_what_did(self):
         self.assertIn(self.a.playback_reply({'error': 'recording_not_found'}), LINES['not_in_library']['zh'])
@@ -1026,8 +1022,7 @@ class AssistantTests(Base):
         first = self.a.conversation_id
         chat = Mock()
         chat.send_user.side_effect = TimeoutError('model down')
-        with self.assertRaises(TimeoutError):
-            self.a.ask(chat, '弹晴天')
+        self.assertIn(self.a.ask(chat, '弹晴天'), LINES['no_answer']['zh'])
         chat.discard_turn.assert_called_once()
         chat.reset.assert_not_called()
         self.assertEqual(self.a.conversation_id, first)
@@ -1668,10 +1663,9 @@ class PreparedTests(Base):
             with self.subTest(typed=typed):
                 self.fresh()
                 speak = None if typed else lambda words, meanwhile=False: None
-                with self.assertRaises(TimeoutError):
-                    self.a.ask(Fails([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='qingtian')]),
-                               '弹一首晴天', typed=typed, speak=speak)
-                self.assertIn(self.a.could_not_answer(), every('no_answer', True))
+                said = self.a.ask(Fails([self.call('transcribe_url', url='https://youtu.be/qingtian', piece='qingtian')]),
+                                  '弹一首晴天', typed=typed, speak=speak)
+                self.assertIn(said, every('no_answer', True))
                 self.assertFalse(self.a.piece_to_start(), 'A piece paused while she listened is not held for it')
                 self.made('qingtian', self.ids[0])
                 self.assertTrue(self.said_last('准备好啦'), 'Said to be ready, as she said she could not answer')

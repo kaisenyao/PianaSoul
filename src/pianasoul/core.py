@@ -301,11 +301,7 @@ class Core:
         def answer():
             if conversation_id is not None:
                 self.assistant.pick_up(self.chat, conversation_id)
-            try:
-                self.assistant.ask(self.chat, text, typed=True, taps=taps)
-            except Exception as exc:  # that request is dropped, and she says so; the conversation goes on
-                print(f"  (model error: {exc}; that request is dropped)", flush=True)
-                self.assistant.could_not_answer()
+            self.assistant.ask(self.chat, text, typed=True, taps=taps)
             self.emit({"type": "conversations"})
         self.worker.submit(answer)
 

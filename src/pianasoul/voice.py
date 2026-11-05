@@ -1213,13 +1213,9 @@ class Conversation:
         print(f"you> {text}", flush=True)
         self.stop_hearing()
         self.status("thinking")
-        answer, started = "", time.monotonic()
-        try:
-            answer = self.assistant.ask(self.chat, text, speak=self.say, paused_for_her=self.was_playing)
-            log.debug("answered in %.1f s", time.monotonic() - started)
-        except Exception as exc:  # that request is dropped, and she says so; a paused piece plays on
-            print(f"  (model error: {exc}; that request is dropped)", flush=True)
-            answer = self.assistant.could_not_answer()
+        started = time.monotonic()
+        answer = self.assistant.ask(self.chat, text, speak=self.say, paused_for_her=self.was_playing)
+        log.debug("answered in %.1f s", time.monotonic() - started)
         self.status("speaking")
         self.finish_playback(answer)
         self.follow_up_s = FOLLOW_UP_S

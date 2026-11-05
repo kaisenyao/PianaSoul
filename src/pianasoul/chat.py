@@ -1348,7 +1348,8 @@ class Assistant:
         app, answered on screen. taps: the phone's player as it was when the request was made, if it waited its turn
         (Core.type). paused_for_her: the piece playing was paused for her to listen (voice), and plays on after her
         reply unless she pauses or cancels it. Returns her reply, for voice to say: spoken, with the line after it that
-        says the piece is in another version than her news named, when it is (_announce)."""
+        says the piece is in another version than her news named, when it is (_announce). Her model failing (or anything
+        else on the way), the request is forgotten and she says so, unless what it asked for plays already."""
         with self._turn:
             # Each request resends the whole conversation: after a long quiet spell, start afresh.
             if self.replied_at is not None and self.clock() - self.replied_at > NEW_CONVERSATION_AFTER_S:
@@ -1359,17 +1360,11 @@ class Assistant:
             self.said_now = ""
             self.taps_asked = self.taps if taps is None else taps
             self.asked_now = lineup = Lineup(self.taps_asked)
-            self.keep("user", text)
-            if self.on_busy:
-                self.on_busy(True)
             try:
-                try:
-                    answer = self._answer(chat, text, typed)
-                except Exception:
-                    self._start_after_reply()  # what she was to play still plays, as it would have when spoken
-                    if not self.started_now and self.lineup is lineup:  # she says she could not answer: what it
-                        self.lineup = None  # sent to be prepared does not start by itself, and is said to be ready
-                    raise
+                self.keep("user", text)
+                if self.on_busy:
+                    self.on_busy(True)
+                answer = self._answer(chat, text, typed)
                 if lineup.named and not says_name(f"{self.said_now} {answer}", lineup.named[2]):
                     lineup.named = None  # her words did not name the version she chose by its performer
                 other = ""
@@ -1389,6 +1384,16 @@ class Assistant:
                 for rec_id, title in self.played_now:
                     self.keep("piece", title, rec_id)
                 return f"{answer} {other}".strip()
+            except Exception as exc:  # that request is dropped, and she says so; the conversation goes on
+                print(f"  (model error: {exc}; that request is dropped)", flush=True)
+                self._start_after_reply()  # what she was to play still plays, as it would have when spoken
+                if self.started_now:  # what was asked for plays: nothing to excuse
+                    return ""
+                if self.lineup is lineup:  # what it sent to be prepared does not start by itself: said to be ready
+                    self.lineup = None
+                said = line("no_answer", self.chinese())
+                self.keep("assistant", said)  # also on the phone
+                return said
             finally:
                 self._asked()
                 self.speak, self.typed, self.paused_for_her = None, False, False
@@ -1440,15 +1445,6 @@ class Assistant:
         if called or not said:
             return ""
         return HELD_BACK.format(reply=json.dumps(words[:300], ensure_ascii=False), language=self.answer_in())
-
-    def could_not_answer(self) -> str:
-        """The model failed (ask raised; the request is forgotten): she says so, in the conversation too, unless what
-        was asked for plays already. Returns her line, for where she speaks, or "" then."""
-        if self.started_now:
-            return ""
-        text = line("no_answer", self.chinese())
-        self.keep("assistant", text)
-        return text
 
     def _answer(self, chat, text: str, typed: bool) -> str:
         self.request = text
@@ -1711,9 +1707,6 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             print("\n(interrupted; that request is dropped)")
             continue
-        except Exception as exc:
-            print(f"  (model error: {exc}; that request is dropped)")
-            answer = assistant.could_not_answer()
         if answer:
             print(f"\nassistant> {answer}\n")
 

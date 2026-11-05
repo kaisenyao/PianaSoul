@@ -481,23 +481,6 @@ class ConversationTests(unittest.TestCase):
         self.assertIn(self.parts.speaker.stream.call_args.args[0], LINES['greet']['zh'], 'Not a failure')
         self.assertEqual(self.out.events[-1], ('turn_end', False), 'Then she listens for the request')
 
-    def test_a_model_failure_drops_the_request_and_the_piano_plays_on(self):
-        player = self.assistant.player = Mock(state='playing', completed=None, lost=None, current=('p', '传奇'), position=3.0)
-        self.c.begin()
-        player.state = 'paused'
-        self.assistant.ask.side_effect = RuntimeError('model down')
-        self.c.respond('弹传奇')
-        self.chat.reset.assert_not_called()
-        player.go_on.assert_called_once_with(3.0)  # at once, not after the follow-up window
-
-    def test_a_model_failure_is_said_not_met_with_silence(self):
-        self.assistant.ask.side_effect = RuntimeError('model down')
-        self.assistant.could_not_answer.return_value = LINES['no_answer']['zh'][0]
-        self.c.respond('弹传奇')
-        self.assistant.could_not_answer.assert_called_once_with()  # kept in the conversation there, for the phone
-        self.parts.speaker.stream.assert_called_once_with(LINES['no_answer']['zh'][0])
-        self.assertEqual(len(self.out.spoken), 1)
-
     def test_she_never_reads_out_an_emoji(self):
         for text, said in (('一共听了 3 次。🎹', '一共听了 3 次。'), ('好呀\u2764\ufe0f，弹给你听\u2728', '好呀，弹给你听'),
                            ('Bravo 👏🏽 well played', 'Bravo well played'), ('第 1\ufe0f\u20e3 首', '第 1 首')):
