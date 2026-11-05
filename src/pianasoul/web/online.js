@@ -30,6 +30,16 @@ export function merged(lists) {
   return together;
 }
 
+// What a video found is in the library, by any copy of it (urls): a piece made ({made}, its recording), one being
+// prepared ({job}), or neither ({}). Its row acts on that piece, from its title and from the control at its end: both
+// download it, and once it is made both play it; while it is prepared the title plays it as soon as it can, and the
+// control, its ring, stops it. Its cover opens the video on its site, whatever the piece is.
+export function pieceOf(video, recordings, jobs) {
+  const made = recordings.find(r => video.urls.includes(r.source_url));
+  const job = jobs.find(j => video.urls.includes(j.source));
+  return made ? {made} : job ? {job} : {};
+}
+
 // What is shown (state): the query; found, the videos so far, merged; failed, why each site that could not be
 // searched could not; answered, the sites that were; waiting, those still on their way; and offer, the sites turned
 // off, to turn on when none could be searched because one is out of reach.

@@ -1,6 +1,7 @@
 // Searching online from the phone (web/online.js): every site chosen asked at once, each one's videos shown as they
-// come and merged as the Mac merges hers, the latest search shown, and a site that fails said as why it failed,
-// never as nothing found; and the words for it (web/strings.js), in both languages.
+// come and merged as the Mac merges hers, the latest search shown, a site that fails said as why it failed, never as
+// nothing found, and what each video found is in the library, which its title acts on; and the words for it
+// (web/strings.js), in both languages.
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
@@ -156,6 +157,24 @@ async function aLinkIsReadOnceOnItsOwnSite() {
   assert.equal(h.asked.at(-1).q, '晴天 钢琴', 'Words without a link, as they are');
 }
 
+// A row's title acts on its video's piece, found by any copy of the video: not a piece yet, it downloads it, as the
+// download button does; being prepared, it plays it once it can (preparing.js), the ring stopping it; made, it plays
+// it, as ▶ does. The cover opens the video on its site whatever the piece is (app.js renderCands).
+function aVideoFoundIsAPieceMadeOneBeingPreparedOrNeitherByAnyCopyOfIt() {
+  const {pieceOf} = vm.runInNewContext(source + '\n({pieceOf})', {});
+  const video = {url: 'https://youtube/1', urls: ['https://youtube/1', 'https://bilibili/1']};
+  const other = {recordings: [{id: 2, source_url: 'https://youtube/2'}], jobs: [{id: 3, source: 'https://bilibili/2'}]};
+  assert.deepEqual(plain(pieceOf(video, other.recordings, other.jobs)), {}, 'Not a piece yet: download it');
+  const job = {id: 4, source: 'https://bilibili/1', status: 'downloading', recording: null};
+  assert.deepEqual(plain(pieceOf(video, other.recordings, [...other.jobs, job])), {job},
+                   'Being prepared, from its copy on the other site: play it once it can');
+  const made = {id: 5, source_url: 'https://youtube/1'};
+  assert.deepEqual(plain(pieceOf(video, [...other.recordings, made], [job])), {made},
+                   'Made, though its job has not gone yet: play it');
+  const fromCopy = {id: 6, source_url: 'https://bilibili/1'};
+  assert.deepEqual(plain(pieceOf(video, [fromCopy], [])), {made: fromCopy}, 'Made from its copy');
+}
+
 function theWordsForItInBothLanguages() {
   const sandbox = {};
   const strings = fs.readFileSync('src/pianasoul/web/strings.js', 'utf8').replace(/^export const LANGUAGES/m, 'this.LANGUAGES');
@@ -166,8 +185,14 @@ function theWordsForItInBothLanguages() {
   assert.equal(zh.searchSite(zh.sites.bilibili), '搜索哔哩哔哩');
   assert.equal(zh.partly([zh.cause.unreachable(zh.sites.youtube)], [zh.sites.bilibili]), '无法连接到YouTube，仅显示哔哩哔哩的结果。');
   assert.equal(zh.partly([zh.cause.refused(zh.sites.bilibili)], [zh.sites.youtube]), '哔哩哔哩暂时拒绝了搜索，仅显示YouTube的结果。');
+  assert.equal(zh.watchVideo, '观看视频', "A video's cover, to a screen reader");
+  assert.equal(zh.actionOn(zh.download, '晴天 钢琴版'), '下载“晴天 钢琴版”', 'Its title: what it does, to which video');
+  assert.equal(zh.actionOn(zh.playNow, '晴天 钢琴版'), '播放“晴天 钢琴版”');
   assert.equal(en.unreachable(en.sites.youtube), 'Can’t connect to YouTube.');
   assert.equal(en.searchSite(en.sites.bilibili), 'Search Bilibili');
+  assert.equal(en.watchVideo, 'Watch Video');
+  assert.equal(en.actionOn(en.download, 'Clair de Lune'), 'Download “Clair de Lune”');
+  assert.equal(en.actionOn(en.playNow, 'Clair de Lune'), 'Play “Clair de Lune”');
   assert.equal(en.partly([en.cause.unreachable(en.sites.youtube)], [en.sites.bilibili]),
                'Can’t connect to YouTube. Showing results from Bilibili.');
   assert.equal(en.partly([en.cause.failed('YouTube'), en.cause.refused('Vimeo')], ['Bilibili', 'Dailymotion']),
@@ -181,7 +206,8 @@ function theWordsForItInBothLanguages() {
     assert.notEqual(T.searchFailed, T.nothing, 'A failure is not "No Results"');
   }
   const english = [...Object.values(en.sites), ...Object.values(en.refused), en.searchFailed, en.sourcesLabel,
-    en.partly(Object.values(en.cause).map(c => c(en.sites.youtube)), [en.sites.bilibili])];
+    en.partly(Object.values(en.cause).map(c => c(en.sites.youtube)), [en.sites.bilibili]), en.watchVideo,
+    en.actionOn(en.download, 'Clair de Lune')];
   assert.ok(english.every(s => !/\p{Script=Han}/u.test(s)), 'The English words are all English');
 }
 
@@ -193,7 +219,9 @@ function theWordsForItInBothLanguages() {
   await aSiteThatFailsSaysWhyAboveTheOthersVideos();
   await noSiteSearchedSaysWhyAndOffersOneTurnedOff();
   await aLinkIsReadOnceOnItsOwnSite();
+  aVideoFoundIsAPieceMadeOneBeingPreparedOrNeitherByAnyCopyOfIt();
   theWordsForItInBothLanguages();
   console.log('Online search passed: the sites merged as on the Mac, each shown as it comes, one turned on or off, ' +
-              'only the latest search shown, a failure said as why, a link read on its own site, and its words.');
+              'only the latest search shown, a failure said as why, a link read on its own site, what a video found ' +
+              'is in the library, and its words.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

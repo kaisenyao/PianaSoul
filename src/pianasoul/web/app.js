@@ -5,7 +5,7 @@
 import {LANGUAGES} from './strings.js';
 import {addOrb, animateOrb, homeColor, sameLook} from './orb.js';
 import {createCues} from './cues.js';
-import {SOURCES, onlineSearch} from './online.js';
+import {SOURCES, onlineSearch, pieceOf} from './online.js';
 import {tapPreparing} from './preparing.js';
 import {pieceNotes} from './rolls.js';
 import {uploader} from './upload.js';
@@ -720,13 +720,14 @@ function onJobs(jobs) {
   for (const j of jobs) document.querySelectorAll(`[data-ring="${j.id}"] .arc`).forEach(a => a.setAttribute('stroke-dashoffset', RING * (1 - j.progress)));
 }
 const stopJob = id => api(`/api/downloads/${id}`, 'DELETE').catch(() => {});
-// A piece being prepared, tapped in the library: once it can play, as it is made, it plays in the library's list
-// (tapPreparing); before, a word says it is still being prepared. Gone meanwhile (made, or stopped), its row is about
-// to go: nothing.
+// A piece being prepared, tapped in the library or by its video's title in Search Online: once it can play, as it is
+// made, it plays in the library's list (tapPreparing), Search Online closing as for a piece made there; before, a word
+// says it is still being prepared. Gone meanwhile (made, or stopped), its row is about to change: nothing.
 function playPreparing(job, from) {
   if (!job) return;
   const tapped = tapPreparing(job, listIds($('#library-list')));
   if (!tapped) return hud(T.stillPreparing);
+  if (openSheet === $('#sheet-add')) closeOverlays();
   play(tapped.id, tapped.ids, {kind: 'library'}, from);
 }
 
@@ -1901,10 +1902,10 @@ dragToReorder($('#queue-list'), () => pb().ids, (id, at, ids) => {
 
 // ---------- Adding pieces ----------
 // Search online for piano versions, on the sites chosen (YouTube, Bilibili: each a capsule below the field, one
-// always on), or paste a link; watch one there, download it (the same queue she uses by voice), then play it:
-// download, the ring while it is made, play. Each site's videos show as they come, merged as hers are.
+// always on), or paste a link. A video's cover opens it on its site; its title and the control at its end act on its
+// piece (pieceOf): download it (the same queue she uses by voice), then play it; while it is made, the title plays it
+// as soon as it can, and the ring stops it. Each site's videos show as they come, merged as hers are.
 const online = onlineSearch(api, () => renderCands());
-const jobFor = c => data.jobs.find(j => c.urls.includes(j.source));  // of any copy of it (merged)
 // Why a site could not be searched, as the site's: it cannot be reached, or will not search for now; or else that it
 // failed. In full when none could be, in short (cause) above the videos of those that could.
 const failure = ({reason, source}) => reason === 'unreachable' && T.sites[source] ? T.unreachable(T.sites[source])
@@ -1929,16 +1930,19 @@ function renderCands() {
     : failed.length ? `<p class="note">${esc(T.partly(failed.map(cause), answered.map(s => T.sites[s])))}</p>` : '';
   if (!found.length) { body.innerHTML = `${note}<div class="empty">${esc(T.nothing)}</div>`; return; }
   body.innerHTML = note + found.map((c, i) => {
-    const rec = data.recordings.find(r => c.urls.includes(r.source_url)), job = jobFor(c);
-    const btn = rec ? `<button class="addbtn" data-play="${rec.id}" aria-label="${esc(T.playNow)}">${ICON_PLAY_CIRCLE}</button>`
+    const {made, job} = pieceOf(c, data.recordings, data.jobs);
+    const btn = made ? `<button class="addbtn" data-play="${made.id}" aria-label="${esc(T.playNow)}">${ICON_PLAY_CIRCLE}</button>`
               : job ? ringButton(job)
               : `<button class="addbtn" data-add="${i}" aria-label="${esc(T.download)}">${ICON_DOWNLOAD}</button>`;
+    const act = made ? `data-play="${made.id}"` : job ? `data-preparing="${job.id}"` : `data-add="${i}"`;
     const seen = [c.channel, c.views != null ? T.views(c.views) : ''].filter(Boolean).join(' · ');
     return `<div class="cand">
-        <a href="${esc(c.url)}" target="_blank" rel="noopener">
+        <a href="${esc(c.url)}" target="_blank" rel="noopener" aria-label="${esc(T.watchVideo)}">
           <span class="thumb" style="--h:${hueOfName(c.url)}">${c.thumbnail ? `<img src="${esc(c.thumbnail)}" alt="" referrerpolicy="no-referrer">` : ''}${T.sites[c.site] ? `<span class="site">${esc(T.sites[c.site])}</span>` : ''}<span class="dur">${mmss(c.duration_s)}</span></span>
-          <span class="ctext"><span class="ct1">${esc(c.video_title)}</span><span class="ct2">${esc(seen)}</span></span>
         </a>
+        <button class="ctext" ${act} aria-label="${esc(T.actionOn(made || job ? T.playNow : T.download, c.video_title))}">
+          <span class="ct1">${esc(c.video_title)}</span><span class="ct2">${esc(seen)}</span>
+        </button>
         ${btn}
       </div>`;
   }).join('');
@@ -2020,10 +2024,12 @@ function renderUploads(items) {
   }).join('');
 }
 $('#add-body').addEventListener('click', e => {
+  // Download, from the button or the title: the button turns to a spinner and the title rests, until the job shows.
   const add = e.target.closest('[data-add]');
   if (add) {
-    const c = online.state.found[+add.dataset.add], {query} = online.state;
-    add.outerHTML = SPINNER;
+    const row = add.closest('.cand'), c = online.state.found[+add.dataset.add], {query} = online.state;
+    row.querySelector('.ctext').removeAttribute('data-add');
+    row.querySelector('.addbtn').outerHTML = SPINNER;
     api('/api/downloads', 'POST', {url: c.url, query: /^https?:/i.test(query) ? '' : query, video: c}).catch(() => renderCands());
     return;
   }
@@ -2031,7 +2037,10 @@ $('#add-body').addEventListener('click', e => {
   if (turnOn) { chooseSources([...data.settings.search_sources, turnOn.dataset.turnOn]); return; }
   const stop = e.target.closest('[data-stop]');
   if (stop) { stopJob(+stop.dataset.stop); return; }
-  // A piece made: it plays from the library, in the player; closing the player is back on the library.
+  const preparing = e.target.closest('[data-preparing]');  // its title, as its row in the library
+  if (preparing) { playPreparing(data.jobs.find(j => j.id === +preparing.dataset.preparing), preparing); return; }
+  // A piece made, from ▶ or its title: it plays from the library, in the player; closing the player is back on the
+  // library.
   const made = e.target.closest('[data-play]');
   if (made) {
     closeOverlays();
