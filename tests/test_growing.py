@@ -463,6 +463,72 @@ class MadeAsItPlaysTests(unittest.TestCase):
         self.assertTrue(self.eventually(lambda: not her.preparing))
         self.assertFalse(any('没准备好' in m['text'] for m in said), 'Made after all: nothing to say of it')
 
+    def stopped_as_it_is_filed(self, parts):
+        """Her piece, sent to be prepared and made (in these parts as it plays, or whole), stopped on the phone as
+        it is filed: after the last look at whether it was stopped. Once all of it has settled (the piece ended, and
+        her thread that follows it too), it is not in the library, nothing plays, nothing starts later, and she says
+        nothing of it."""
+        from types import SimpleNamespace
+        from pianasoul.chat import Assistant
+        from pianasoul.core import Core
+        from test_app import Scripted
+        steps = Steps(parts)
+        steps.patch.start()
+        self.addCleanup(steps.patch.stop)
+        core = Core(lib=self.lib, assistant=False)
+        self.addCleanup(core.close)
+        for quiet in (patch.object(Playback, 'play'), patch.object(core.playback, 'check_connection'),
+                      patch.object(core.playback, 'look_for_piano')):
+            quiet.start()
+            self.addCleanup(quiet.stop)
+        her = Assistant(self.lib, core.playback, core.conversations, core.downloads)
+        said, following, follow = [], [], her._prepared
+        her.on_message = said.append
+
+        def prepared(job):  # her thread that follows the piece, to be waited for
+            following.append(threading.current_thread())
+            follow(job)
+        her._prepared = prepared
+        filing, stopped, filed = threading.Event(), threading.Event(), []
+        set_video = self.lib.set_video
+
+        def file(rec_id, details):  # its video's details kept, as it is filed
+            filed.append(rec_id)
+            filing.set()
+            stopped.wait(2)
+            return set_video(rec_id, details)
+        call = SimpleNamespace(name='transcribe_url', arguments={'url': 'https://youtu.be/ggggggggggg', 'piece': '晴天',
+                                                                 'artist': '周杰伦', 'performer': 'A'})
+        with patch.object(self.lib, 'set_video', side_effect=file):
+            her.ask(Scripted([call], '找到啦，是 A 弹的《晴天》～'), '我想听晴天')
+            [job] = core.downloads.jobs
+            for _ in parts:
+                steps.next()
+            if parts:
+                self.assertTrue(self.eventually(lambda: job.recording and core.playback.current_id == job.recording),
+                                'It plays as it is made')
+            steps.go.release()  # made
+            self.assertTrue(filing.wait(2))
+            core.downloads.stop(job.id)  # the phone's stop
+            stopped.set()
+            self.assertTrue(job.finished.wait(2))
+            following[0].join(2)
+        self.assertFalse(following[0].is_alive(), 'She is done with it')
+        with her._turn:
+            pass
+        player = core.playback
+        self.assertEqual((job.status, self.lib.get(filed[0])), ('stopped', None), 'Not in the library')
+        self.assertEqual((player.current_id, player.state == 'playing'), (None, False), 'Not playing')
+        time.sleep(0.2)
+        self.assertEqual((player.current_id, player.state == 'playing'), (None, False), 'Nothing starts later')
+        self.assertFalse(any('没准备好' in m['text'] for m in said), 'Stopped on the phone: nothing said')
+
+    def test_her_piece_playing_as_it_is_made_and_stopped_on_the_phone_as_it_is_filed_goes(self):
+        self.stopped_as_it_is_filed(self.PARTS)
+
+    def test_her_piece_made_whole_and_stopped_on_the_phone_as_it_is_filed_does_not_start(self):
+        self.stopped_as_it_is_filed([])
+
     def test_one_made_before_whose_file_is_gone_is_made_again_whole(self):
         old = self.lib.making('周杰伦 - 晴天', source_type='url', source_url='https://www.youtube.com/watch?v=abcdefghijk',
                               duration_s=30.0)

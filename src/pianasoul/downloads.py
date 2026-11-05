@@ -138,7 +138,7 @@ class Downloads:
         self.lib = lib
         self.jobs: list[Job] = []  # queued and running, in order
         self.listeners: list = []  # called after every change, on the downloads' thread or the caller's
-        self.unmade: list = []  # called with a record's id when its piece played as it was made, and was not made
+        self.unmade: list = []  # called with a record's id once its piece (playing as it is made, or filed) is not made
         self.growing: dict[Path, Growing] = {}  # the pieces being made that can play, by the file each will have
         self.name_piece = name_piece  # (query, video, artists) -> {piece, artist, performer, aliases}, or None: the video's
         self._speed = SECONDS_PER_SECOND
@@ -200,7 +200,7 @@ class Downloads:
 
     def stop(self, job_id: int) -> None:
         """Stop a piece: it leaves the queue at once, and nothing it made stays (a transcription under way ends at
-        once, with its process)."""
+        once, with its process; one stopped as it was filed goes from the library again: _work)."""
         with self._cond:
             job = next((j for j in self.jobs if j.id == job_id), None)
             if job is None:
@@ -239,6 +239,12 @@ class Downloads:
                     continue  # first in the queue still: made next
                 if job in self.jobs:
                     self.jobs.remove(job)
+                # Stopped as it was filed, it is not kept; a stop from now on finds it out of the queue, as it ended.
+                filed = job.recording if job.status == "done" and job.stopped.is_set() else None
+                if filed is not None:
+                    job.status, job.error, job.result, job.recording = "stopped", "stopped", None, None
+            if filed is not None:
+                self._unmake(filed)
             self._ended(job)
             job.finished.set()
             job.playable.set()  # (or not: it ended)
@@ -416,14 +422,18 @@ class Downloads:
                 job.playable.clear()  # until its next version can play, if it has one, or it ends
                 gone, job.recording = job.recording, None
                 growing.fail()
-                self.lib.delete(gone)
-                for listener in list(self.unmade):
-                    listener(gone)
+                self._unmake(gone)
             raise
         finally:
             ticking.set()
             if playing is not None:  # made, its file plays from now on (a player already on it goes on as it was)
                 del self.growing[playing]
+
+    def _unmake(self, rec_id: int) -> None:
+        """A piece not made after all: its record goes from the library, and those it played for are told (unmade)."""
+        self.lib.delete(rec_id)
+        for listener in list(self.unmade):
+            listener(rec_id)
 
     @staticmethod
     def _check(job: Job) -> None:
