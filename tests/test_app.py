@@ -983,6 +983,13 @@ class AssistantTests(Base):
         self.assertIn('In the same response as that search_library call, search online for it too', online)
         self.assertIn('Begin that response with one short, friendly sentence that says what you will do', online)
         self.assertNotIn('{', online + offline, 'Nothing left to fill in')
+        from pianasoul.voice import VOICE_NOTE
+        note = ' '.join(VOICE_NOTE.split())
+        self.assertIn('when the response searches online too, it is the sentence of 2. above', note,
+                      'Her first sentence: one rule for the response that searches the library and online')
+        self.assertNotIn('before search_online', note)
+        self.assertIn('call play_recording at once with no words before it', note)
+        self.assertNotIn('what you are playing', online + offline, 'Words with an action are not said: her line is')
 
     def test_spoken_a_piece_that_begins_to_play_is_said_with_her_line_and_pause_and_cancel_in_her_words(self):
         """As VOICE_NOTE tells her: through the model, resume, retry, restart, next and previous are introduced by
