@@ -1731,8 +1731,8 @@ function leaveForVideo() {
   pausePiano();
   const search = openSheet === $('#sheet-add') && online.state.query ? online.kept() : null;
   try {
-    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), state: {...data, recordings: [...data.recordings, ...data.making]}, search, scroll: $('#add-scroll').scrollTop,
-                                                     player: state.view === 'player', screen: playerScreen}));
+    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), state: {...data, recordings: [...data.recordings, ...data.making]}, stack, search,
+                                                     scroll: $('#add-scroll').scrollTop, screen: playerScreen}));
   } catch {}
 }
 // iOS may also show the page for a moment and only then reload it: seen again, it is kept for a few seconds more.
@@ -1754,15 +1754,16 @@ function leftForVideo() {
 }
 function backTo(left) {  // at once, as it was: nothing slides in
   app.classList.add('instant');
+  for (const e of left.stack) {  // every page you came through, so that going back goes where it went
+    push(e.view, e.id);
+    Object.assign(stack.at(-1), e);
+  }
+  if (state.view === 'player') showScreen(left.screen);
   if (left.search) {
-    show('library');
     openAdd('search');
     $('#add-input').value = left.search.query;
     online.resume(left.search);
     $('#add-scroll').scrollTop = left.scroll;
-  } else if (left.player) {
-    openPlayer();
-    showScreen(left.screen);
   }
   app.offsetWidth;
   app.classList.remove('instant');
