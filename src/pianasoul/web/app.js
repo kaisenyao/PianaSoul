@@ -1731,7 +1731,7 @@ function leaveForVideo() {
   pausePiano();
   const search = openSheet === $('#sheet-add') && online.state.query ? online.kept() : null;
   try {
-    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), state: {...data, recordings: [...data.recordings, ...data.making]}, stack, search,
+    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), state: {...data, recordings: [...data.recordings, ...data.making]}, open: state.open, stack, search,
                                                      scroll: $('#add-scroll').scrollTop, screen: playerScreen}));
   } catch {}
 }
@@ -1754,6 +1754,7 @@ function leftForVideo() {
 }
 function backTo(left) {  // at once, as it was: nothing slides in
   app.classList.add('instant');
+  if (left.open) setOpen(true);  // the sidebar under the pages: the last of them goes back to it, not to home
   for (const e of left.stack) {  // every page you came through, so that going back goes where it went
     push(e.view, e.id);
     Object.assign(stack.at(-1), e);
