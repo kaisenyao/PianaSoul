@@ -106,7 +106,7 @@ dark.addEventListener('change', () => { if (data.settings.appearance === 'system
 // ---------- What the Mac keeps ----------
 const data = {recordings: [], making: [], jobs: [], audio: [], playback: {id: null, state: 'stopped', ids: [], scope: {}, mode: 'order'},
   conversations: [], current: null, busy: null, settings: {language: '', appearance: 'system', search_sources: [...SOURCES]},
-  devices: [], piano: {name: '', kind: 'other', connected: true},
+  devices: [],
   version: {commit: '', repo: ''}, features: {transcribe: true, assistant: true}, playlists: [], pictures: {}, descriptions: {}};
 let heardAt = performance.now();  // when the playback state arrived, to run its clock from
 // What the Mac can do and the look chosen: kept on this phone too, so that the page opens on the right home (her orb,
@@ -217,13 +217,7 @@ function showState({recordings: all, ...rest}) {
 // one it no longer lets in goes straight to saying so, without the home page showing first.
 async function signIn() {
   const show = () => $('#app').classList.remove('waiting');
-  // Reloaded while a video was open: back as it was at once, from what was kept, and brought up to date behind it.
-  const left = leftForVideo();
-  if (left) {
-    showState(left.state);
-    backTo(left);
-    show();
-  } else setTimeout(show, 1000);
+  setTimeout(show, 1000);
   try {
     if (!token) return signedOut(false);
     await api('/api/session', 'POST', {token});
@@ -1757,7 +1751,12 @@ function leftForVideo() {
   } catch {}
   return left;
 }
-function backTo(left) {  // at once, as it was: nothing slides in
+// Reloaded while a video was open: back as it was at once, from what was kept; signing in then brings it up to date.
+function backFromVideo() {
+  const left = leftForVideo();
+  if (!left) return;
+  showState(left.state);
+  app.classList.remove('waiting');
   app.classList.add('instant');
   if (left.open) setOpen(true);  // the sidebar under the pages: the last of them goes back to it, not to home
   for (const e of left.stack) {  // every page you came through, so that going back goes where it went
@@ -2993,4 +2992,5 @@ addOrb($('#her-orb'), () => !voice.off(), () => herOn() && state.view === 'setti
 applyFeatures();
 applySettings();
 requestAnimationFrame(playClock);
+backFromVideo();
 signIn();
