@@ -1747,10 +1747,15 @@ function leftForVideo() {
   let left = null;
   try {
     left = JSON.parse(localStorage.getItem(LEFT_FOR_VIDEO));
-    localStorage.removeItem(LEFT_FOR_VIDEO);
+    // Long after (an hour away, or seen and not reloaded), starting afresh is what you would expect.
+    if (!left?.state || Date.now() - (left.seen ?? left.at) > (left.seen ? 10_000 : 3600_000)) {
+      localStorage.removeItem(LEFT_FOR_VIDEO);
+      return null;
+    }
+    // Not gone yet: iOS may reload the page again, behind the video and once more as it closes.
+    if (!document.hidden) localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({...left, seen: Date.now()}));
   } catch {}
-  // Long after (an hour away, or seen and not reloaded), starting afresh is what you would expect.
-  return left?.state && Date.now() - (left.seen ?? left.at) <= (left.seen ? 10_000 : 3600_000) ? left : null;
+  return left;
 }
 function backTo(left) {  // at once, as it was: nothing slides in
   app.classList.add('instant');
