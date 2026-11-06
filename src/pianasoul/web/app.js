@@ -215,14 +215,15 @@ async function load() {
 // one it no longer lets in goes straight to saying so, without the home page showing first.
 async function signIn() {
   const show = () => $('#app').classList.remove('waiting');
-  setTimeout(show, 1000);
+  const left = leftForVideo();  // reloaded while a video was open: the first page is not shown on the way back
+  if (!left) setTimeout(show, 1000);
   try {
     if (!token) return signedOut(false);
     await api('/api/session', 'POST', {token});
-    show();
+    if (!left) show();
     await load();
     listen();
-    backFromVideo();
+    if (left) backTo(left);
   } catch (error) {
     if (error.message === 'signed out') signedOut(true);
     else setTimeout(signIn, 3000);  // the Mac is asleep or away: again until it answers
@@ -1735,14 +1736,17 @@ document.addEventListener('visibilitychange', () => {
     if (left) localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({...left, seen: Date.now()}));
   } catch {}
 });
-function backFromVideo() {
+function leftForVideo() {
   let left = null;
   try {
     left = JSON.parse(localStorage.getItem(LEFT_FOR_VIDEO));
     localStorage.removeItem(LEFT_FOR_VIDEO);
   } catch {}
   // Long after (an hour away, or seen and not reloaded), starting afresh is what you would expect.
-  if (!left || Date.now() - (left.seen ?? left.at) > (left.seen ? 10_000 : 3600_000)) return;
+  return left && Date.now() - (left.seen ?? left.at) <= (left.seen ? 10_000 : 3600_000) ? left : null;
+}
+function backTo(left) {  // at once, as it was: nothing slides in
+  app.classList.add('instant');
   if (left.query) {
     show('library');
     openAdd('search', left.query);
@@ -1750,6 +1754,8 @@ function backFromVideo() {
     openPlayer();
     showScreen(left.screen);
   }
+  app.offsetWidth;
+  app.classList.remove('instant');
 }
 $('#p-info').addEventListener('click', e => {
   if (e.target.closest('#p-video')) leaveForVideo();
