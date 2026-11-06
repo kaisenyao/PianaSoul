@@ -1724,7 +1724,7 @@ function leaveForVideo() {
   pausePiano();
   const query = openSheet === $('#sheet-add') ? online.state.query : '';
   try {
-    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), query, player: state.view === 'player'}));
+    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), query, player: state.view === 'player', screen: playerScreen}));
   } catch {}
 }
 document.addEventListener('visibilitychange', () => {
@@ -1740,7 +1740,10 @@ function backFromVideo() {
   if (left.query) {
     show('library');
     openAdd('search', left.query);
-  } else if (left.player) openPlayer();
+  } else if (left.player) {
+    openPlayer();
+    showScreen(left.screen);
+  }
 }
 $('#p-info').addEventListener('click', e => {
   if (e.target.closest('#p-video')) leaveForVideo();
