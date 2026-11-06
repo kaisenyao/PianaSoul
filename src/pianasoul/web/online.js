@@ -100,5 +100,15 @@ export function onlineSearch(get, onChange) {
     show();
   }
 
-  return {find, follow, forget, state};
+  // The search as it is, to be kept while the page is away, and shown again as it was: what no site answered yet is asked
+  // again.
+  const kept = () => ({query: state.query, chosen, asked});
+  function resume(search) {
+    ({chosen, asked} = search);
+    state.query = search.query;
+    for (const site of Object.keys(asked)) if (!asked[site].found && !asked[site].failed) ask(site);
+    show();
+  }
+
+  return {find, follow, forget, kept, resume, state};
 }

@@ -211,6 +211,20 @@ function theWordsForItInBothLanguages() {
   assert.ok(english.every(s => !/\p{Script=Han}/u.test(s)), 'The English words are all English');
 }
 
+async function aSearchKeptShowsAgainAsItWasAskingNothingAgain() {
+  const asked = [];
+  const search = onlineSearch(async url => { asked.push(url); return [{url: 'https://a/1', video_title: 'x', channel: 'c', duration_s: 60}]; }, () => {});
+  search.find('晴天', ['youtube']);
+  await new Promise(done => setTimeout(done));
+  const kept = JSON.parse(JSON.stringify(search.kept()));
+  const again = onlineSearch(async url => { asked.push(url); return []; }, () => {});
+  const before = asked.length;
+  again.resume(kept);
+  assert.strictEqual(asked.length, before);
+  assert.strictEqual(again.state.query, '晴天');
+  assert.strictEqual(again.state.found.length, 1);
+}
+
 (async () => {
   severalSitesVideosAreMergedInTurnEachVideoOnceWithTheAddressesOfItsCopies();
   await everySiteChosenIsAskedAtOnceAndEachShowsAsItComes();
@@ -219,6 +233,7 @@ function theWordsForItInBothLanguages() {
   await aSiteThatFailsSaysWhyAboveTheOthersVideos();
   await noSiteSearchedSaysWhyAndOffersOneTurnedOff();
   await aLinkIsReadOnceOnItsOwnSite();
+  await aSearchKeptShowsAgainAsItWasAskingNothingAgain();
   aVideoFoundIsAPieceMadeOneBeingPreparedOrNeitherByAnyCopyOfIt();
   theWordsForItInBothLanguages();
   console.log('Online search passed: the sites merged as on the Mac, each shown as it comes, one turned on or off, ' +

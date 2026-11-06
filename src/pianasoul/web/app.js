@@ -1723,9 +1723,10 @@ function renderInfo(p) {
 const LEFT_FOR_VIDEO = 'leftForVideo';
 function leaveForVideo() {
   pausePiano();
-  const query = openSheet === $('#sheet-add') ? online.state.query : '';
+  const search = openSheet === $('#sheet-add') && online.state.query ? online.kept() : null;
   try {
-    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), query, player: state.view === 'player', screen: playerScreen}));
+    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), search, scroll: $('#add-scroll').scrollTop,
+                                                     player: state.view === 'player', screen: playerScreen}));
   } catch {}
 }
 // iOS may also show the page for a moment and only then reload it: seen again, it is kept for a few seconds more.
@@ -1747,9 +1748,12 @@ function leftForVideo() {
 }
 function backTo(left) {  // at once, as it was: nothing slides in
   app.classList.add('instant');
-  if (left.query) {
+  if (left.search) {
     show('library');
-    openAdd('search', left.query);
+    openAdd('search');
+    $('#add-input').value = left.search.query;
+    online.resume(left.search);
+    $('#add-scroll').scrollTop = left.scroll;
   } else if (left.player) {
     openPlayer();
     showScreen(left.screen);
