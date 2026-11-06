@@ -1727,8 +1727,13 @@ function leaveForVideo() {
     localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), query, player: state.view === 'player', screen: playerScreen}));
   } catch {}
 }
+// iOS may also show the page for a moment and only then reload it: seen again, it is kept for a few seconds more.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) try { localStorage.removeItem(LEFT_FOR_VIDEO); } catch {}  // not reloaded: it is all still here
+  if (document.hidden) return;
+  try {
+    const left = JSON.parse(localStorage.getItem(LEFT_FOR_VIDEO));
+    if (left) localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({...left, seen: Date.now()}));
+  } catch {}
 });
 function backFromVideo() {
   let left = null;
@@ -1736,7 +1741,8 @@ function backFromVideo() {
     left = JSON.parse(localStorage.getItem(LEFT_FOR_VIDEO));
     localStorage.removeItem(LEFT_FOR_VIDEO);
   } catch {}
-  if (!left || Date.now() - left.at > 3600_000) return;  // an hour on, starting afresh is what you would expect
+  // Long after (an hour away, or seen and not reloaded), starting afresh is what you would expect.
+  if (!left || Date.now() - (left.seen ?? left.at) > (left.seen ? 10_000 : 3600_000)) return;
   if (left.query) {
     show('library');
     openAdd('search', left.query);
