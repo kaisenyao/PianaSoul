@@ -211,18 +211,16 @@ function theWordsForItInBothLanguages() {
   assert.ok(english.every(s => !/\p{Script=Han}/u.test(s)), 'The English words are all English');
 }
 
-async function aSearchKeptShowsAgainAsItWasAskingNothingAgain() {
-  const asked = [];
-  const search = onlineSearch(async url => { asked.push(url); return [{url: 'https://a/1', video_title: 'x', channel: 'c', duration_s: 60}]; }, () => {});
-  search.find('晴天', ['youtube']);
-  await new Promise(done => setTimeout(done));
-  const kept = JSON.parse(JSON.stringify(search.kept()));
-  const again = onlineSearch(async url => { asked.push(url); return []; }, () => {});
-  const before = asked.length;
-  again.resume(kept);
-  assert.strictEqual(asked.length, before);
-  assert.strictEqual(again.state.query, '晴天');
-  assert.strictEqual(again.state.found.length, 1);
+async function aSearchKeptShowsAgainAsItWasAskingOnlyWhatWasNotAnswered() {
+  const h = harness();
+  h.search.find('晴天', ['youtube', 'bilibili']);
+  await h.answer('youtube', videos('youtube', 2));
+  const kept = JSON.parse(JSON.stringify(h.search.kept()));  // as localStorage keeps it
+  const back = harness();
+  back.search.resume(kept);
+  assert.equal(back.state().query, '晴天');
+  assert.equal(back.state().found.length, 2);
+  assert.deepEqual(back.asked.map(a => a.source), ['bilibili']);
 }
 
 (async () => {
@@ -233,7 +231,7 @@ async function aSearchKeptShowsAgainAsItWasAskingNothingAgain() {
   await aSiteThatFailsSaysWhyAboveTheOthersVideos();
   await noSiteSearchedSaysWhyAndOffersOneTurnedOff();
   await aLinkIsReadOnceOnItsOwnSite();
-  await aSearchKeptShowsAgainAsItWasAskingNothingAgain();
+  await aSearchKeptShowsAgainAsItWasAskingOnlyWhatWasNotAnswered();
   aVideoFoundIsAPieceMadeOneBeingPreparedOrNeitherByAnyCopyOfIt();
   theWordsForItInBothLanguages();
   console.log('Online search passed: the sites merged as on the Mac, each shown as it comes, one turned on or off, ' +
