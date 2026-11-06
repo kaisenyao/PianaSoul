@@ -222,6 +222,7 @@ async function signIn() {
     show();
     await load();
     listen();
+    backFromVideo();
   } catch (error) {
     if (error.message === 'signed out') signedOut(true);
     else setTimeout(signIn, 3000);  // the Mac is asleep or away: again until it answers
@@ -1715,9 +1716,34 @@ function renderInfo(p) {
     <div class="facts-h${video ? '' : ' first'}">${esc(T.pieceInfo)}</div>${facts(aboutOf(p))}
     <button class="facts-h fold" aria-expanded="${technicalOpen}">${esc(T.technical)}${CHEV}</button>${facts(technicalOf(p), !technicalOpen)}`;
 }
-// Watching the original on its site: one sound at a time, so the piano pauses.
+// Watching the original on its site: one sound at a time, so the piano pauses. iOS may reload a Home Screen app while a
+// video is open over it, and the app would start again on its first page: where you were is kept until the page is
+// back, and a page that was reloaded goes back there.
+const LEFT_FOR_VIDEO = 'leftForVideo';
+function leaveForVideo() {
+  pausePiano();
+  const query = openSheet === $('#sheet-add') ? online.state.query : '';
+  try {
+    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), query, player: state.view === 'player'}));
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) try { localStorage.removeItem(LEFT_FOR_VIDEO); } catch {}  // not reloaded: it is all still here
+});
+function backFromVideo() {
+  let left = null;
+  try {
+    left = JSON.parse(localStorage.getItem(LEFT_FOR_VIDEO));
+    localStorage.removeItem(LEFT_FOR_VIDEO);
+  } catch {}
+  if (!left || Date.now() - left.at > 3600_000) return;  // an hour on, starting afresh is what you would expect
+  if (left.query) {
+    show('library');
+    openAdd('search', left.query);
+  } else if (left.player) openPlayer();
+}
 $('#p-info').addEventListener('click', e => {
-  if (e.target.closest('#p-video')) pausePiano();
+  if (e.target.closest('#p-video')) leaveForVideo();
   if (e.target.closest('.fold')) showTechnical(!technicalOpen);
 });
 // Dragging the bar moves the playing position; the piano continues from there.
@@ -2043,7 +2069,7 @@ $('#add-body').addEventListener('click', e => {
     play(+made.dataset.play, listIds($('#library-list')), {kind: 'library'}, made);
     return;
   }
-  if (e.target.closest('.cand > a')) pausePiano();  // the video plays on its site, the piano waits
+  if (e.target.closest('.cand > a')) leaveForVideo();
 });
 
 // ---------- Talking in a conversation ----------
