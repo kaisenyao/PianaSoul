@@ -198,8 +198,10 @@ function away() {
   refresh();
 }
 async function load() {
+  showState(await api('/api/state'));
+}
+function showState({recordings: all, ...rest}) {
   const transcribed = data.features.transcribe;
-  const {recordings: all, ...rest} = await api('/api/state');
   Object.assign(data, rest);
   setRecordings(all);
   heardAt = performance.now();
@@ -215,15 +217,19 @@ async function load() {
 // one it no longer lets in goes straight to saying so, without the home page showing first.
 async function signIn() {
   const show = () => $('#app').classList.remove('waiting');
-  const left = leftForVideo();  // reloaded while a video was open: the first page is not shown on the way back
-  if (!left) setTimeout(show, 1000);
+  // Reloaded while a video was open: back as it was at once, from what was kept, and brought up to date behind it.
+  const left = leftForVideo();
+  if (left) {
+    showState(left.state);
+    backTo(left);
+    show();
+  } else setTimeout(show, 1000);
   try {
     if (!token) return signedOut(false);
     await api('/api/session', 'POST', {token});
-    if (!left) show();
+    show();
     await load();
     listen();
-    if (left) backTo(left);
   } catch (error) {
     if (error.message === 'signed out') signedOut(true);
     else setTimeout(signIn, 3000);  // the Mac is asleep or away: again until it answers
@@ -1725,7 +1731,7 @@ function leaveForVideo() {
   pausePiano();
   const search = openSheet === $('#sheet-add') && online.state.query ? online.kept() : null;
   try {
-    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), search, scroll: $('#add-scroll').scrollTop,
+    localStorage.setItem(LEFT_FOR_VIDEO, JSON.stringify({at: Date.now(), state: {...data, recordings: [...data.recordings, ...data.making]}, search, scroll: $('#add-scroll').scrollTop,
                                                      player: state.view === 'player', screen: playerScreen}));
   } catch {}
 }
@@ -1744,7 +1750,7 @@ function leftForVideo() {
     localStorage.removeItem(LEFT_FOR_VIDEO);
   } catch {}
   // Long after (an hour away, or seen and not reloaded), starting afresh is what you would expect.
-  return left && Date.now() - (left.seen ?? left.at) <= (left.seen ? 10_000 : 3600_000) ? left : null;
+  return left?.state && Date.now() - (left.seen ?? left.at) <= (left.seen ? 10_000 : 3600_000) ? left : null;
 }
 function backTo(left) {  // at once, as it was: nothing slides in
   app.classList.add('instant');
