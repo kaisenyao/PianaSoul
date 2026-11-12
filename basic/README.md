@@ -13,51 +13,69 @@
 </p>
 
 PianaSoul Basic is the open-source basic edition of [PianaSoul](../README.md): the way it works, as code you can
-read, build and run yourself, from Terminal. It turns a piano recording into a performance MIDI file with
-[Transkun](https://github.com/Yujia-Yan/Transkun): a video from YouTube, Bilibili or any of the many other sites
-[yt-dlp](https://github.com/yt-dlp/yt-dlp) supports, or an audio file of your own. The files go into a local library.
-You can then ask for a piece in plain language, typed or spoken, and hear it on your piano: played by Pianoteq on an
-iPad that drives a digital piano, by the digital piano's own sound, or by Pianoteq on the same Mac.
+read, build and run yourself, from Terminal.
 
-The PianaSoul app for Mac is a separate product and is not open source. It adds what this edition does not have: a
-Mac app that installs and updates itself, the phone app with its library, player and chats, search across YouTube
-and Bilibili that starts to play while the rest is still being transcribed, Built-in Piano, and setup without
-Terminal or a shell profile. Nothing here is needed to use the app, and the app is not needed here.
+- **It transcribes.** A piano recording becomes a performance MIDI file with
+  [Transkun](https://github.com/Yujia-Yan/Transkun): a video from YouTube, Bilibili or any other site
+  [yt-dlp](https://github.com/yt-dlp/yt-dlp) supports, or an audio file of your own.
+- **It keeps a library.** The MIDI files and what is known about them stay in one local folder.
+- **It plays your piano.** Notes and pedal go over MIDI: to Pianoteq on an iPad that drives a digital piano, to the
+  digital piano's own sound, or to Pianoteq on the same Mac.
+- **She is there too.** Ask for a piece in plain language: typed in Terminal, spoken to the Mac, or spoken to an
+  iPhone.
+
+### Basic and the app
+
+The [PianaSoul app for Mac](../README.md) is a separate product and is not open source. Nothing here is needed to
+use the app, and the app is not needed here.
+
+- **PianaSoul Basic** is set up by hand and runs in Terminal, with your keys in your shell profile.
+- **The app** adds a Mac app that installs and updates itself, the phone app with its library, player and chats,
+  search across YouTube and Bilibili that starts to play while the rest is still being transcribed, Built-in Piano,
+  and setup without Terminal or a shell profile.
 
 ## Quick start
 
-```bash
-git clone https://github.com/kaisenyao/PianaSoul.git
-cd PianaSoul/basic
-./setup.sh                  # once, then follow Setup below
-./run.sh chat               # type "play Clair de Lune"
-./run.sh voice              # or say "Hey Jasmine, play Clair de Lune"
-```
+1. Install it, on a Mac with Python 3.10 or later, or [uv](https://docs.astral.sh/uv/):
 
-## Transcription demo
+   ```bash
+   git clone https://github.com/kaisenyao/PianaSoul.git
+   cd PianaSoul/basic
+   ./setup.sh
+   ```
 
-Glenn Gould's rehearsal of Bach's Partita No. 2 in C minor, BWV 826: 1 min 47 s of audio became 1,229 notes with
-velocities from 36 to 93 and one short press of the sustain pedal, with default settings and no manual edits, in
-about a minute on 2 CPU cores. Gould plays this music almost without pedal, and the transcription reflects that.
-[Hear it beside the original](../README.md#hear-a-transcription), or download
-[the MIDI file](../docs/gould-partita-2-rehearsal.mid).
+2. [Connect a piano](#connect-a-piano), then play the demo file that comes with the repository:
 
-## Setup
+   ```bash
+   ./run.sh play ../docs/gould-partita-2-rehearsal.mid
+   ```
 
-Five steps the first time; step 5 is only for the voice assistant.
+3. [Add your keys](#keys), then ask for a piece:
 
-### 1. Install
+   ```bash
+   ./run.sh chat               # type "play Clair de Lune"
+   ./run.sh voice              # or say "Hey Jasmine, play Clair de Lune"
+   ```
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#keys">Keys</a> ·
+  <a href="#connect-a-piano">Piano</a> ·
+  <a href="#chat">Chat</a> ·
+  <a href="#play">Play</a> ·
+  <a href="#transcribe">Transcribe</a> ·
+  <a href="#library">Library</a> ·
+  <a href="#voice">Voice</a> ·
+  <a href="#iphone-voice">iPhone Voice</a> ·
+  <a href="#settings">Settings</a> ·
+  <a href="#troubleshooting">Troubleshooting</a>
+</p>
+
+## Install
 
 Requires Python 3.10+ (or [uv](https://docs.astral.sh/uv/)). Transcription runs on macOS or Linux; playback with
 exact timing and the voice assistant are made for macOS. YouTube downloads also need [Deno](https://deno.com), or a
-Node.js runtime explicitly enabled for yt-dlp. If uv and Deno were installed in their default user directories, keep
-both on your PATH:
-
-```bash
-export PATH="$HOME/.local/bin:$HOME/.deno/bin:$PATH"
-```
-
-Add that line to your shell profile so new terminals can find them. From this folder:
+Node.js runtime explicitly enabled for yt-dlp.
 
 ```bash
 ./setup.sh
@@ -66,18 +84,27 @@ Add that line to your shell profile so new terminals can find them. From this fo
 Setup creates `.venv` and an empty `tasks.csv`, and checks that the transcription model loads. ffmpeg comes with a
 dependency.
 
-### 2. Add your keys
+If uv and Deno were installed in their default user directories, keep both on your PATH, and add the line to your
+shell profile so new terminals can find them:
 
-Keys go in your shell profile (`~/.zshrc` on a Mac), never in the repository. For the recommended OpenAI setup,
-configure only the services you use:
+```bash
+export PATH="$HOME/.local/bin:$HOME/.deno/bin:$PATH"
+```
+
+Tip: to run PianaSoul Basic from any folder, add an alias to your profile, for example
+`alias psb="$HOME/PianaSoul/basic/run.sh"`, then use `psb chat`, `psb voice` and so on.
+
+## Keys
+
+Keys go in your shell profile (`~/.zshrc` on a Mac), never in the repository. Configure only the services you use:
 
 - `OPENAI_API_KEY`: the chat model and, for voice, speech recognition. From
   [platform.openai.com](https://platform.openai.com) > API keys.
 - `YOUTUBE_API_KEY`: finding recordings on YouTube. In the
   [Google Cloud console](https://console.cloud.google.com), enable "YouTube Data API v3", then Credentials > Create
   API key.
-- `ELEVENLABS_API_KEY`: her voice (optional, see step 5). From [elevenlabs.io](https://elevenlabs.io), under API
-  keys in your account.
+- `ELEVENLABS_API_KEY`: her voice (optional, see [Voice](#voice)). From [elevenlabs.io](https://elevenlabs.io),
+  under API keys in your account.
 
 ```bash
 echo 'export OPENAI_API_KEY="..."' >> ~/.zshrc
@@ -85,16 +112,17 @@ echo 'export YOUTUBE_API_KEY="..."' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-Without a YouTube key the chat still plays your library and recordings you link or point it to. Anthropic is an
-optional alternative, not a setup requirement; see [Optional chat provider](#optional-chat-provider). Local
-audio-to-MIDI transcription and direct MIDI playback do not need these cloud API keys.
+Transcribing audio to MIDI and playing MIDI files need no key. Without a YouTube key the chat still plays your
+library and recordings you link or point it to. Anthropic can stand in for OpenAI as the chat model: see
+[Optional chat provider](docs/how-it-works.md#optional-chat-provider).
 
-### 3. Choose where the sound comes from
+## Connect a piano
 
 PianaSoul Basic plays by sending notes and pedal over MIDI, like someone playing a MIDI keyboard. Pick one way and
 set it up once.
 
-**A. Pianoteq on an iPad (the iPad can stay connected to the piano by USB)**
+<details>
+<summary><b>A. Pianoteq on an iPad</b> (the iPad can stay connected to the piano by USB)</summary>
 
 The notes go from the Mac over network MIDI to the iPad, and from there to the digital piano. Setting:
 `PIANASOUL_BASIC_PORT`.
@@ -114,20 +142,10 @@ shell profile and open a new terminal:
 export PIANASOUL_BASIC_PORT="Network RTP Session 1"
 ```
 
-**After a restart or network interruption:** open the receiving instrument app, select the device in MIDI Network
-Setup, and click Connect. Check that it appears under Participants. Each time playback starts or continues, and about
-once a second while a piece plays, the Mac checks that the output is there and, for a network session, that a device
-has joined it (Participants): the iPad drops out when Pianoteq closes or the iPad goes offline, while the session's
-output stays. If the piano is not there, the piece waits where it stopped: voice and iPhone Voice say so at once,
-chat when you next ask to play. Once the device is back, the piece plays on from there. `./run.sh play --ports`
-shows how many participants a network session has.
+</details>
 
-If a playback attempt fails, the piece and intended starting position are retained. After connecting manually, ask
-to retry. Continue resumes the saved position; an explicit request to start over begins at zero. There is no need to
-restart chat, voice or iPhone Voice just to retry the connection. The Mac cannot confirm whether the receiving app's
-audio is audible or its cable to the piano is connected.
-
-**B. The piano's own sound, over Bluetooth**
+<details>
+<summary><b>B. The piano's own sound, over Bluetooth</b></summary>
 
 Settings: `PIANASOUL_BASIC_PORT` and `PIANASOUL_BASIC_LEAD=0`.
 
@@ -135,18 +153,26 @@ Settings: `PIANASOUL_BASIC_PORT` and `PIANASOUL_BASIC_LEAD=0`.
 2. On the Mac, open Audio MIDI Setup, choose Window > Show MIDI Studio and click the Bluetooth button. Click Connect
    next to the piano. Pair it here, not in System Settings, which connects Bluetooth audio instead.
 
-**C. The piano's own sound, over USB**
+</details>
+
+<details>
+<summary><b>C. The piano's own sound, over USB</b></summary>
 
 Settings: `PIANASOUL_BASIC_PORT` and `PIANASOUL_BASIC_LEAD=0`.
 
 1. Connect the Mac to the piano's USB port. If an iPad uses that port, unplug it first.
 
-**D. Pianoteq on the same Mac**
+</details>
+
+<details>
+<summary><b>D. Pianoteq on the same Mac</b></summary>
 
 Settings: `PIANASOUL_BASIC_PORT=IAC` and `PIANASOUL_BASIC_LEAD=0`.
 
 1. In Audio MIDI Setup > Window > Show MIDI Studio, double-click IAC Driver and tick "Device is online".
 2. In Pianoteq, enable "IAC Driver Bus 1" as a MIDI input.
+
+</details>
 
 For B, C and D, find the output's name and keep it in your profile. Any part of the name will do. A Roland FP-40,
 for example, shows up as `FP-40 MIDI Bluetooth` over Bluetooth and `Roland Digital Piano` over USB:
@@ -158,22 +184,115 @@ echo 'export PIANASOUL_BASIC_LEAD=0' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-`PIANASOUL_BASIC_LEAD=0` is there because only Wi-Fi needs notes sent early (see [Playback](#playback)). To try
-another way for a single run, put the settings in front of the command, for example
+`PIANASOUL_BASIC_LEAD=0` is there because only Wi-Fi needs notes sent early (see [Timing](#timing)). To try another
+way for a single run, put the settings in front of the command, for example
 `PIANASOUL_BASIC_PORT=Roland PIANASOUL_BASIC_LEAD=0 ./run.sh voice`.
 
-### 4. Test
-
-The repository includes a demo MIDI file, so you can test before your library has anything in it:
+Then test it with the demo MIDI file, before your library has anything in it:
 
 ```bash
 ./run.sh play ../docs/gould-partita-2-rehearsal.mid
 ```
 
 It prints `Playing on ...` with the output it found, and the piano should start within about a second. Control+C
-stops it. Then try the chat: `./run.sh chat`.
+stops it.
 
-### 5. Voice (optional)
+## Chat
+
+```bash
+./run.sh chat
+```
+
+Ask for a piece in plain language, in English, Chinese or another language; the assistant answers in yours. It
+looks in the library first. If the piece is not there, it searches YouTube for a real performance where the piano
+carries the music, transcribes it, saves it and plays it. If no good piano version exists, it says so. When a
+request is unclear, it asks.
+
+Examples: "I'd like to hear Chopin's Nocturne Op. 9 No. 2 by Rubinstein", "something gentle by Debussy", "play
+~/Music/my-recording.m4a". You can also paste a video link (YouTube, Bilibili or another site yt-dlp supports) to
+use that recording directly. For a long list of links, use `tasks.csv` (see [Transcribe](#transcribe)).
+
+Commands:
+
+- `/play`: continue after a pause, or start the current piece again
+- `/pause`: pause and keep the position
+- `/stop`: stop and go back to the beginning
+- `/library [words]`: list or search the library
+- `/import <folder>`: add MIDI files
+- `/enrich`: fill in composers and other-language titles
+- `/new`: start a new conversation
+- `/help`: show these commands
+- `/quit`: exit (Control+C only interrupts a request)
+
+Plain language works too: "stop playing" pauses, "continue" picks up where it paused, "start over" plays from the
+beginning, and asking for another piece replaces the current one.
+
+## Play
+
+```bash
+./run.sh play someone like you    # best match in the library
+./run.sh play path/to/file.mid
+./run.sh play --all               # the whole playlist, in order
+./run.sh play --ports             # list MIDI outputs
+```
+
+`--port` and `--lead` override `PIANASOUL_BASIC_PORT` and `PIANASOUL_BASIC_LEAD` for one run. Only notes and
+controllers are sent, so the sound settings on the receiving end stay as they are. Pausing or stopping lifts all keys
+and the pedal, and continuing puts the pedal back where it was. Control+C stops `play`.
+
+### Timing
+
+Wi-Fi delivers notes unevenly, which breaks the rhythm. So on a Mac each note leaves one second early, together with
+the time it should sound, and the iPad plays it on time:
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/timing-dark.svg">
+    <img src="../docs/timing-light.svg" alt="Sent when due, notes reach the piano unevenly; sent one second early with their time, the iPad waits and plays them evenly" width="900">
+  </picture>
+</p>
+
+In return, playback starts, pauses and stops about one second after you ask. Set `PIANASOUL_BASIC_LEAD` in seconds
+to change the lead: `2` for an unsteady network, `0.5` for a quicker response, `0` to send each note when it is due,
+as over Bluetooth or USB. `--timing` reports how punctually this computer sent the notes.
+
+## Transcribe
+
+Add video URLs to `tasks.csv`, one per row (only the `url` column is required), then run:
+
+```bash
+./run.sh
+```
+
+MIDI files go to `output/MIDI Files/`, named after the video titles, and into the library. Add an optional `name`
+column to choose your own titles. Completed rows are skipped; run the same command again to retry failures or resume
+after an interruption. Do not edit the CSV while it is running.
+
+Other ways to run it:
+
+```bash
+./run.sh /path/to/song.mp3                           # local audio files or folders
+./run.sh --csv tasks.csv --overwrite                 # transcribe again, reusing the downloaded audio
+./run.sh /path/to/recordings -o ~/Desktop/out        # write somewhere else, outside the library
+./run.sh --csv tasks.csv --device cpu --threads 2    # choose the device and CPU threads
+```
+
+The CSV's columns, the exit codes and the cleanup options are in
+[How it works](docs/how-it-works.md#transcription); `./run.sh --help` lists every option.
+
+## Library
+
+The library is one file, `output/library.db`, with the MIDI files in `output/MIDI Files/`.
+`output/MIDI Files/playlist.m3u` lists everything in the order it was added and is kept up to date. MIDI files you
+put into that folder yourself are added the next time the chat or the voice assistant starts.
+
+```bash
+./run.sh library list
+./run.sh library import ~/Desktop/midi    # copy existing MIDI files in (--in-place to leave them)
+./run.sh library enrich                   # add composers, other-language titles and tags
+```
+
+## Voice
 
 Install the voice extras once:
 
@@ -193,150 +312,28 @@ source ~/.zshrc
 ./run.sh voice                 # the first run asks for microphone access
 ```
 
+Without ElevenLabs the macOS voice speaks, greetings included. The first run downloads two small models (about
+34 MB) into `output/.cache/models`.
+
+Say "Hey Jasmine", or her Chinese name, Xiǎomíng Tóngxué, and ask for a piece.
+
+- **In one breath, or after a pause.** "Hey Jasmine, stop" works; so does her name alone: she greets you in the
+  language of the name you used, then listens.
+- **The music makes room.** Anything that is playing pauses while you speak and continues afterwards, unless you
+  asked to stop or for something else.
+- **Short commands act at once.** "Stop", "continue" and "start over" (also in Chinese) need no model; everything
+  else goes to the same assistant as the chat, and she speaks the answer while it is still being made.
+- **Going on without her name.** After a reply you have eight seconds, but not while the piano plays, whose sound
+  would be taken for speech; otherwise, or after "bye" (or "zàijiàn"), she waits for her name again.
+- **Control+C quits.** The terminal shows what she heard and what she said; `--debug` also shows each time she
+  hears her name, and which one.
+
 A Mac without a microphone of its own, such as a Mac mini, needs an external one: a USB camera microphone or a
 headset. Choose the input and output in System Settings > Sound. You can check the selected devices with
 `.venv/bin/python -m sounddevice`; grant microphone access to Terminal when macOS asks.
 
-Without ElevenLabs the macOS voice speaks, greetings included. The first run downloads two small models (about
-34 MB) into `output/.cache/models`. To give her other names, see [Her name](#her-name).
-
-Tip: to run PianaSoul Basic from any folder, add an alias to your profile, for example
-`alias psb="$HOME/PianaSoul/basic/run.sh"`, then use `psb chat`, `psb voice` and so on.
-
-## Chat
-
-```bash
-./run.sh chat
-```
-
-Ask for a piece in plain language, in English, Chinese or another language; the assistant answers in yours. It
-looks in the library first. If the piece is not there, it searches YouTube for a real performance where the piano
-carries the music (solo piano first, then piano with voice, never a band mix or a remix, and no falling-notes videos
-or tutorials), transcribes it, saves it and plays it. If no good piano version exists, it says so. When a request is
-unclear, it asks.
-
-Examples: "I'd like to hear Chopin's Nocturne Op. 9 No. 2 by Rubinstein", "something gentle by Debussy", "play
-~/Music/my-recording.m4a". You can also paste a video link (YouTube, Bilibili or another site yt-dlp supports) to
-use that recording directly. For a long list of links, use `tasks.csv` (see [Transcribe](#transcribe)).
-
-Commands:
-
-- `/play`: continue after a pause, or start the current piece again
-- `/pause`: pause and keep the position
-- `/stop`: stop and go back to the beginning
-- `/library [words]`: list or search the library
-- `/import <folder>`: add MIDI files
-- `/enrich`: fill in composers and other-language titles
-- `/new`: start a new conversation
-- `/quit`: exit (Control+C only interrupts a request)
-
-Plain language works too: "stop playing" pauses, "continue" picks up where it paused, "start over" plays from the
-beginning, and asking for another piece replaces the current one. A connection failure keeps the pending piece and
-its intended position; after reconnecting, ask to retry. Waiting for a connection keeps the position, while
-explicitly cancelling the request clears the pending selection.
-
-## Models and response flow
-
-These are the project's defaults, as tested. Shell settings can override the chat, speech-recognition and
-speech-output models; the chat/voice startup banner shows the active selections.
-
-- **Understanding requests, choosing pieces and calling playback tools:** OpenAI
-  [`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna), through the OpenAI API. The tested
-  default for this focused assistant.
-- **Turning your spoken request into text:** OpenAI
-  [`gpt-transcribe`](https://developers.openai.com/api/docs/models/gpt-transcribe), through the OpenAI API. Set
-  `PIANASOUL_BASIC_LANGUAGES=zh,en` for Chinese and English hints.
-- **Speaking replies and greetings:** ElevenLabs `eleven_v4_turbo`, through the ElevenLabs API; macOS speech is the
-  fallback.
-- **Converting a piano recording into MIDI:** Transkun `2.0.1`, pretrained `2.0`, on this computer, on the CPU by
-  default; Apple MPS is opt-in.
-- **Detecting the wake words:** a sherpa-onnx bilingual keyword-spotting model, on this computer. No cloud key
-  needed.
-- **Detecting speech and silence:** Silero VAD through sherpa-onnx, on this computer. No cloud key needed.
-
-A spoken request follows this path: local wake word and recording → OpenAI speech recognition → chat and library
-lookup → search/download and local transcription if needed → connection check → spoken introduction → MIDI
-playback. Existing library pieces skip download and transcription. Network calls and local transcription both
-contribute to the wait, so response time varies. The Mac is not running the OpenAI or ElevenLabs models locally.
-Before online search or preparation, she acknowledges the wait without promising a completion time.
-
-The recommendation is to keep this working combination rather than change models during normal use. A stronger chat
-model is optional and does not replace reliable playback state or connection handling. No local language model or
-extra GPU is required for this setup.
-
-### Optional chat provider
-
-The code also supports Anthropic for chat. `ANTHROPIC_API_KEY` is needed only if you choose that provider; it is not
-used by the tested OpenAI setup. The project's Anthropic default is `claude-haiku-5-5`. To explicitly select it, set
-`PIANASOUL_BASIC_MODEL=anthropic:claude-haiku-5-5` and supply your own Anthropic API key. Voice recognition still
-needs `OPENAI_API_KEY`. This alternative has been tested less than the OpenAI setup.
-
-## Voice
-
-```bash
-./run.sh voice
-```
-
-Say "Hey Jasmine", or her Chinese name, Xiǎomíng Tóngxué, and ask for a piece. Say it in one breath ("Hey Jasmine,
-stop"), or pause after the name: she greets you in the language of the name you used, then listens. Anything that is
-playing pauses while you speak and continues afterwards, unless you asked to stop or for something else. "Stop",
-"continue" and "start over" (also in Chinese) act at once; everything else goes to the same assistant as the chat,
-and she speaks the answer while it is still being made. After a reply you can go on without her name for eight
-seconds, but not while the piano plays, whose sound would be taken for speech; otherwise, or after "bye" (or
-"zàijiàn"), she waits for her name again. Control+C quits. The terminal shows what she heard and what she said.
-
-Successful pause, continue and restart requests get a short acknowledgment. The assistant speaks as a musical
-companion playing for you, with small variations in the control replies; recording and performer credits stay
-accurate. Calling only her name gets a local greeting, without a model-wait acknowledgment or a second greeting in
-the same listening turn. Failed playback produces the connection reminder instead of a success acknowledgment. Short
-commands use local replies without an extra model call.
-
-### Her name
-
-She answers to "Hey Jasmine" and to Xiǎomíng Tóngxué. Speech recognition hears only the sound of a name, so whatever
-Chinese characters it writes for her name are shown and passed on as the ones she is set up with. To give her other
-names, list one or more, separated by commas:
-
-```bash
-echo 'export PIANASOUL_BASIC_WAKE_WORDS="Hey Maestro,Hey Piano"' >> ~/.zshrc
-```
-
-- Write a Chinese name in Chinese characters; any name works, with no training. English names must use words from
-  the pronouncing dictionary; if one is unknown, `./run.sh voice` says so when it starts.
-- The names are hers too: she calls herself by them (without "Hey"), and she greets you in Chinese when you call her
-  by a Chinese name, in English otherwise.
-- Good names have three to five syllables and are not words you say often. A short English name works better with
-  "Hey" in front.
-- If she often misses you, run `./run.sh voice --debug` to see what she hears, and lower
-  `PIANASOUL_BASIC_WAKE_THRESHOLD` (default `0.2`, for example to `0.15`); if she wakes by herself, raise it. If you
-  say an English name differently from the dictionary, add your way to `EXTRA_PRONUNCIATIONS` in `voice.py`, as
-  "Jasmine" also accepts "jas-MEEN".
-
-### Her voice and greetings
-
-- **Voice:** the ElevenLabs voice in `PIANASOUL_BASIC_VOICE_ID` (see [Setup](#setup), step 5). The default model is
-  `eleven_v4_turbo`; `PIANASOUL_BASIC_TTS_MODEL=eleven_v4` is richer and slower.
-- **Greetings:** what she says when you pause after her name, a few lines each in Chinese and English, picked at
-  random. Change the lines in `GREETINGS` in `voice.py`, and how they are said (a little livelier than her answers)
-  in `GREETING_SETTINGS`. They are made once with her voice and kept in `output/.cache/voice`, and made again when
-  you change them. Hear them all with `./run.sh voice --greetings`.
-
-After a piece finishes naturally, she leaves one second after the last scheduled MIDI events, then says a short,
-randomly chosen closing line. Pausing, stopping, changing pieces or failed playback does not trigger a closing line.
-Replies use the language of the latest request. While the chat model is taking longer than about three seconds, a
-short acknowledgment can fill the silence once. Playback introductions are spoken after the connection check and
-before the music starts. Diagnostic messages stay in the terminal; connection failures get a brief, nontechnical
-spoken reminder.
-
-### How it listens
-
-- **Wake words:** heard on the computer by [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) keyword spotting.
-- **When you have finished:** [Silero](https://github.com/snakers4/silero-vad) voice activity detection tells your
-  voice from silence and the piano, so the music or her own greeting is not taken for your request.
-- **What you said:** OpenAI `gpt-transcribe`, with your library's titles and names as spelling hints and the
-  languages in `PIANASOUL_BASIC_LANGUAGES`.
-
-`./run.sh voice --debug` also shows each time she hears her name, and which one.
+[Her name, her voice and how she listens](docs/voice.md) has the rest: other wake words, her greetings, and what she
+says when.
 
 ## iPhone Voice
 
@@ -350,147 +347,25 @@ paused, in color while she listens, moving with your voice and hers.
 It runs in your home network: the page comes from your Mac, and the phone talks only to the Mac. As with
 `./run.sh voice`, what you say after her name goes to OpenAI for recognition, and her replies to ElevenLabs.
 
-### Set up the iPhone (once)
-
-The Mac and the iPhone need the same Wi-Fi. Safari lets a page use the microphone only over trusted HTTPS, so the
-Mac makes its own small certificate authority, and the iPhone is told once to trust it.
-
-1. **Install** the page's server. It uses the keys and voice settings from [Setup](#setup), step 5:
-
-   ```bash
-   uv pip install --python .venv/bin/python -e '.[web-voice]'
-   ```
-
-2. **Start it** on the Mac:
-
-   ```bash
-   ./run.sh web-voice
-   ```
-
-   It prints the page's address on its `address` line, with the Mac's network address in it, for example
-   `https://192.168.1.20:8766/#token=...`. If macOS asks whether Python may accept incoming connections, allow it.
-   Control+C stops it.
-
-3. **Trust the Mac on the iPhone.** The first start also makes `output/.cache/phone-tls/PianaSoul-Basic-CA.cer`,
-   shows it in Finder and lists these steps. AirDrop that file, and only that one, to the iPhone (right-click →
-   Share → AirDrop), and install it in Settings → General → VPN & Device Management. Then turn on full trust for it
-   ("PianaSoul Basic on" and the Mac's name) in Settings → General → About → Certificate Trust Settings.
-
-4. **Open the page** at the printed address in Safari on the iPhone. Share → **Add to Home Screen** makes it an app
-   that keeps this address. Open the app, tap the orb and allow the microphone.
-
-After that, start the server and open the app. Every start makes a fresh certificate for the Mac's current network
-address, so the iPhone never needs the certificate again. If the router gives the Mac a new address, the printed
-address changes with it; add the new one to the Home Screen. A DHCP reservation for the Mac in the router keeps the
-address fixed, as long as the Mac's Private Wi-Fi Address for that network (System Settings → Wi-Fi → Details) is
-not set to Rotating. The page is opened at the address rather than at the Mac's `.local` name because Safari does
-not keep the microphone permission for `.local` names, and would ask every time. For another iPhone,
-`open -R output/.cache/phone-tls/PianaSoul-Basic-CA.cer` shows the file again.
-
-**Keep private:** the `.pem` files and the token, all in `output/`, which is never committed. With the token, anyone
-on your Wi-Fi could use the page. The certificate authority can vouch only for `.local` names and home network
-addresses, so even its key could not pass anything off as a website. `PianaSoul-Basic-CA.cer` holds no secret. To
-start afresh, delete `output/.cache/phone-token` (a new address, to add to the Home Screen again) or
-`output/.cache/phone-tls/` (a new certificate authority, to install again).
-
-### Using it
-
-- **Tap the orb** to start. It is half colored while it starts (more taps do not cancel it), then turns to color
-  with a start sound. From then on it is the same conversation as `./run.sh voice`, the same code, with the phone as
-  her ears and voice.
-- **Tap again to pause.** She stops listening and speaking at once, and the piano about a second later, once the
-  notes already sent have played (see [Playback](#playback)). A task in progress finishes only its current step; the
-  microphone is released after the end sound. Tap to continue from the same place in the same conversation.
-- **Closing the page**, locking the phone or switching apps ends the conversation and stops the music. The orb is
-  gray again the next time.
-
-The Mac does the rest, with the same keys and settings as `./run.sh voice`: it listens for her name, sends what
-follows it to speech recognition, asks the assistant, and sends her voice to the phone while it is being made.
-Nothing is played on the Mac's speakers and its microphone is not used; the piano plays through your usual MIDI
-route. One phone at a time, and not alongside `./run.sh voice` or `./run.sh chat`. You cannot interrupt her by
-speaking, but a tap pauses her. The page has to stay in front; it keeps the screen on while it is connected, and
-does not zoom or scroll. In portrait the iPhone still shows its status bar, which only native apps can hide.
-`--debug` shows each time she hears her name, as with `./run.sh voice --debug`.
-
-## Playback
+To set it up, once: install the page's server, start it on the Mac, trust the Mac's certificate on the iPhone,
+then open the printed address in Safari and add it to the Home Screen.
+[iPhone Voice, step by step](docs/iphone-voice.md) has each step.
 
 ```bash
-./run.sh play someone like you    # best match in the library
-./run.sh play path/to/file.mid
-./run.sh play --all               # the whole playlist, in order
-./run.sh play --ports             # list MIDI outputs
+uv pip install --python .venv/bin/python -e '.[web-voice]'    # once
+./run.sh web-voice                                            # prints the page's address
 ```
 
-`--port` and `--lead` override `PIANASOUL_BASIC_PORT` and `PIANASOUL_BASIC_LEAD` for one run. Only notes and
-controllers are sent, so the sound settings on the receiving end stay as they are. Pausing or stopping lifts all keys
-and the pedal, and continuing puts the pedal back where it was. Control+C stops `play`.
-
-Wi-Fi delivers notes unevenly, which breaks the rhythm. So on a Mac each note leaves one second early, together with
-the time it should sound, and the iPad plays it on time:
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="../docs/timing-dark.svg">
-    <img src="../docs/timing-light.svg" alt="Sent when due, notes reach the piano unevenly; sent one second early with their time, the iPad waits and plays them evenly" width="900">
-  </picture>
-</p>
-
-In return, playback starts, pauses and stops about one second after you ask. Set `PIANASOUL_BASIC_LEAD` in seconds
-to change the lead: `2` for an unsteady network, `0.5` for a quicker response, `0` to send each note when it is due,
-as over Bluetooth or USB. `--timing` reports how punctually this computer sent the notes.
-
-If nothing sounds, check the connection rather than the program. For the iPad, it must still be listed under
-Participants in MIDI Network Setup (the session can drop when a computer sleeps), with Pianoteq open. For Bluetooth,
-the piano must show as connected in Audio MIDI Setup. After reconnecting, ask chat, voice or iPhone Voice to retry;
-the pending piece and position are kept.
-
-## Transcribe
-
-Add video URLs to `tasks.csv`, one per row (only the `url` column is required), then run:
-
-```bash
-./run.sh
-```
-
-MIDI files go to `output/MIDI Files/`, named after the video titles, and into the library. Add an optional `name`
-column to choose your own titles. Completed rows are skipped; run the same command again to retry failures or resume
-after an interruption. Work files (the original audio, raw MIDI and statistics) stay in the hidden `output/.cache/`
-folder. Do not edit the CSV while it is running.
-
-Other ways to run it:
-
-```bash
-./run.sh /path/to/song.mp3                           # local audio files or folders
-./run.sh --csv tasks.csv --overwrite                 # transcribe again, reusing the downloaded audio
-./run.sh /path/to/recordings -o ~/Desktop/out        # write somewhere else, outside the library
-./run.sh --csv tasks.csv --device cpu --threads 2    # choose the device and CPU threads
-```
-
-CSV columns are `url,name,status,audio_path,midi_path,error`. Status is `pending`, `processing`, `done` or `failed`
-(blank means pending). Exit codes are 0 for success, 1 for task failures, 2 for task-list or usage errors and 130
-for interruption.
-
-By default, cleanup trims same-pitch overlaps, removes soft-pedal events and makes sure the sustain pedal is released
-at the end. `--legato`, `--keep-soft-pedal` and `--pedal-ramps` change that; see `./run.sh --help`.
-
-## Library
-
-The library is one file, `output/library.db`, with the MIDI files in `output/MIDI Files/`.
-`output/MIDI Files/playlist.m3u` lists everything in the order it was added and is kept up to date. MIDI files you
-put into that folder yourself are added the next time the chat or the voice assistant starts.
-
-```bash
-./run.sh library list
-./run.sh library import ~/Desktop/midi    # copy existing MIDI files in (--in-place to leave them)
-./run.sh library enrich                   # add composers, other-language titles and tags
-```
+Tap the orb to start and tap again to pause. Closing the page, locking the phone or switching apps ends the
+conversation and stops the music. One phone at a time, and not alongside `./run.sh voice` or `./run.sh chat`.
 
 ## Settings
 
-Set these in your shell profile; [Setup](#setup) says which ones you need.
+Set these in your shell profile.
 
 - `OPENAI_API_KEY`: chat model and speech recognition
 - `PIANASOUL_BASIC_MODEL` (default `openai:gpt-6-luna`): chat model
+- `ANTHROPIC_API_KEY`: only for an Anthropic chat model
 - `YOUTUBE_API_KEY`: searching YouTube from the chat
 - `PIANASOUL_BASIC_PORT` (default `PianaSoul Basic`): MIDI output, by part of its name
 - `PIANASOUL_BASIC_LEAD` (default `1`): seconds each note leaves early (macOS)
@@ -502,24 +377,100 @@ Set these in your shell profile; [Setup](#setup) says which ones you need.
 - `PIANASOUL_BASIC_VOICE_ID`: which ElevenLabs voice
 - `PIANASOUL_BASIC_TTS_MODEL` (default `eleven_v4_turbo`): ElevenLabs model
 
-## Limits and maintenance
+## Troubleshooting
 
-Works best on solo piano. There is no vocal or accompaniment separation, so the assistant looks for piano-led
-recordings, and transcription may miss notes or predict incorrect ones. The sustain pedal is on or off. Recordings
-are limited to 60 minutes, which fits even the longest sonatas; longer videos are not offered by the search and are
-refused before downloading. Run one of chat, voice and iPhone Voice at a time: each controls the same piano on its
-own. Download only individual videos you are permitted to access and download. Playlist expansion, live streams and
-bypassing access restrictions are not supported. Website support depends on yt-dlp; download failures are recorded
-in the CSV. To update the downloader:
+<details>
+<summary><b>Nothing sounds</b></summary>
+
+Check the connection rather than the program. For the iPad, it must still be listed under Participants in MIDI
+Network Setup (the session can drop when a computer sleeps), with Pianoteq open. For Bluetooth, the piano must show
+as connected in Audio MIDI Setup. `./run.sh play --ports` lists the outputs, and how many participants a network
+session has. The Mac cannot confirm whether the receiving app's audio is audible or its cable to the piano is
+connected.
+
+</details>
+
+<details>
+<summary><b>The piano was not there when a piece should play</b></summary>
+
+Each time playback starts or continues, and about once a second while a piece plays, the Mac checks that the output
+is there and, for a network session, that a device has joined it: the iPad drops out when Pianoteq closes or the
+iPad goes offline, while the session's output stays. If the piano is not there, the piece waits where it stopped:
+voice and iPhone Voice say so at once, chat when you next ask to play.
+
+The piece and its intended position are kept. After connecting again, ask to retry: "continue" resumes the saved
+position, and an explicit request to start over begins at zero. There is no need to restart chat, voice or iPhone
+Voice. Explicitly cancelling the request clears the pending piece.
+
+</details>
+
+<details>
+<summary><b>After a restart or a network interruption</b></summary>
+
+Open the receiving instrument app, select the device in MIDI Network Setup, and click Connect. Check that it appears
+under Participants.
+
+</details>
+
+<details>
+<summary><b>She misses her name, or wakes by herself</b></summary>
+
+Run `./run.sh voice --debug` to see what she hears. If she often misses you, lower `PIANASOUL_BASIC_WAKE_THRESHOLD`
+(default `0.2`, for example to `0.15`); if she wakes by herself, raise it. See [Her name](docs/voice.md#her-name).
+
+</details>
+
+<details>
+<summary><b>A download fails</b></summary>
+
+YouTube downloads need [Deno](https://deno.com) on your PATH (see [Install](#install)). Website support depends on
+yt-dlp, and download failures are recorded in the CSV. To update the downloader:
 
 ```bash
 uv pip install --python .venv/bin/python --upgrade 'yt-dlp[default]'
 ```
 
-Keep the working copy outside cloud-synced folders. The library is local and is not synchronized with another Mac or
-uploaded with code; back up both `output/library.db` and `output/MIDI Files/`. A live database should be copied with
-SQLite's backup API. Keys remain in your shell profile. Launching chat or voice is manual; no login item, background
-connection service or automatic startup is installed.
+</details>
+
+<details>
+<summary><b>The iPhone page no longer opens</b></summary>
+
+The server must be running (`./run.sh web-voice`), with the Mac and the iPhone on the same Wi-Fi. If the router
+gave the Mac a new address, the printed address changed with it: open the new one and add it to the Home Screen.
+
+</details>
+
+## Limits
+
+- **Solo piano works best.** There is no vocal or accompaniment separation, so the assistant looks for piano-led
+  recordings, and transcription may miss notes or predict incorrect ones. The sustain pedal is on or off.
+- **Recordings are limited to 60 minutes**, which fits even the longest sonatas; longer videos are not offered by
+  the search and are refused before downloading.
+- **One at a time.** Run one of chat, voice and iPhone Voice at a time: each controls the same piano on its own.
+- **Downloads.** Download only individual videos you are permitted to access and download. Playlist expansion, live
+  streams and bypassing access restrictions are not supported.
+- **Your data is local.** Keep the working copy outside cloud-synced folders. The library is not synchronized with
+  another Mac or uploaded with code; back up both `output/library.db` and `output/MIDI Files/`. A live database
+  should be copied with SQLite's backup API. Keys remain in your shell profile.
+- **Nothing runs by itself.** Launching chat or voice is manual; no login item, background connection service or
+  automatic startup is installed.
+
+## Checks
+
+```bash
+.venv/bin/python -m unittest discover -s tests
+for test in tests/test_web_*.js; do node "$test"; done
+```
+
+The first runs the offline checks; the iPhone Voice ones among them also need
+`uv pip install --python .venv/bin/python httpx`. The second runs the page's own checks, with Node.js. None of them
+uses paid APIs, a microphone or a MIDI device.
+
+`.venv/bin/python tests/manual_playback_intents.py` is a check you run yourself against the real chat model: 16
+utterances against a temporary library and simulated playback, with the configured model and account (`--list`
+lists the cases without any API calls). It does not use the microphone, speak, play actual MIDI, or change your
+library. Hardware playback, real microphone recognition and iPhone Voice on a real phone still need a check by
+hand.
 
 ## License and credits
 
@@ -531,20 +482,3 @@ the MAESTRO dataset (CC BY-NC-SA 4.0): for non-commercial use. The voice assista
 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) keyword spotting (Apache 2.0) and
 [Silero VAD](https://github.com/snakers4/silero-vad) (MIT). The other packages `setup.sh` installs come from PyPI
 under their own licenses.
-
-## Checks
-
-Run offline checks with `.venv/bin/python -m unittest discover -s tests`. The iPhone Voice checks also need
-`uv pip install --python .venv/bin/python httpx`, and its page has its own, run with Node.js:
-`for test in tests/test_web_*.js; do node "$test"; done`. None of them uses paid APIs, a microphone or a MIDI
-device. For a user-run real-model check, run `.venv/bin/python tests/manual_playback_intents.py`. It tests 16
-utterances against a temporary library and simulated playback; it does not use the microphone, speak, play actual
-MIDI, or change the production library. It uses the configured chat model and account. `--list` lists the cases
-without any API calls. Hardware playback, real microphone recognition and iPhone Voice on a real phone (wake
-accuracy, audio routing, the start and end sounds) still need a separate end-to-end check.
-
-Playback tools separate selection from current-piece control: `play_recording(id)` accepts only IDs offered by
-library search or transcription in the current request; `control_playback(action)` accepts no recording ID. Chat and
-voice share the same execution path and the application's current/pending playback state. Invalid selections are
-returned to the model for correction without overwriting the existing piece. Exact short commands are handled
-locally; natural requests use the model rather than an expanding set of phrase-matching rules.
