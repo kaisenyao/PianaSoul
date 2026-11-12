@@ -18,8 +18,8 @@
 </p>
 
 <p align="center">
-  <a href="https://pianasoul.kaisenyao.com"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/demo-button-dark.svg"><img src="docs/demo-button-light.svg" alt="Try the demo in your browser" width="184"></picture></a>&nbsp;&nbsp;
-  <a href="https://github.com/kaisenyao/PianaSoul/releases/latest/download/PianaSoul.dmg"><img src="docs/download-badge.svg" alt="Download PianaSoul for macOS" width="164"></a>
+  <a href="https://pianasoul.kaisenyao.com"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/demo-button-dark.svg"><img src="docs/demo-button-light.svg" alt="Try the demo in your browser" width="185"></picture></a>&nbsp;&nbsp;
+  <a href="https://github.com/kaisenyao/PianaSoul/releases/latest/download/PianaSoul.dmg"><img src="docs/download-button.svg" alt="Download PianaSoul for macOS" width="254"></a>
 </p>
 
 <p align="center">
