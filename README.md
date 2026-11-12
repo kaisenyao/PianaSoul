@@ -67,7 +67,7 @@ Glenn Gould's rehearsal of Bach's Partita No. 2 in C minor, BWV 826, from the
 it ([the MIDI file](docs/gould-partita-2-rehearsal.mid)) played by Pianoteq 9 on an iPad: default settings, no
 manual edits. They play side by side, and the sound switches between them every ten seconds.
 
-<video src="https://github.com/user-attachments/assets/037fc112-9d36-47ac-b44a-c47c4e3aa064" width="100%" controls></video>
+<video src="https://github.com/user-attachments/assets/af874396-8b59-4aae-abb1-619321b3b341" width="100%" controls></video>
 
 <br>
 
