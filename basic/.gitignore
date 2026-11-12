@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.egg-info/
+.DS_Store
+tasks.csv
+
+# your music stays on your machine
+output/*
+!output/.gitkeep
+*.mp3
+*.m4a
+*.aac
+*.wav
+*.flac
+*.aif
+*.aiff
+*.mid
+
+# The page's start and end sounds are part of the application, not user recordings.
+!/src/pianasoul_basic/web/cue-active.mp3
+!/src/pianasoul_basic/web/cue-paused.mp3

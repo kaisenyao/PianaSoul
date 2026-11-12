@@ -153,9 +153,6 @@ server of ours.
   chose, with your key, which answers with what to do. She can only play pieces that were actually found, in your
   library or online, never one made up.
 
-PianaSoul grew out of [piano2midi](https://github.com/kaisenyao/piano2midi), open source, which turns solo piano
-recordings into performance MIDI and first put her voice, chat and playback together.
-
 ### Timing
 
 Wi-Fi delivers notes unevenly, which breaks the rhythm. So to a network session each note leaves the Mac a moment
@@ -176,6 +173,24 @@ Your library, your chats and your settings stay on your Mac. The phone talks onl
 What you say to her goes to the services you chose, with your own keys; searches, and the pictures of the pianists
 you choose, come from YouTube and Bilibili. Beyond that, PianaSoul goes online only to check for updates and to
 download what you turn on: Built-in Piano's sounds and the advanced features.
+
+<br>
+
+## PianaSoul Basic
+
+How PianaSoul works is open to read, build and run: [`basic/`](basic) holds PianaSoul Basic, the basic edition, as
+source code under the MIT license.
+
+- **What it does.** It turns a piano recording, a video link or an audio file of your own, into performance MIDI
+  with Transkun, keeps the files in a local library, and plays them on your piano over MIDI, with the timing
+  described above. She is there too: ask for a piece in a chat in Terminal, by voice on the Mac, or by voice on an
+  iPhone, on a page that is a single orb.
+- **How to run it.** On a Mac with Python or uv, clone this repository, and in its `basic` folder run `./setup.sh`
+  once, then `./run.sh chat`. [Its README](basic/README.md) has every step: your keys, your piano, her voice.
+- **How it differs from the app.** PianaSoul Basic is set up by hand and runs in Terminal, with your keys in your
+  shell profile. The Mac app, the phone app with its library, player and chats, Built-in Piano, search on Bilibili,
+  playing a new piece while it is still being transcribed, and updates are in the app only, which is not built from
+  this code alone.
 
 <br>
 
@@ -205,9 +220,13 @@ Recordings are limited to 60 minutes. Download only videos you are permitted to 
 
 ## License and credits
 
-PianaSoul is not open source. © 2026 PianaSoul. All rights reserved.
+PianaSoul, the Mac app with its phone app, is not open source. © 2026 PianaSoul. All rights reserved.
 
-It is built on open-source work, with thanks:
+PianaSoul Basic, the code in [`basic/`](basic), is open source under the [MIT license](basic/LICENSE). That license
+does not cover the name PianaSoul or its icon, which PianaSoul Basic carries too: something built from the code
+needs a name and an icon of its own.
+
+The app is built on open-source work, with thanks:
 
 - Transcription uses [Transkun](https://github.com/Yujia-Yan/Transkun) (MIT), whose pretrained weights were trained on
   the MAESTRO dataset (CC BY-NC-SA 4.0): for non-commercial use.

@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pianasoul-basic"
+version = "0.1.0"
+description = "PianaSoul Basic: solo piano recordings to performance MIDI with Transkun, a library, and an assistant who plays it on your piano."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "transkun==2.0.1",
+    "torch",
+    "pretty_midi",
+    "numpy",
+    "imageio-ffmpeg",
+    "yt-dlp[default]",
+    "openai",
+    "anthropic",
+    "mido",
+    "python-rtmidi",
+]
+
+[project.optional-dependencies]
+web-voice = ["fastapi", "uvicorn[standard]", "sherpa-onnx", "pypinyin"]
+voice = ["sounddevice", "sherpa-onnx", "pypinyin"]
+
+[project.scripts]
+pianasoul-basic = "pianasoul_basic.cli:main"
+pianasoul-basic-chat = "pianasoul_basic.chat:main"
+pianasoul-basic-library = "pianasoul_basic.library:main"
+pianasoul-basic-play = "pianasoul_basic.play:main"
+pianasoul-basic-voice = "pianasoul_basic.voice:main"
+pianasoul-basic-web-voice = "pianasoul_basic.web_voice:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pianasoul_basic = ["web/*"]
