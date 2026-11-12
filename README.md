@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed
+
 <h1 align="center">PianaSoul</h1>
 
 <p align="center">
@@ -73,7 +77,7 @@ manual edits. They play side by side, and the sound switches between them every 
 
 ## Get started
 
-PianaSoul needs a Mac with Apple silicon and macOS 15 or later, a phone on the same Wi-Fi, and for the sound a piano
+PianaSoul needs a Mac with Apple silicon and Mac OS 15 or later, a phone on the same Wi-Fi, and for the sound a piano
 that takes MIDI, a sound app such as Pianoteq, or Built-in Piano on the Mac itself.
 
 ### Install it
