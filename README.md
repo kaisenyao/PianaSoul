@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/icon.png" alt="PianaSoul's icon" width="128">
+  <img src="docs/icon.png" alt="The PianaSoul app icon" width="128">
 </p>
 
 <h1 align="center">PianaSoul</h1>
@@ -36,6 +36,18 @@
 
 <br>
 
+<p align="center">
+  <a href="#what-it-does">What it does</a> ·
+  <a href="#get-started">Get started</a> ·
+  <a href="#using-it">Using it</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#pianasoul-basic">PianaSoul Basic</a> ·
+  <a href="#questions-and-answers">Questions</a> ·
+  <a href="#license-and-credits">License</a>
+</p>
+
+<br>
+
 ## What it does
 
 PianaSoul runs on a Mac, quietly, in the menu bar. The Mac keeps your library and plays the piano; everything else
@@ -55,18 +67,7 @@ happens on your phone.
 The first two need no key and no account. The last two are the advanced features, which you turn on in the Mac app
 when you want them.
 
-<br>
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/how-it-works-dark.svg">
-    <img src="docs/how-it-works-light.svg" alt="You ask for a piece; PianaSoul on the Mac finds it in the library (or finds a recording and transcribes it) and sends the notes over Wi-Fi to Pianoteq on an iPad, which plays them through a digital piano" width="900">
-  </picture>
-</p>
-
-<br>
-
-## Hear a transcription
+### Hear a transcription
 
 Glenn Gould's rehearsal of Bach's Partita No. 2 in C minor, BWV 826, from the
 [Glenn Gould Official Channel on YouTube](https://www.youtube.com/watch?v=WqwZC-yLYI4), and PianaSoul's transcription of
@@ -79,25 +80,33 @@ manual edits. They play side by side, and the sound switches between them every 
 
 ## Get started
 
-PianaSoul needs a Mac with Apple silicon and macOS 15 or later, a phone on the same Wi-Fi, and for the sound a piano
-that takes MIDI, a sound app such as Pianoteq, or Built-in Piano on the Mac itself.
+You need:
 
-### Install it
+- **A Mac** with Apple silicon and macOS 15 or later.
+- **A phone** on the same Wi-Fi: an iPhone, or an Android phone with Chrome.
+- **Something to play:** a piano that takes MIDI, a sound app such as Pianoteq, or nothing at all, with Built-in
+  Piano on the Mac itself.
+
+To look around first, [try the demo](https://pianasoul.kaisenyao.com) in your browser.
+
+### 1. Install
 
 1. [Download PianaSoul](https://github.com/kaisenyao/PianaSoul/releases/latest/download/PianaSoul.dmg), open the DMG
    and drag PianaSoul to the Applications folder.
-2. The first time you open it, macOS stops it because it isn't notarized by Apple (the DMG's window shows these steps
-   too): click Done, not Move to Trash. Then in System Settings › Privacy & Security, click Open Anyway near the
-   bottom, click Open Anyway again in the dialog that appears, then enter your password.
+2. Open it. The first time, macOS stops it because it isn't notarized by Apple: click Done, not Move to Trash.
+3. In System Settings › Privacy & Security, click Open Anyway near the bottom, click Open Anyway again in the dialog
+   that appears, then enter your password.
 
-### Set it up
+The DMG's window shows these steps too.
+
+### 2. Set up
 
 PianaSoul then walks you through four steps. Each can be done later, or changed, in its settings.
 
 1. **Your library.** The folder is `~/Music/PianaSoul` unless you choose another. With Open at login selected,
    PianaSoul runs whenever you are logged in to the Mac.
 2. **Advanced features**, if you want them: Online Search & Transcription, and Assistant (her). Either one needs a
-   one-time download of about 373 MB; she also needs a key of your own (see Her keys below).
+   one-time download of about 373 MB; she also needs a key of your own (step 3 below).
 3. **Your piano.** Choose how it connects (USB, Bluetooth, Network or Software), then click it, and Test plays a few
    notes on it. With no piano found, PianaSoul chooses Built-in Piano.
 4. **Your phone.** Scan the first code to install a certificate that lets the phone trust this Mac, and only this
@@ -107,12 +116,16 @@ PianaSoul then walks you through four steps. Each can be done later, or changed,
 The phone app is a web page that the Mac serves on your own network, made for iPhone, in Safari or on the Home
 Screen; it also runs in Chrome on Android.
 
-### Her keys
+### 3. Give her a key (optional)
 
-She needs an API key of your own, entered in the Mac app's Settings › Advanced: for conversation and speech, OpenAI,
-or Alibaba Cloud Model Studio where OpenAI is out of reach, as in China mainland; for her voice, the Mac's own voice
-needs nothing, while ElevenLabs and Model Studio sound more natural. Keys stay in the keychain on your Mac, and what
-you use is billed to your own account. [How to get each key](docs/keys.md), step by step.
+Only she needs one. Your library, your piano and Online Search & Transcription work without a key or an account.
+
+- **For conversation and speech:** OpenAI, or Alibaba Cloud Model Studio where OpenAI is out of reach, as in China
+  mainland.
+- **For her voice:** the Mac's own voice needs nothing; ElevenLabs and Model Studio sound more natural.
+
+Enter a key in the Mac app's Settings › Advanced. Keys stay in the keychain on your Mac, and what you use is billed
+to your own account. [How to get each key](docs/keys.md), step by step.
 
 <br>
 
@@ -143,6 +156,13 @@ Settings › Help › User Guide on the phone explains the rest.
 
 PianaSoul is a Mac app and a phone app that talk over your own Wi-Fi. The Mac does the work; nothing goes through a
 server of ours.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/how-it-works-dark.svg">
+    <img src="docs/how-it-works-light.svg" alt="You ask for a piece; PianaSoul on the Mac finds it in the library (or finds a recording and transcribes it) and sends the notes over Wi-Fi to Pianoteq on an iPad, which plays them through a digital piano" width="900">
+  </picture>
+</p>
 
 - **The library** is a folder of MIDI files on the Mac, kept in order as Music keeps its media folder, by pianist.
 - **The piano** is played over MIDI, from the Mac: USB, Bluetooth, a network session to an iPad or another Mac, a
@@ -194,27 +214,88 @@ source code under the MIT license.
 
 <br>
 
-## Updates
+## Questions and answers
+
+### Before you install
+
+<details>
+<summary><b>Is it free? Is it open source?</b></summary>
+
+PianaSoul is free. The Mac app with its phone app is not open source; PianaSoul Basic, in [`basic/`](basic), is,
+under the MIT license.
+</details>
+
+<details>
+<summary><b>Do I need a digital piano?</b></summary>
+
+No. With no piano at all, Built-in Piano plays a sampled grand through the Mac's own speakers. To play a piano of
+your own, it has to take MIDI, over USB or Bluetooth; an iPad or a Mac with a sound app such as Pianoteq works too.
+</details>
+
+<details>
+<summary><b>Do I need an API key or an account?</b></summary>
+
+Not for your library, your piano, or Online Search & Transcription. Only she needs a key of your own:
+[how to get each key](docs/keys.md).
+</details>
+
+<details>
+<summary><b>Does it run on an Intel Mac? On Android?</b></summary>
+
+The Mac app needs Apple silicon and macOS 15 or later. The phone app is made for iPhone, in Safari or on the Home
+Screen, and also runs in Chrome on Android.
+</details>
+
+<details>
+<summary><b>How good is a transcription?</b></summary>
+
+It works best on solo piano: some notes may be missed or added, and the sustain pedal is either down or up.
+Recordings are limited to 60 minutes. Download only videos you are permitted to download.
+[Hear one](#hear-a-transcription) beside its original.
+</details>
+
+<details>
+<summary><b>How does it update?</b></summary>
 
 PianaSoul checks for a new version once a day and when you choose Check for Updates in the Mac app's Settings ›
 About, and installs it when you say so. What you allowed it, the keychain and Bluetooth, stays allowed through
 updates.
+</details>
 
-## When something goes wrong
+### When something goes wrong
 
-- **Nothing sounds:** the Mac app's menu and Settings › Piano say what it sees, and Test plays a few notes. An iPad
-  drops out of a network session when its sound app closes or the Mac sleeps: connect it again in Audio MIDI Setup.
-- **The phone says Mac Not Connected:** the Mac is asleep or off, PianaSoul is not running, or the two are not on the
-  same Wi-Fi.
-- **A search can't reach YouTube:** Bilibili's results still come. In China mainland, turn YouTube off under Sources
-  in the phone's Settings.
-- **Anything else:** use Send Feedback in the phone's Settings, or write to
-  [pianasoul@kaisenyao.com](mailto:pianasoul@kaisenyao.com).
+<details>
+<summary><b>macOS says PianaSoul can't be opened</b></summary>
 
-## Limits
+That is expected the first time, because the app isn't notarized by Apple. Click Done, then follow
+[Install](#1-install), step 3.
+</details>
 
-Transcription works best on solo piano: some notes may be missed or added, and the sustain pedal is either down or up.
-Recordings are limited to 60 minutes. Download only videos you are permitted to download.
+<details>
+<summary><b>Nothing sounds</b></summary>
+
+The Mac app's menu and Settings › Piano say what it sees, and Test plays a few notes. An iPad drops out of a network
+session when its sound app closes or the Mac sleeps: connect it again in Audio MIDI Setup.
+</details>
+
+<details>
+<summary><b>The phone says Mac Not Connected</b></summary>
+
+The Mac is asleep or off, PianaSoul is not running, or the two are not on the same Wi-Fi.
+</details>
+
+<details>
+<summary><b>A search can't reach YouTube</b></summary>
+
+Bilibili's results still come. In China mainland, turn YouTube off under Sources in the phone's Settings.
+</details>
+
+<details>
+<summary><b>Something else</b></summary>
+
+Use Send Feedback in the phone's Settings, [open an issue](https://github.com/kaisenyao/PianaSoul/issues/new/choose),
+or write to [pianasoul@kaisenyao.com](mailto:pianasoul@kaisenyao.com).
+</details>
 
 <br>
 
