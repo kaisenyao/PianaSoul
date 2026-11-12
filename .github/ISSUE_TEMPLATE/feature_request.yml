@@ -1,0 +1,15 @@
+name: Feature request
+description: Something you would like PianaSoul to do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: wish
+    attributes:
+      label: What would you like to do?
+      description: Describe the moment you wanted it, rather than the feature alone.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What do you do today instead?

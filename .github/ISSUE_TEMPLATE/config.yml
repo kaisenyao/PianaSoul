@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Write to us
+    url: mailto:pianasoul@kaisenyao.com
+    about: For a question, or anything you would rather not post in public.
+  - name: Try the demo
+    url: https://pianasoul.kaisenyao.com
+    about: The phone app in your browser, with a small library.

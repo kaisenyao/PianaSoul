@@ -1,0 +1,45 @@
+name: Problem report
+description: Something in PianaSoul or PianaSoul Basic does not work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time. Please leave out API keys, the pairing code and anything else private.
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Which one?
+      options:
+        - PianaSoul (the Mac app and the phone app)
+        - PianaSoul Basic (the code in basic/)
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: For the app, Settings › About on the Mac. For PianaSoul Basic, the commit you run.
+      placeholder: 0.2.0 (760)
+  - type: input
+    id: mac
+    attributes:
+      label: Mac and macOS
+      placeholder: MacBook Air M2, macOS 15.6
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and browser
+      placeholder: iPhone 15, Home Screen app
+  - type: input
+    id: piano
+    attributes:
+      label: Piano and connection
+      placeholder: Roland FP-40 over Bluetooth
