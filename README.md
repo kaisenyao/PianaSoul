@@ -1,7 +1,3 @@
-
-
-https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed
-
 <h1 align="center">PianaSoul</h1>
 
 <p align="center">
@@ -71,13 +67,13 @@ Glenn Gould's rehearsal of Bach's Partita No. 2 in C minor, BWV 826, from the
 it ([the MIDI file](docs/gould-partita-2-rehearsal.mid)) played by Pianoteq 9 on an iPad: default settings, no
 manual edits. They play side by side, and the sound switches between them every ten seconds.
 
-<video src="https://github.com/user-attachments/assets/af874396-8b59-4aae-abb1-619321b3b341" width="100%" controls></video>
+<video src="https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed" width="100%" controls></video>
 
 <br>
 
 ## Get started
 
-PianaSoul needs a Mac with Apple silicon and Mac OS 15 or later, a phone on the same Wi-Fi, and for the sound a piano
+PianaSoul needs a Mac with Apple silicon and macOS 15 or later, a phone on the same Wi-Fi, and for the sound a piano
 that takes MIDI, a sound app such as Pianoteq, or Built-in Piano on the Mac itself.
 
 ### Install it
