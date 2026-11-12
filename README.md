@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/icon.png" alt="PianaSoul's icon" width="128">
+</p>
+
 <h1 align="center">PianaSoul</h1>
 
 <p align="center">
@@ -13,19 +17,21 @@
   turns it into MIDI first.
 </p>
 
+<p align="center">
+  <a href="https://pianasoul.kaisenyao.com"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/demo-button-dark.svg"><img src="docs/demo-button-light.svg" alt="Try the demo in your browser" width="184"></picture></a>&nbsp;&nbsp;
+  <a href="https://github.com/kaisenyao/PianaSoul/releases/latest/download/PianaSoul.dmg"><img src="docs/download-badge.svg" alt="Download PianaSoul for macOS" width="164"></a>
+</p>
+
+<p align="center">
+  <sub>Free · macOS 15 or later · a Mac with Apple silicon</sub>
+</p>
+
 <br>
 
 <p align="center">
   <img src="docs/iphone-voice.gif" alt="The orb: gray while she is off, in color while she listens and speaks" width="250">&nbsp;&nbsp;&nbsp;
   <img src="docs/app-chat.gif" alt="A conversation: asked for the Fantaisie-Impromptu, she plays it, and turns it down when asked" width="250">&nbsp;&nbsp;&nbsp;
   <img src="docs/app-player.gif" alt="The library, then a piece in the player: its notes scroll by, the volume goes down, and its details slide up" width="250">
-</p>
-
-<br>
-
-<p align="center">
-  <a href="https://pianasoul.kaisenyao.com"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/demo-button-dark.svg"><img src="docs/demo-button-light.svg" alt="Try the demo in your browser" width="172"></picture></a>&nbsp;&nbsp;
-  <a href="https://github.com/kaisenyao/PianaSoul/releases/latest/download/PianaSoul.dmg"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/download-button-dark.svg"><img src="docs/download-button-light.svg" alt="Download PianaSoul for Mac" width="208"></picture></a>
 </p>
 
 <br>
