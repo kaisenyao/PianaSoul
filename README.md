@@ -1,14 +1,5 @@
 <p align="center">
-  <img src="docs/icon.png" alt="The PianaSoul app icon" width="128">
-</p>
-
-<h1 align="center">PianaSoul</h1>
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/tagline-dark.svg">
-    <img src="docs/tagline-light.svg" alt="Give your piano a soul" width="420">
-  </picture>
+  <a href="https://pianasoul.kaisenyao.com"><img src="docs/hero.webp" alt="PianaSoul: give your piano a soul. The app's icon and its orb, a ribbon of light falling from the orb onto the keys of a grand piano" width="100%"></a>
 </p>
 
 <p align="center">
@@ -18,12 +9,12 @@
 </p>
 
 <p align="center">
-  <a href="https://pianasoul.kaisenyao.com"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/demo-button-dark.svg"><img src="docs/demo-button-light.svg" alt="Try the demo in your browser" width="185"></picture></a>&nbsp;&nbsp;
+  <a href="https://pianasoul.kaisenyao.com/demo/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/demo-button-dark.svg"><img src="docs/demo-button-light.svg" alt="Try the demo in your browser" width="185"></picture></a>&nbsp;&nbsp;
   <a href="https://github.com/kaisenyao/PianaSoul/releases/latest/download/PianaSoul.dmg"><img src="docs/download-button.svg" alt="Download PianaSoul for macOS" width="254"></a>
 </p>
 
 <p align="center">
-  <sub>Free · macOS 15 or later · a Mac with Apple silicon</sub>
+  <sub>Free · macOS 15 or later · a Mac with Apple silicon · <a href="https://pianasoul.kaisenyao.com">pianasoul.kaisenyao.com</a></sub>
 </p>
 
 <br>
@@ -87,7 +78,7 @@ You need:
 - **Something to play:** a piano that takes MIDI, a sound app such as Pianoteq, or nothing at all, with Built-in
   Piano on the Mac itself.
 
-To look around first, [try the demo](https://pianasoul.kaisenyao.com) in your browser.
+To look around first, [try the demo](https://pianasoul.kaisenyao.com/demo/) in your browser.
 
 ### 1. Install
 
