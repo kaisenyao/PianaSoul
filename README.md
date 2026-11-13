@@ -38,7 +38,7 @@ Glenn Gould's rehearsal of Bach's Partita No. 2 in C minor, from the
 transcription of it ([the MIDI file](docs/gould-partita-2-rehearsal.mid)): no manual edits. The sound switches
 between the two every ten seconds.
 
-<video src="https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed" width="100%" controls></video>
+https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed
 
 ## Using it
 
