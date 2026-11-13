@@ -10,7 +10,9 @@
 </p>
 
 <p align="center">
-  <sub>Free · macOS 15 or later · Apple silicon</sub>
+  <a href="https://github.com/kaisenyao/PianaSoul/releases/latest"><img src="https://img.shields.io/github/v/release/kaisenyao/PianaSoul?label=release&color=0969da" alt="The latest release"></a>
+  <img src="https://img.shields.io/badge/platform-macOS-8250df" alt="For macOS">
+  <a href="basic"><img src="https://img.shields.io/badge/PianaSoul%20Basic-MIT-2da44e" alt="PianaSoul Basic is open source under the MIT license"></a>
 </p>
 
 ## What it does
