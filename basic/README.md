@@ -1,14 +1,12 @@
-<h1 align="center">PianaSoul Basic</h1>
+# PianaSoul Basic
 
-<p align="center">
-  Piano recordings in, performance MIDI out, and back to a piano.<br>
-  Notes, timing, velocity and sustain pedal, kept in a library you can ask for by chat or by voice.
-</p>
+Piano recordings in, performance MIDI out, and back to a piano: notes, timing, velocity and sustain pedal, kept in a
+library you can ask for by chat or by voice.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/how-it-works-dark.svg">
-    <img src="../docs/how-it-works-light.svg" alt="You ask for a piece; PianaSoul on the Mac finds it in the library (or finds a recording and transcribes it) and sends the notes over Wi-Fi to Pianoteq on an iPad, which plays them through a digital piano" width="900">
+    <img src="../docs/how-it-works-light.svg" alt="You ask for a piece; PianaSoul on the Mac finds it in the library (or finds a recording and transcribes it) and sends the notes over Wi-Fi to Pianoteq on an iPad, which plays them through a digital piano" width="100%">
   </picture>
 </p>
 
@@ -56,20 +54,6 @@ use the app, and the app is not needed here.
    ./run.sh chat               # type "play Clair de Lune"
    ./run.sh voice              # or say "Hey Jasmine, play Clair de Lune"
    ```
-
-<p align="center">
-  <a href="#install">Install</a> ·
-  <a href="#keys">Keys</a> ·
-  <a href="#connect-a-piano">Piano</a> ·
-  <a href="#chat">Chat</a> ·
-  <a href="#play">Play</a> ·
-  <a href="#transcribe">Transcribe</a> ·
-  <a href="#library">Library</a> ·
-  <a href="#voice">Voice</a> ·
-  <a href="#iphone-voice">iPhone Voice</a> ·
-  <a href="#settings">Settings</a> ·
-  <a href="#troubleshooting">Troubleshooting</a>
-</p>
 
 ## Install
 
@@ -248,7 +232,7 @@ the time it should sound, and the iPad plays it on time:
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../docs/timing-dark.svg">
-    <img src="../docs/timing-light.svg" alt="Sent when due, notes reach the piano unevenly; sent one second early with their time, the iPad waits and plays them evenly" width="900">
+    <img src="../docs/timing-light.svg" alt="Sent when due, notes reach the piano unevenly; sent one second early with their time, the iPad waits and plays them evenly" width="100%">
   </picture>
 </p>
 

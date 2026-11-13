@@ -1,4 +1,5 @@
-// All textures are generated on the device; gray and color share the same motion.
+// The orb is her: a bright sky over a slow tide of light, with a fine grain, drawn on the device. It goes faster
+// while she thinks or speaks and with your voice; gray and color share the same motion.
 const vertex = `attribute vec2 position; varying vec2 p;
 void main() { p = position; gl_Position = vec4(position, 0., 1.); }`;
 const fragment = `
@@ -6,24 +7,27 @@ const fragment = `
         varying vec2 p;
         uniform float time,level,quiet;
         float hash(vec2 v){return fract(sin(dot(v,vec2(127.1,311.7)))*43758.5453);}
-        float noise(vec2 v){vec2 i=floor(v),f=fract(v);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y);}
-        float fbm(vec2 v){float f=0.,a=.5;for(int i=0;i<4;i++){f+=a*noise(v);v=mat2(.8,-.6,.6,.8)*v*2.03+7.1;a*=.5;}return f;}
+        // The tide: its face swells slowly; with a voice, hers or yours, it rises and ripples, and its edge glows. The sky
+        // above it, the light below.
+        vec3 moonlight(vec2 p,float t,float energy){
+          float swell=.10*sin(2.12*p.x+.19*t+.15*sin(t*.13))+.033*sin(4.15*p.x-.14*t)+.045*cos(1.22*p.x+.10*t)+.016*sin(5.8*p.x+.24*t);
+          float face=-p.y-.045+swell+energy*(.06+.055*sin(3.2*p.x+.9*t)+.025*sin(7.3*p.x-1.4*t));
+          float near=smoothstep(-.105,.105,face);
+          vec3 sky=mix(vec3(.20,.42,.80),vec3(.42,.66,.94),smoothstep(.94,-.35,p.y));
+          sky+=vec3(.025,.035,.040)*sin(2.6*p.x+1.5*p.y+t*.10);
+          vec3 tide=mix(vec3(.78,.89,.98),vec3(.95,.98,1.),smoothstep(.02,1.75,face)*.82);
+          tide+=vec3(.022,.028,.034)*(sin(p.x*2.9-p.y*1.2-t*.14)*sin(p.y*2.15+p.x*.65+t*.11)*.55+cos(p.x*1.35+p.y*3.6+t*.095)*.32);
+          vec3 color=mix(sky,tide,near);
+          float under=face-.44+.075*sin(1.95*p.x-.09*t+.3);
+          color=mix(color,vec3(.56,.74,.95),smoothstep(-.13,.14,under)*.47*near);
+          color+=vec3(.07,.09,.10)*exp(-pow(face/(.1525+.06*energy),2.))*mix(near,1.,energy)*(.45+1.4*energy);
+          return clamp(color*(1.-.035*smoothstep(.6,1.,length(p))),0.,1.);
+        }
         void main(){
-          float t=time;
-          float dome=sqrt(max(0.,1.-dot(p,p)));
-          vec2 uv=p*(1.+.12*dome);
-          vec2 drift=vec2(t*.12,-t*.09);
-          vec2 warp=vec2(fbm(uv*1.7+drift),fbm(uv*1.7-drift+4.7));
-          float cloud=fbm(uv*1.8+warp*1.2+vec2(-t*.14,t*.08));
-          float curl=fbm(uv*2.8+warp*1.6+vec2(t*.07,0.));
-          float boundary=(cloud-.46)*1.1+(curl-.5)*.14;
-          float white=1.-smoothstep(-.34,.37,p.y-boundary-.05);
-          vec3 blue=mix(vec3(.17,.38,.92),vec3(.34,.57,1.),cloud);
-          vec3 milk=mix(vec3(.65,.75,.98),vec3(.98,.99,1.),smoothstep(-.9,.4,p.y)+cloud*.18);
-          vec3 color=mix(blue,milk,white);
-          color+=vec3(.035,.04,.045)*dome*(.5+.5*sin(time*1.4)+level*.5);
-          color=mix(color,vec3(dot(color,vec3(.22,.65,.13)))*.42,quiet);
-          gl_FragColor=vec4(color,1.);
+          vec3 color=moonlight(p,time*1.6,level)*(1.-.07*pow(smoothstep(.55,1.,length(p)),2.));
+          color+=(hash(floor(gl_FragCoord.xy))-.5)*.024;
+          color=mix(color,vec3(dot(color,vec3(.22,.65,.13))*.82+.08),quiet);
+          gl_FragColor=vec4(clamp(color,0.,1.),1.);
         }`;
 
 function renderer(gl) {
