@@ -56,9 +56,10 @@ https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed
 - **Put the phone down.** The Mac plays the piano and the phone is its remote control: lock it, and the music goes
   on.
 
-## What makes it work
+## Technical highlights
 
-Three things turn "play me this" into a piano that starts a few seconds later and keeps its rhythm.
+Three things we worked out so that "play me this" becomes a piano that starts a few seconds later and keeps its
+rhythm.
 
 ### Notes land on time
 
