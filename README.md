@@ -56,7 +56,11 @@ https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed
 - **Put the phone down.** The Mac plays the piano and the phone is its remote control: lock it, and the music goes
   on.
 
-## In time
+## What makes it work
+
+Three things turn "play me this" into a piano that starts a few seconds later and keeps its rhythm.
+
+### Notes land on time
 
 Wi-Fi delivers notes unevenly, which breaks the rhythm. So over Wi-Fi each note leaves the Mac a moment early,
 together with the time it should sound, and the iPad plays it on time:
@@ -68,7 +72,28 @@ together with the time it should sound, and the iPad plays it on time:
   </picture>
 </p>
 
+
 USB and Bluetooth deliver notes evenly, so a piano connected that way plays them at once.
+
+### Transcribed on the Mac's GPU
+
+Turning a recording into MIDI is the slow step. PianaSoul runs it on the Mac's own GPU, about three times as fast
+as on the CPU: a minute of music takes about four seconds on an M1 Max. The recording never leaves the Mac for it,
+and if the GPU fails in the middle of a piece, the CPU carries on from the same place.
+
+### It plays while it transcribes
+
+A whole piece would still mean a wait. So the piano starts as soon as the opening is ready, and the rest is
+transcribed ahead of the playing, many times faster than the music moves. What you hear is note for note what the
+finished file holds.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/first-note-dark.svg">
+    <img src="docs/first-note-light.svg" alt="For a four-minute piece, the first note comes 45 seconds after the recording on the CPU, 16 seconds on the GPU, and 1.5 seconds when the piano plays while the rest is transcribed" width="100%">
+  </picture>
+</p>
+
 [PianaSoul Basic](#pianasoul-basic) has the rest of how it works.
 
 ## Get started

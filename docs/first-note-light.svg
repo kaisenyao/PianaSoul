@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 300" width="980" height="300" role="img" aria-label="From the recording to the first note, for a four-minute piece">
+<style>.t{fill:#1f2328;font:600 16px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif}.s{fill:#59636e;font:13px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif}.g{fill:#1a7f37;font:600 14px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif}.line{stroke:#d0d7de;stroke-width:1.2}.bar{fill:#afb8c1}.good{fill:#1a7f37}.play{stroke:#1a7f37;stroke-width:3;stroke-linecap:round}</style>
+<text class="t" x="24" y="36">A four-minute piece: from the recording to the first note</text>
+<line class="line" x1="300.0" y1="62" x2="300.0" y2="252"/>
+<text class="s" x="300.0" y="274" text-anchor="middle">0 s</text>
+<line class="line" x1="426.0" y1="62" x2="426.0" y2="252"/>
+<text class="s" x="426.0" y="274" text-anchor="middle">10 s</text>
+<line class="line" x1="552.0" y1="62" x2="552.0" y2="252"/>
+<text class="s" x="552.0" y="274" text-anchor="middle">20 s</text>
+<line class="line" x1="678.0" y1="62" x2="678.0" y2="252"/>
+<text class="s" x="678.0" y="274" text-anchor="middle">30 s</text>
+<line class="line" x1="804.0" y1="62" x2="804.0" y2="252"/>
+<text class="s" x="804.0" y="274" text-anchor="middle">40 s</text>
+<line class="line" x1="930.0" y1="62" x2="930.0" y2="252"/>
+<text class="s" x="930.0" y="274" text-anchor="middle">50 s</text>
+<text class="t" x="24" y="90">On the CPU</text><text class="s" x="24" y="110">the whole piece, then it plays</text>
+<rect class="bar" x="300.0" y="91" width="567.0" height="10" rx="5"/>
+<line class="play" x1="867.0" y1="96" x2="926.0" y2="96" opacity=".35"/>
+<circle class="good" cx="867.0" cy="96" r="8"/>
+<text class="g" x="869.0" y="78" text-anchor="middle">first note at 45 s</text>
+<text class="t" x="24" y="152">On the Mac's GPU</text><text class="s" x="24" y="172">the whole piece, then it plays</text>
+<rect class="bar" x="300.0" y="153" width="201.60000000000002" height="10" rx="5"/>
+<line class="play" x1="501.6" y1="158" x2="926.0" y2="158" opacity=".35"/>
+<circle class="good" cx="501.6" cy="158" r="8"/>
+<text class="g" x="503.6" y="140" text-anchor="middle">first note at 16 s</text>
+<text class="t" x="24" y="214">Playing while it transcribes</text><text class="s" x="24" y="234">on the GPU, the opening first</text>
+<rect class="bar" x="300.0" y="215" width="201.60000000000002" height="10" rx="5"/>
+<line class="play" x1="318.9" y1="220" x2="926.0" y2="220" opacity=".35"/>
+<circle class="good" cx="318.9" cy="220" r="8"/>
+<text class="g" x="320.9" y="202" text-anchor="start">first note at 1.5 s</text>
+<rect class="bar" x="24" y="284" width="26" height="8" rx="4"/><text class="s" x="58" y="293">transcribing</text>
+<line class="play" x1="162" y1="288" x2="186" y2="288" opacity=".35"/><circle class="good" cx="160" cy="288" r="5"/><text class="s" x="196" y="293">playing</text>
+</svg>
