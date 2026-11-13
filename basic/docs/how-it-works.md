@@ -65,7 +65,7 @@ locally; natural requests use the model rather than an expanding set of phrase-m
 Glenn Gould's rehearsal of Bach's Partita No. 2 in C minor, BWV 826: 1 min 47 s of audio became 1,229 notes with
 velocities from 36 to 93 and one short press of the sustain pedal, with default settings and no manual edits, in
 about a minute on 2 CPU cores. Gould plays this music almost without pedal, and the transcription reflects that.
-[Hear it beside the original](../../README.md#hear-a-transcription), or download
+[Hear it beside the original](../../README.md#hear-it), or download
 [the MIDI file](../../docs/gould-partita-2-rehearsal.mid).
 
 ### The task list
