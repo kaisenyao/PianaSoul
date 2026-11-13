@@ -1,4 +1,4 @@
-# PianaSoul Basic
+<h1 align="center">PianaSoul Basic</h1>
 
 Piano recordings in, performance MIDI out, and back to a piano: notes, timing, velocity and sustain pedal, kept in a
 library you can ask for by chat or by voice.

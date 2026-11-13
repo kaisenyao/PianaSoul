@@ -1,4 +1,4 @@
-# PianaSoul
+<h1 align="center">PianaSoul</h1>
 
 <p align="center">
   <a href="https://pianasoul.kaisenyao.com"><img src="docs/hero.webp" alt="PianaSoul: give your piano a soul. The app's icon and its orb, a ribbon of light falling from the orb onto the keys of a grand piano" width="100%"></a>
