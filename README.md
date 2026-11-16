@@ -27,9 +27,12 @@ happens on your phone.
   and turns it into MIDI. It starts to play a few seconds later.
 - **Talk to her.** Tap the orb and say what you would like to hear, or type it in a chat. She is Jasmine
   ("Xiǎomíng Tóngxué" in Chinese), and she answers in your language.
+- **She listens when you play.** With a piano connected, every note you play is kept in My Playing, with nothing
+  to tap. Play along with her and the two of you are kept together. Ask her how it went, and she tells you what she
+  heard: how it compares with the last time, and how many times you have come back to it.
 
-The first two need no key and no account. The last two are the advanced features, which you turn on when you want
-them.
+The library, the piano and My Playing need no key and no account. Finding pieces online and talking to her are the
+advanced features, which you turn on when you want them.
 
 ## Hear it
 
@@ -53,6 +56,10 @@ https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed
 - **Ask.** Tap the orb and say what you would like, or type it in a chat. She plays pieces and playlists, pauses,
   goes on, and makes it louder or softer.
 - **Add.** The + in the library adds MIDI files from the phone, or searches online by name or with a video link.
+- **Play it yourself.** Sit down and play. A take shows in My Playing as you go and is kept half a minute after you
+  stop; touch and hold it to finish it there, or to pause it and go on later. Play a take back on the piano, set where
+  it starts and stops, or, with the advanced features on, upload a recording or a video of your playing from the phone to
+  have it written down as notes.
 - **Put the phone down.** The Mac plays the piano and the phone is its remote control: lock it, and the music goes
   on.
 
