@@ -48,7 +48,7 @@ https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed
 <p align="center">
   <img src="docs/iphone-voice.gif" alt="The orb: gray while she is off, in color while she listens and speaks" width="250">&nbsp;&nbsp;&nbsp;
   <img src="docs/app-chat.gif" alt="A conversation: asked for the Fantaisie-Impromptu, she plays it, and turns it down when asked" width="250">&nbsp;&nbsp;&nbsp;
-  <img src="docs/app-player.gif" alt="The library, then a piece in the player: its notes scroll by, the volume goes down, and its details slide up" width="250">
+  <img src="docs/app-player.gif" alt="The library, then a piece in the player: its notes scroll by, Piano View shows the piano, the volume goes down, and its details slide up" width="250">
 </p>
 
 - **Play.** Tap a piece in the library, and the piano plays it. The player shows its notes going by, or a piano with
