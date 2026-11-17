@@ -46,20 +46,20 @@ https://github.com/user-attachments/assets/2e5009ee-f0c6-435c-9534-d49df65b70ed
 ## Using it
 
 <p align="center">
-  <img src="docs/iphone-voice.gif" alt="The orb: gray while she is off, in color while she listens and speaks" width="250">&nbsp;&nbsp;&nbsp;
-  <img src="docs/app-chat.gif" alt="A conversation: asked for the Fantaisie-Impromptu, she plays it, and turns it down when asked" width="250">&nbsp;&nbsp;&nbsp;
-  <img src="docs/app-player.gif" alt="The library, then a piece in the player: its notes scroll by, Piano View shows the piano, the volume goes down, and its details slide up" width="250">
+  <img src="docs/iphone-voice.gif" alt="Her orb wakes at a tap and plays what is asked; then, from the sidebar, the same conversation in a chat, where a question is typed and she answers" width="250">&nbsp;&nbsp;&nbsp;
+  <img src="docs/app-player.gif" alt="The library, the + with Search Online, a piece in the player with its notes going by, Piano View with the piano, then the playlists" width="250">&nbsp;&nbsp;&nbsp;
+  <img src="docs/app-playing.gif" alt="My Playing with three takes; an Ensemble take plays in the player, your part above and hers below, each turned off and on by a tap" width="250">
 </p>
 
-- **Play.** Tap a piece in the library, and the piano plays it. The player shows its notes going by, or a piano with
-  its keys going down.
-- **Ask.** Tap the orb and say what you would like, or type it in a chat. She plays pieces and playlists, pauses,
-  goes on, and makes it louder or softer.
+- **Ask.** Tap the orb and say what you would like, or type it in a chat. She plays pieces and playlists, finds
+  what you don't have, pauses, goes on, and makes it louder or softer.
+- **Play.** Tap a piece in the library, and the piano plays it. The player shows its notes going by, or, in Piano
+  View, a piano with its keys and its pedal going down. There is a classic player with a click wheel, too.
 - **Add.** The + in the library adds MIDI files from the phone, or searches online by name or with a video link.
 - **Play it yourself.** Sit down and play. A take shows in My Playing as you go and is kept half a minute after you
-  stop; touch and hold it to finish it there, or to pause it and go on later. Play a take back on the piano, set where
-  it starts and stops, or, with the advanced features on, upload a recording or a video of your playing from the phone to
-  have it written down as notes.
+  stop. Play along with her, and the take is an Ensemble: her part and yours, each of which can be turned off. Play
+  a take back on the piano, set where it starts and stops, or, with the advanced features on, send a recording or a
+  video of your playing from the phone to have it written down as notes.
 - **Put the phone down.** The Mac plays the piano and the phone is its remote control: lock it, and the music goes
   on.
 
@@ -179,7 +179,7 @@ updates.
 <dl><dd><details>
 <summary><b>Where does my data go?</b></summary>
 
-Your library, your chats and your settings stay on your Mac, and the phone talks only to your Mac, on your own
+Your library, your playing, your chats and your settings stay on your Mac, and the phone talks only to your Mac, on your own
 network: nothing goes through a server of ours. What you say to her goes to the services you chose, with your own
 keys; searches go to YouTube and Bilibili.
 </details></dd></dl>
