@@ -142,8 +142,9 @@ under the MIT license.
 <dl><dd><details>
 <summary><b>Do I need a digital piano?</b></summary>
 
-No. With no piano at all, Built-in Piano plays a sampled grand through the Mac's own speakers. To play a piano of
-your own, it has to take MIDI, over USB or Bluetooth; an iPad or a Mac with a sound app such as Pianoteq works too.
+One is highly recommended: PianaSoul is made to play a real instrument in your room, and she can listen only when
+you play one. It has to take MIDI, over USB or Bluetooth. Without one, the rest still works: Built-in Piano plays a
+sampled grand through the Mac's own speakers, and an iPad or a Mac with a sound app such as Pianoteq works too.
 </details></dd></dl>
 
 <dl><dd><details>
