@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://pianasoul.kaisenyao.com/demo/"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/demo-button-dark.svg"><img src="docs/demo-button-light.svg" alt="Try the demo in your browser" width="176"></picture></a>&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://github.com/kaisenyao/PianaSoul/releases/latest/download/PianaSoul.dmg"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/download-button-dark.svg"><img src="docs/download-button-light.svg" alt="Download PianaSoul for macOS" width="176"></picture></a>
+  <a href="https://github.com/kaisenyao/PianaSoul/releases/latest"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/download-button-dark.svg"><img src="docs/download-button-light.svg" alt="Download PianaSoul for macOS" width="176"></picture></a>
 </p>
 
 <p align="center">
@@ -109,8 +109,8 @@ finished file holds.
 You need a Mac with Apple silicon and macOS 15 or later, and a phone on the same Wi-Fi: an iPhone, or an Android
 phone with Chrome. To look around first, [try the demo](https://pianasoul.kaisenyao.com/demo/) in your browser.
 
-1. [Download PianaSoul](https://github.com/kaisenyao/PianaSoul/releases/latest/download/PianaSoul.dmg), open the DMG
-   and drag PianaSoul to the Applications folder.
+1. Download PianaSoul from [the latest release](https://github.com/kaisenyao/PianaSoul/releases/latest), open the
+   DMG and drag PianaSoul to the Applications folder.
 2. Open it. The first time, macOS stops it because it isn't notarized by Apple: click Done, not Move to Trash. Then
    in System Settings › Privacy & Security, click Open Anyway near the bottom, and Open Anyway again.
 3. PianaSoul walks you through the rest: your library's folder, your piano, and two codes to scan with your phone.
