@@ -53,8 +53,9 @@ https://github.com/user-attachments/assets/72d8e064-f4ca-405b-b6a3-6b7f0a3c7f2b
 
 - **Ask.** Tap the orb and say what you would like, or type it in a chat. She plays pieces and playlists, finds
   what you don't have, pauses, goes on, and makes it louder or softer.
-- **Play.** Tap a piece in the library, and the piano plays it. The player shows its notes going by, or, in Piano
-  View, a piano with its keys and its pedal going down. There is a classic player with a click wheel, too.
+- **Play.** Tap a piece in the library, and the piano plays it. The player shows it in Bounce View: each
+  note a step in the air, with balls that bounce from note to note. It can show the notes going by instead, or, in
+  Piano View, a piano with its keys and its pedal going down. There is a classic player with a click wheel, too.
 - **Add.** The + in the library adds MIDI files from the phone, or searches online by name or with a video link.
 - **Play it yourself.** Sit down and play. A take shows in My Playing as you go and is kept half a minute after you
   stop. Play along with her, and the take is an Ensemble: her part and yours, each of which can be turned off. Play
